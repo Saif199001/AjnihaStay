@@ -27,11 +27,11 @@ urlpatterns = [
     # path("", include("unit.urls")),
     # path("", include("tenant.urls")),
     # path("", include("payments.urls")),
-    path(" ", include("accounts.urls")),
-    path(" ", include("properties.urls")),
-    path(" ", include("unit.urls")),
-    path(" ", include("tenant.urls")),
-    path(" ", include("payments.urls")),
+    path("", include("accounts.urls")),
+    path("", include("properties.urls")),
+    path("", include("unit.urls")),
+    path("", include("tenant.urls")),
+    path("", include("payments.urls")),
 
 ]
 
