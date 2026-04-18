@@ -3,6 +3,7 @@ from unit.models import Unit, SubUnit
 from django.core.exceptions import ValidationError
 from django.conf import settings
 from django.db.models import Q
+from cloudinary.models import CloudinaryField
 
 
 class Tenant(models.Model):
@@ -16,7 +17,7 @@ class Tenant(models.Model):
 
     email = models.EmailField(blank=True, null=True)
 
-    profile_photo = models.ImageField(upload_to="tenant_photos/", blank=True, null=True)
+    profile_photo = CloudinaryField('tenants_photo', blank=True, default=None)
 
     nationality = models.CharField(max_length=100, default="Indian")
 
@@ -84,7 +85,7 @@ class Occupancy(models.Model):
 )
 
     rent = models.DecimalField(max_digits=10, decimal_places=2)
-
+    
     billing_type = models.CharField(max_length=20, choices=BILLING_TYPES, default="advance")
 
     billing_cycle = models.CharField(max_length=20, choices=BILLING_CYCLES, default="monthly")

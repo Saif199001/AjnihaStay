@@ -1,6 +1,7 @@
 from django.db import models
 from django.utils import timezone
 from properties.models import Property
+from cloudinary.models import CloudinaryField
 
 
 class Unit(models.Model):
@@ -95,7 +96,7 @@ class UnitImage(models.Model):
         related_name="images"
     )
 
-    image = models.ImageField(upload_to="units/")
+    image = CloudinaryField('units', blank=True, default=None)
 
     caption = models.CharField(max_length=255, blank=True, null=True)
 

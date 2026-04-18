@@ -1,5 +1,6 @@
 from django.db import models
 from django.conf import settings
+from cloudinary.models import CloudinaryField
 
 
 class Property(models.Model):
@@ -34,11 +35,7 @@ class Property(models.Model):
 
     amenities = models.JSONField(default=list, blank=True)
 
-    thumbnail = models.ImageField(
-        upload_to="properties/",
-        blank=True,
-        null=True
-    )
+    thumbnail = CloudinaryField('properties', blank=True, default=None)
 
     is_active = models.BooleanField(default=True)
 
@@ -69,7 +66,7 @@ class PropertyImage(models.Model):
         related_name="images"
     )
 
-    image = models.ImageField(upload_to="properties/")
+    image = CloudinaryField('properties', blank=True, default=None)
 
     caption = models.CharField(max_length=255, blank=True, null=True)
 
