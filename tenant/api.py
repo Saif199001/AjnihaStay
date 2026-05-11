@@ -10,15 +10,22 @@ from .serializers import TenantSerializer, OccupancySerializer, ChargeSerializer
 @permission_classes([IsAuthenticated])
 def tenant_create_api(request):
 
+    serializer = TenantSerializer(data=request.data)
+
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=400)
+
     try:
         tenant = create_tenant(
             request.user,
-            request.data,
+            serializer.validated_data,
             request.FILES   # 🔥 FILE SUPPORT
         )
 
-        serializer = TenantSerializer(tenant)
-        return Response(serializer.data)
+        return Response({
+            "message": "Tenant created",
+            "data": TenantSerializer(tenant).data
+        })
 
     except ValidationError as e:
         return Response({"error": str(e)}, status=400)
@@ -30,18 +37,29 @@ def tenant_list_api(request):
     tenants = get_tenants(request.user)
     serializer = TenantSerializer(tenants, many=True)
 
-    return Response(serializer.data)
+    return Response({"data": serializer.data})
 
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def occupancy_create_api(request):
 
-    try:
-        occupancy = create_occupancy(request.user, request.data)
-        serializer = OccupancySerializer(occupancy)
+    serializer = OccupancySerializer(data=request.data)
 
-        return Response(serializer.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=400)
+
+    try:
+        
+        occupancy = create_occupancy(
+        request.user,
+        serializer.validated_data
+        )
+
+        return Response({
+            "message": "Occupancy created",
+            "data": OccupancySerializer(occupancy).data
+        })
 
     except ValidationError as e:
         return Response({"error": str(e)}, status=400)
@@ -50,11 +68,21 @@ def occupancy_create_api(request):
 @permission_classes([IsAuthenticated])
 def charge_create_api(request):
 
-    try:
-        charge = create_charge(request.data)
-        serializer = ChargeSerializer(charge)
+    serializer = ChargeSerializer(data=request.data)
 
-        return Response(serializer.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=400)
+
+    try:
+        charge = create_charge(
+            request.user,
+            serializer.validated_data
+        )
+
+        return Response({
+            "message": "Charges Created",
+            "data": ChargeSerializer(charge).data
+        })
 
     except Exception as e:
         return Response({"error": str(e)}, status=400)

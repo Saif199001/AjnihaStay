@@ -1,20 +1,27 @@
 from .models import Invoice, Payment
+from django.db import transaction
 from django.core.exceptions import ValidationError
 
 
 # 🔥 CREATE INVOICE
-def create_invoice(data):
+def create_invoice(user, data):
 
-    invoice = Invoice.objects.create(
-        occupancy_id=data.get("occupancy"),
+    try:
+        occupancy = Occupancy.objects.get(id=data.get("occupancy"))
+    except Occupancy.DoesNotExist:
+        raise ValidationError("Occupancy not found")
+
+    if occupancy.tenant.owner != user:
+        raise ValidationError("Unauthorized")
+
+    return Invoice.objects.create(
+        occupancy=occupancy,
         billing_start=data.get("billing_start"),
         billing_end=data.get("billing_end"),
         rent_amount=data.get("rent_amount"),
         charges_amount=data.get("charges_amount") or 0,
         due_date=data.get("due_date"),
     )
-
-    return invoice
 
 
 # 🔥 GET ALL INVOICES (OWNER BASED)
@@ -38,18 +45,28 @@ def get_invoice(invoice_id, user):
 
 
 # 🔥 CREATE PAYMENT
-def create_payment(data):
+def create_payment(user, data):
 
-    payment = Payment.objects.create(
-        invoice_id=data.get("invoice"),
-        amount=data.get("amount"),
-        payment_method=data.get("payment_method"),
-        payment_date=data.get("payment_date"),
-        reference_id=data.get("reference_id"),
-        notes=data.get("notes"),
-    )
+    with transaction.atomic():
 
-    return payment
+        try:
+            invoice = Invoice.objects.get(id=data.get("invoice"))
+        except Invoice.DoesNotExist:
+            raise ValidationError("Invoice not found")
+
+        if invoice.occupancy.tenant.owner != user:
+            raise ValidationError("Unauthorized")
+
+        payment = Payment.objects.create(
+            invoice=invoice,
+            amount=data.get("amount"),
+            payment_method=data.get("payment_method"),
+            payment_date=data.get("payment_date"),
+            reference_id=data.get("reference_id"),
+            notes=data.get("notes"),
+        )
+
+        return payment
 
 
 # 🔥 GET PAYMENTS (BY INVOICE)
@@ -58,4 +75,4 @@ def get_payments(invoice_id, user):
     return Payment.objects.filter(
         invoice_id=invoice_id,
         invoice__occupancy__tenant__owner=user
-    ).select_related("invoice")
+    ).select_related("invoice").order_by("-created_at")

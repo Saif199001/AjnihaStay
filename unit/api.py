@@ -14,7 +14,7 @@ def unit_list_api(request):
 
     property_id = request.GET.get("property")
 
-    units = get_units(request.user, property_id)
+    units = get_units(request.user, property_id).prefetch_related("subunits")
     serializer = UnitSerializer(units, many=True)
 
     return Response(serializer.data)
@@ -25,10 +25,17 @@ def unit_list_api(request):
 @permission_classes([IsAuthenticated])
 def unit_create_api(request):
 
-    unit = create_unit(request.user, request.data)
-    serializer = UnitSerializer(unit)
+    serializer = UnitSerializer(data=request.data)
 
-    return Response(serializer.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=400)
+
+    unit = create_unit(request.user, serializer.validated_data)
+
+    return Response({
+        "message": "Unit created",
+        "data": UnitSerializer(unit).data
+    })
 
 
 # 🔥 CREATE SUBUNIT (BED)
@@ -36,10 +43,17 @@ def unit_create_api(request):
 @permission_classes([IsAuthenticated])
 def subunit_create_api(request):
 
-    try:
-        subunit = create_subunit(request.user, request.data)
-        serializer = SubUnitSerializer(subunit)
-        return Response(serializer.data)
+    serializer = SubUnitSerializer(data=request.data)
 
-    except ValidationError as e:
-        return Response({"error": str(e)}, status=400)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=400)
+
+    subunit = create_subunit(
+        request.user,
+        serializer.validated_data
+    )
+
+    return Response({
+        "message": "SubUnit created",
+        "data": SubUnitSerializer(subunit).data
+    })

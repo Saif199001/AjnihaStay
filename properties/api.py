@@ -15,14 +15,29 @@ def property_list_api(request):
     properties = Property.objects.filter(owner=request.user)
     serializer = PropertySerializer(properties, many=True)
 
-    return Response(serializer.data)
+    return Response({"data": serializer.data})
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def property_create_api(request):
 
-    property = create_property(request.user, request.data, request.FILES)
-    serializer = PropertySerializer(property)
+    serializer = PropertySerializer(data=request.data)
 
-    return Response(serializer.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=400)
+
+    try:
+        property = create_property(
+            request.user,
+            serializer.validated_data,
+            request.FILES
+        )
+
+        return Response({
+            "message": "Property created successfully",
+            "data": PropertySerializer(property).data
+        })
+
+    except Exception as e:
+        return Response({"error": str(e)}, status=400)

@@ -16,15 +16,7 @@ from .serializers import InvoiceSerializer, PaymentSerializer
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def invoice_create_api(request):
-
-    try:
-        invoice = create_invoice(request.data)
-        serializer = InvoiceSerializer(invoice)
-
-        return Response(serializer.data)
-
-    except ValidationError as e:
-        return Response({"error": str(e)}, status=400)
+    return Response({"error": "Invoice creation is disabled"}, status=403)
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
@@ -52,11 +44,21 @@ def invoice_detail_api(request, invoice_id):
 @permission_classes([IsAuthenticated])
 def payment_create_api(request):
 
-    try:
-        create_payment(request.user, request.data)
-        serializer = PaymentSerializer(payment)
+    serializer = PaymentSerializer(data=request.data)
 
-        return Response(serializer.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=400)
+
+    try:
+        payment = create_payment(
+            request.user,
+            serializer.validated_data
+        )
+
+        return Response({
+            "message": "Payment created",
+            "data": PaymentSerializer(payment).data
+        })
 
     except ValidationError as e:
         return Response({"error": str(e)}, status=400)
