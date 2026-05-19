@@ -1,6 +1,6 @@
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from rest_framework_simplejwt.tokens import RefreshToken
 from .services import create_user_account, login_user_service
@@ -12,6 +12,8 @@ from django.core.mail import send_mail
 from django.conf import settings
 from django.utils.http import urlsafe_base64_decode
 from django.utils.encoding import force_str
+
+User = get_user_model()
 
 
 def get_tokens_for_user(user):
