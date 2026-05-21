@@ -91,6 +91,9 @@ def logout_api(request):
 @api_view(["POST"])
 def forgot_password_api(request):
 
+    print("EMAIL USER:", settings.EMAIL_HOST_USER)
+    print("EMAIL PASS:", settings.EMAIL_HOST_PASSWORD)
+
     email = request.data.get("email")
 
     try:
