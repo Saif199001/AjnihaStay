@@ -111,12 +111,21 @@ def forgot_password_api(request):
         f"{uid}/{token}/"
     )
 
-    send_mail(
-        subject="Reset your password",
-        message=f"Click the link: {reset_url}",
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[email],
-    )
+    try:
+
+        send_mail(
+            subject="Reset your password",
+            message=f"Click the link: {reset_url}",
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[email],
+            fail_silently=False,
+        )
+
+    except Exception as e:
+
+        return Response({
+            "error": str(e)
+        }, status=400)
 
     return Response({
         "message": "Password reset link sent"
