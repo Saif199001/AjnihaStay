@@ -1,3 +1,4 @@
+import resend
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from django.contrib.auth import get_user_model
@@ -8,7 +9,6 @@ from .serializers import UserSerializer
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode
 from django.utils.encoding import force_bytes
-from django.core.mail import send_mail
 from django.conf import settings
 from django.utils.http import urlsafe_base64_decode
 from django.utils.encoding import force_str
@@ -110,25 +110,26 @@ def forgot_password_api(request):
     token = default_token_generator.make_token(user)
 
     reset_url = (
-        f"http://localhost:5173/reset-password/"
+        f"http://localhost:3000/reset-password/"
         f"{uid}/{token}/"
     )
 
-    try:
+    resend.api_key = settings.RESEND_API_KEY
 
-        send_mail(
-            subject="Reset your password",
-            message=f"Click the link: {reset_url}",
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[email],
-            fail_silently=False,
-        )
+    resend.Emails.send({
+        "from": "onboarding@resend.dev",
+        "to": email,
+        "subject": "Reset your password",
+        "html": f"""
+            <h2>Password Reset</h2>
 
-    except Exception as e:
+            <p>Click below:</p>
 
-        return Response({
-            "error": str(e)
-        }, status=400)
+            <a href="{reset_url}">
+                Reset Password
+            </a>
+        """
+    })
 
     return Response({
         "message": "Password reset link sent"
