@@ -17,8 +17,11 @@ def unit_list_api(request):
     units = get_units(request.user, property_id).select_related("property").prefetch_related("subunits")
     serializer = UnitSerializer(units, many=True)
 
-    return Response(serializer.data)
-
+    return Response({
+        "massage" : "units fetched",
+        "data": serializer.data
+    })
+    
 
 # 🔥 CREATE UNIT
 @api_view(["POST"])
