@@ -72,8 +72,8 @@ class Invoice(models.Model):
             self.invoice_number = generate_invoice_number()
 
         # 🔥 Safe total calculation
-        if self.total_amount is None:
-            self.total_amount = (self.rent_amount or 0) + (self.charges_amount or 0)
+        
+        self.total_amount = ((self.rent_amount or 0) + (self.charges_amount or 0))
 
         super().save(*args, **kwargs)
 

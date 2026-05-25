@@ -1,4 +1,6 @@
 from .models import Invoice, Payment
+from decimal import Decimal
+from tenant.models import Occupancy
 from django.db import transaction
 from django.core.exceptions import ValidationError
 
@@ -76,3 +78,80 @@ def get_payments(invoice_id, user):
         invoice_id=invoice_id,
         invoice__occupancy__tenant__owner=user
     ).select_related("invoice").order_by("-created_at")
+
+
+def calculate_final_settlement( occupancy_id, user ):
+
+    try:
+
+        occupancy = Occupancy.objects.get(
+            id=occupancy_id
+        )
+
+    except Occupancy.DoesNotExist:
+
+        raise ValidationError(
+            "Occupancy not found"
+        )
+
+    # 🔐 SECURITY CHECK
+    if occupancy.tenant.owner != user:
+
+        raise ValidationError(
+            "Unauthorized"
+        )
+
+    invoices = occupancy.invoices.all()
+
+    total_rent = sum(
+        invoice.rent_amount or 0
+        for invoice in invoices
+    )
+
+    total_charges = sum(
+        invoice.charges_amount or 0
+        for invoice in invoices
+    )
+
+    total_paid = sum(
+        invoice.paid_amount or 0
+        for invoice in invoices
+    )
+
+    total_amount = (
+        total_rent +
+        total_charges
+    )
+
+    due_amount = (
+        total_amount -
+        total_paid
+    )
+
+    security_deposit = (
+        occupancy.security_deposit or 0
+    )
+
+    final_balance = (
+        due_amount -
+        security_deposit
+    )
+
+    return {
+
+        "tenant": occupancy.tenant.full_name,
+
+        "unit": occupancy.unit.unit_number,
+
+        "total_rent": total_rent,
+
+        "total_charges": total_charges,
+
+        "total_paid": total_paid,
+
+        "total_due": due_amount,
+
+        "security_deposit": security_deposit,
+
+        "final_balance": final_balance,
+    }

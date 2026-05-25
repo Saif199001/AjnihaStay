@@ -25,6 +25,8 @@ class Unit(models.Model):
 
     description = models.TextField(blank=True, null=True)
 
+    amenities = models.JSONField(default=list, blank=True)
+
     rent = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
 
     capacity = models.IntegerField(default=1)

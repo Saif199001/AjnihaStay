@@ -1,6 +1,11 @@
 from django.core.exceptions import ValidationError
 from .models import Property, PropertyImage
 
+SUBUNIT_PROPERTY_TYPES = [
+    "pg",
+    "hostel"
+]
+
 
 def create_property(user, data, files):
 
@@ -9,6 +14,11 @@ def create_property(user, data, files):
 
     if not data.get("property_type"):
         raise ValidationError("Property type is required")
+
+    has_subunits=(
+        data.get("property_type")
+        in SUBUNIT_PROPERTY_TYPES
+    ),
 
     property = Property.objects.create(
         owner=user,

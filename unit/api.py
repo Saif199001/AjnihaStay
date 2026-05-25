@@ -14,7 +14,7 @@ def unit_list_api(request):
 
     property_id = request.GET.get("property")
 
-    units = get_units(request.user, property_id).prefetch_related("subunits")
+    units = get_units(request.user, property_id).select_related("property").prefetch_related("subunits")
     serializer = UnitSerializer(units, many=True)
 
     return Response(serializer.data)

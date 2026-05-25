@@ -8,6 +8,10 @@ class Property(models.Model):
     PROPERTY_TYPES = (
         ("pg", "PG"),
         ("hostel", "Hostel"),
+        ("shop", "Shop"),
+        ("flat", "Flat"),
+        ("office", "Office"),
+        ("building", "Building"),
     )
 
     owner = models.ForeignKey(
@@ -17,6 +21,8 @@ class Property(models.Model):
     )
 
     name = models.CharField(max_length=200)
+
+    has_subunits = models.BooleanField(default=False)
 
     property_type = models.CharField(
         max_length=20,
