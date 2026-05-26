@@ -15,15 +15,11 @@ def create_property(user, data, files):
     if not data.get("property_type"):
         raise ValidationError("Property type is required")
 
-    has_subunits=(
-        data.get("property_type")
-        in SUBUNIT_PROPERTY_TYPES
-    ),
-
     property = Property.objects.create(
         owner=user,
         name=data.get("name"),
         property_type=data.get("property_type"),
+        has_subunits=(data.get("property_type") in SUBUNIT_PROPERTY_TYPES),
         description=data.get("description"),
         address=data.get("address"),
         city=data.get("city"),

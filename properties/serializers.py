@@ -15,6 +15,16 @@ class PropertySerializer(serializers.ModelSerializer):
         fields = "__all__"
 
     def validate_name(self, value):
-        if not value:
+        if not value.strip():
             raise serializers.ValidationError("Property name required")
+        return value
+
+    def validate_amenities(self, value):
+
+        if not isinstance(value, list):
+
+            raise serializers.ValidationError(
+                "Amenities must be a list"
+            )
+
         return value

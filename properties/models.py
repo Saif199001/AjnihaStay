@@ -55,6 +55,7 @@ class Property(models.Model):
         indexes = [
             models.Index(fields=["city"]),
             models.Index(fields=["state"]),
+            models.Index(fields=["property_type"]),
         ]
 
     def __str__(self):
