@@ -110,11 +110,17 @@ def get_tenants(workspace):
 
 def create_charge(user, workspace, data):
     with transaction.atomic():
+        occupancy_value = data.get("occupancy")
+        if isinstance(occupancy_value, Occupancy):
+            occupancy_id = occupancy_value.id
+        else:
+            occupancy_id = occupancy_value
+
         try:
             occupancy = Occupancy.objects.select_related("tenant").get(
-                id=data.get("occupancy"), tenant__workspace=workspace
+                id=occupancy_id, tenant__workspace=workspace
             )
-        except Occupancy.DoesNotExist:
+        except (Occupancy.DoesNotExist, TypeError, ValueError):
             raise ValidationError("Occupancy not found")
 
         invoice = occupancy.invoices.select_for_update().filter(status="pending").last()
