@@ -198,3 +198,15 @@ class TenantWorkspaceAPITests(TestCase):
         response = self.client.post("/api/charges/create/", self.charge_payload(occupancy.id, "0.00"), format="json", **self.headers(self.manager))
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Charge.objects.filter(occupancy=occupancy).count(), 0)
+
+    def test_malformed_charge_list_occupancy_id_returns_400(self):
+        headers = self.headers(self.staff)
+        response = self.client.get("/api/charges/?occupancy=not-a-number", **headers)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["error"], "Invalid occupancy ID")
+
+    def test_zero_charge_list_occupancy_id_returns_400(self):
+        headers = self.headers(self.staff)
+        response = self.client.get("/api/charges/?occupancy=0", **headers)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["error"], "Invalid occupancy ID")
