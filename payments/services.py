@@ -52,22 +52,42 @@ def create_payment(user, data):
     with transaction.atomic():
 
         try:
-            invoice = Invoice.objects.get(id=data.get("invoice"))
+            # Serialize payment creation for this invoice. Without this lock,
+            # two concurrent payments can both pass the overpayment check.
+            invoice = Invoice.objects.select_for_update().select_related(
+                "occupancy__tenant"
+            ).get(id=data.get("invoice"))
         except Invoice.DoesNotExist:
             raise ValidationError("Invoice not found")
 
         if invoice.occupancy.tenant.owner != user:
             raise ValidationError("Unauthorized")
 
+        amount = Decimal(data.get("amount"))
+
         payment = Payment.objects.create(
             invoice=invoice,
-            amount=data.get("amount"),
+            amount=amount,
             payment_method=data.get("payment_method"),
             payment_date=data.get("payment_date"),
             reference_id=data.get("reference_id"),
             notes=data.get("notes"),
         )
 
+        total_paid = sum(
+            existing_payment.amount
+            for existing_payment in invoice.payments.all()
+        )
+
+        invoice.paid_amount = total_paid
+        if total_paid >= invoice.total_amount:
+            invoice.status = "paid"
+        elif total_paid > 0:
+            invoice.status = "partial"
+        else:
+            invoice.status = "pending"
+
+        invoice.save(update_fields=["paid_amount", "status"])
         return payment
 
 
