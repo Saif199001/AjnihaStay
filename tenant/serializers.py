@@ -3,32 +3,29 @@ from .models import Tenant, Occupancy, Charge
 from payments.serializers import InvoiceSerializer
 
 
-
 class OccupancySerializer(serializers.ModelSerializer):
-
     invoices = InvoiceSerializer(many=True, read_only=True)
 
     class Meta:
         model = Occupancy
         fields = "__all__"
+        read_only_fields = ["id", "allotted_by", "created_at", "updated_at"]
 
     def validate(self, data):
         if data.get("rent") <= 0:
             raise serializers.ValidationError("Rent must be greater than 0")
-
         if data.get("check_in_date") > data.get("next_due_date"):
             raise serializers.ValidationError("Invalid dates")
-
         return data
 
 
 class TenantSerializer(serializers.ModelSerializer):
-
     occupancies = OccupancySerializer(many=True, read_only=True)
 
     class Meta:
         model = Tenant
         fields = "__all__"
+        read_only_fields = ["id", "owner", "workspace", "created_at", "updated_at"]
 
     def validate_phone(self, value):
         if len(value) < 10:
@@ -41,12 +38,11 @@ class TenantSerializer(serializers.ModelSerializer):
         return data
 
 
-
 class ChargeSerializer(serializers.ModelSerializer):
-
     class Meta:
         model = Charge
         fields = "__all__"
+        read_only_fields = ["id", "created_at"]
 
     def validate_amount(self, value):
         if value <= 0:
