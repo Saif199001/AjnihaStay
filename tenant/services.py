@@ -117,6 +117,10 @@ def create_charge(user, workspace, data):
         except Occupancy.DoesNotExist:
             raise ValidationError("Occupancy not found")
 
+        invoice = occupancy.invoices.select_for_update().filter(status="pending").last()
+        if not invoice:
+            raise ValidationError("No active invoice found")
+
         charge = Charge.objects.create(
             occupancy=occupancy,
             charge_type=data.get("charge_type"),
@@ -124,10 +128,6 @@ def create_charge(user, workspace, data):
             amount=data.get("amount"),
             charge_date=data.get("charge_date"),
         )
-
-        invoice = occupancy.invoices.filter(status="pending").last()
-        if not invoice:
-            raise ValidationError("No active invoice found")
 
         invoice.charges_amount += charge.amount
         invoice.total_amount = invoice.rent_amount + invoice.charges_amount
