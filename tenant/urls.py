@@ -5,6 +5,7 @@ urlpatterns = [
     path("api/tenants/", tenant_list_api),
     path("api/tenants/create/", tenant_create_api),
     path("api/occupancy/create/", occupancy_create_api),
+    path("api/occupancies/create/", occupancy_create_api),
     path("api/charges/create/", charge_create_api),
     path("api/charges/", charge_list_api),
 ]
