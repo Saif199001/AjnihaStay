@@ -19,7 +19,7 @@ def create_property(user, workspace, data, files):
             name=data.get("name"),
             property_type=data.get("property_type"),
             has_subunits=(data.get("property_type") in SUBUNIT_PROPERTY_TYPES),
-            description=data.get("description"),
+            description=data.get("description") or "",
             address=data.get("address"),
             city=data.get("city"),
             state=data.get("state"),
