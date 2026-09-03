@@ -34,13 +34,18 @@ def create_tenant(user, workspace, data, files):
 
 def create_occupancy(user, workspace, data):
     with transaction.atomic():
+        tenant_value = data.get("tenant")
+        tenant_id = tenant_value.id if isinstance(tenant_value, Tenant) else tenant_value
         try:
-            tenant = Tenant.objects.get(id=data.get("tenant"), workspace=workspace)
-        except Tenant.DoesNotExist:
+            tenant = Tenant.objects.get(id=tenant_id, workspace=workspace)
+        except (Tenant.DoesNotExist, TypeError, ValueError):
             raise ValidationError("Tenant not found")
 
-        unit_id = data.get("unit")
-        subunit_id = data.get("subunit")
+        unit_value = data.get("unit")
+        unit_id = unit_value.id if isinstance(unit_value, Unit) else unit_value
+        subunit_value = data.get("subunit")
+        subunit_id = subunit_value.id if isinstance(subunit_value, SubUnit) else subunit_value
+
         if not unit_id and not subunit_id:
             raise ValidationError("Unit or SubUnit required")
 
@@ -50,7 +55,7 @@ def create_occupancy(user, workspace, data):
                     unit = Unit.objects.select_for_update().select_related("property").get(
                         id=unit_id, property__workspace=workspace
                     )
-                except Unit.DoesNotExist:
+                except (Unit.DoesNotExist, TypeError, ValueError):
                     raise ValidationError("Unit not found")
             else:
                 unit_id = SubUnit.objects.filter(
@@ -62,12 +67,12 @@ def create_occupancy(user, workspace, data):
                     unit = Unit.objects.select_for_update().select_related("property").get(
                         id=unit_id, property__workspace=workspace
                     )
-                except Unit.DoesNotExist:
+                except (Unit.DoesNotExist, TypeError, ValueError):
                     raise ValidationError("Unit not found")
 
             try:
                 subunit = SubUnit.objects.select_for_update().get(id=subunit_id, unit=unit)
-            except SubUnit.DoesNotExist:
+            except (SubUnit.DoesNotExist, TypeError, ValueError):
                 raise ValidationError("SubUnit not found")
             subunit_id = subunit.id
         else:
@@ -75,7 +80,7 @@ def create_occupancy(user, workspace, data):
                 unit = Unit.objects.select_for_update().select_related("property").get(
                     id=unit_id, property__workspace=workspace
                 )
-            except Unit.DoesNotExist:
+            except (Unit.DoesNotExist, TypeError, ValueError):
                 raise ValidationError("Unit not found")
 
         occupancy = Occupancy.objects.create(
