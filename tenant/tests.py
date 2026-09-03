@@ -158,19 +158,19 @@ class TenantWorkspaceAPITests(TestCase):
         self.assertEqual(created.owner_id, self.manager.id)
 
     def test_staff_cannot_create_occupancy(self):
-        response = self.client.post("/api/occupancies/create/", self.occupancy_payload(), format="json", **self.headers(self.staff))
+        response = self.client.post("/api/occupancy/create/", self.occupancy_payload(), format="json", **self.headers(self.staff))
         self.assertEqual(response.status_code, 403)
         self.assertEqual(Occupancy.objects.count(), 0)
 
     def test_cross_workspace_occupancy_create_is_blocked(self):
-        response = self.client.post("/api/occupancies/create/", self.occupancy_payload(self.other_unit.id), format="json", **self.headers(self.other, self.other_workspace))
+        response = self.client.post("/api/occupancy/create/", self.occupancy_payload(self.other_unit.id), format="json", **self.headers(self.other, self.other_workspace))
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Occupancy.objects.count(), 0)
 
     def test_invalid_occupancy_payload_returns_400_without_writes(self):
         payload = self.occupancy_payload()
         payload["check_out_date"] = "2026-08-31"
-        response = self.client.post("/api/occupancies/create/", payload, format="json", **self.headers(self.manager))
+        response = self.client.post("/api/occupancy/create/", payload, format="json", **self.headers(self.manager))
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Occupancy.objects.count(), 0)
 
