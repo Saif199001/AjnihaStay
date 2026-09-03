@@ -215,6 +215,18 @@ class PaymentWorkspaceAPITests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["data"], [])
 
+    def test_malformed_payment_list_invoice_id_returns_400(self):
+        headers = self.authenticate(self.staff)
+        response = self.client.get("/api/payments/?invoice=not-a-number", **headers)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["error"], "Invalid invoice ID")
+
+    def test_zero_payment_list_invoice_id_returns_400(self):
+        headers = self.authenticate(self.staff)
+        response = self.client.get("/api/payments/?invoice=0", **headers)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["error"], "Invalid invoice ID")
+
     def test_cross_workspace_final_settlement_is_blocked(self):
         headers = self.authenticate(self.other, self.other_workspace)
         response = self.client.get(f"/api/final-settlement/{self.occupancy.id}/", **headers)
