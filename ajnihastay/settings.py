@@ -46,6 +46,8 @@ CSRF_COOKIE_SECURE = env_bool("CSRF_COOKIE_SECURE", not DEBUG)
 
 AUTH_USER_MODEL = "accounts.User"
 
+DB_RLS_ENABLED = env_bool("DB_RLS_ENABLED", False)
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -129,6 +131,7 @@ DATABASES = {
         "HOST": tmp_postgres.hostname,
         "PORT": tmp_postgres.port,
         "OPTIONS": dict(parse_qsl(tmp_postgres.query)),
+        "ATOMIC_REQUESTS": DB_RLS_ENABLED,
     }
 }
 
