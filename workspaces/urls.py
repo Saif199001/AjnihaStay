@@ -1,8 +1,7 @@
 from django.urls import path
 
-from .api import (
-    workspace_current_api,
-    workspace_list_api,
+from .api import workspace_current_api, workspace_list_api
+from .membership_api import (
     workspace_member_deactivate_api,
     workspace_member_role_api,
     workspace_members_api,
