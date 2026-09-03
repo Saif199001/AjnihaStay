@@ -1,6 +1,7 @@
 from rest_framework import serializers
-from .models import Tenant, Occupancy, Charge
+
 from payments.serializers import InvoiceSerializer
+from .models import Charge, Occupancy, Tenant
 
 
 class OccupancySerializer(serializers.ModelSerializer):
@@ -11,11 +12,25 @@ class OccupancySerializer(serializers.ModelSerializer):
         fields = "__all__"
         read_only_fields = ["id", "allotted_by", "created_at", "updated_at"]
 
+    def validate_rent(self, value):
+        if value is None or value < 0:
+            raise serializers.ValidationError("Rent cannot be negative")
+        return value
+
+    def validate_security_deposit(self, value):
+        if value is None or value < 0:
+            raise serializers.ValidationError("Security deposit cannot be negative")
+        return value
+
     def validate(self, data):
-        if data.get("rent") <= 0:
-            raise serializers.ValidationError("Rent must be greater than 0")
-        if data.get("check_in_date") > data.get("next_due_date"):
-            raise serializers.ValidationError("Invalid dates")
+        check_in = data.get("check_in_date")
+        check_out = data.get("check_out_date")
+        next_due = data.get("next_due_date")
+
+        if check_in and check_out and check_out < check_in:
+            raise serializers.ValidationError("Check-out date cannot be before check-in date")
+        if check_in and next_due and next_due < check_in:
+            raise serializers.ValidationError("Next due date cannot be before check-in date")
         return data
 
 
