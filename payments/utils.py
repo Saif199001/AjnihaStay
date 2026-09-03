@@ -1,67 +1,76 @@
 import uuid
-from django.utils.timezone import now
 from datetime import timedelta
+
 from dateutil.relativedelta import relativedelta
+from django.db import transaction
+from django.utils.timezone import now
+
 from tenant.models import Occupancy
 
 
 def generate_invoice_number():
     return "INV-" + uuid.uuid4().hex[:8].upper()
 
-def generate_recurring_invoices():
 
+def generate_recurring_invoices():
+    """Generate due recurring invoices safely for active occupancies.
+
+    This is intended for a trusted scheduled/background job, not a normal
+    tenant-facing endpoint. Each occupancy is locked while its invoice and
+    next_due_date are advanced, preventing duplicate generation by concurrent
+    workers.
+    """
     from .models import Invoice
 
-    occupancies = Occupancy.objects.filter(
-        is_active=True,
-        next_due_date__lte=today
+    today = now().date()
+    created_count = 0
+
+    due_occupancy_ids = list(
+        Occupancy.objects.filter(
+            is_active=True,
+            next_due_date__lte=today,
+        ).values_list("id", flat=True)
     )
 
-    for occupancy in occupancies:
+    for occupancy_id in due_occupancy_ids:
+        with transaction.atomic():
+            try:
+                occupancy = Occupancy.objects.select_for_update().get(
+                    id=occupancy_id,
+                    is_active=True,
+                )
+            except Occupancy.DoesNotExist:
+                continue
 
-        # 🔥 SKIP if invoice already exists
-        existing_invoice = Invoice.objects.filter(
-            occupancy=occupancy,
-            due_date=occupancy.next_due_date
-        ).exists()
+            if occupancy.next_due_date > today:
+                continue
 
-        if existing_invoice:
-            continue
+            existing_invoice = Invoice.objects.filter(
+                occupancy=occupancy,
+                due_date=occupancy.next_due_date,
+            ).exists()
 
-        billing_start = occupancy.next_due_date
+            if existing_invoice:
+                continue
 
-        # 🔥 MONTHLY BILLING
-        if occupancy.billing_cycle == "monthly":
+            billing_start = occupancy.next_due_date
 
-            billing_end = (
-                billing_start +
-                relativedelta(months=1)
+            if occupancy.billing_cycle == "monthly":
+                billing_end = billing_start + relativedelta(months=1)
+            else:
+                billing_end = billing_start + timedelta(days=1)
+
+            Invoice.objects.create(
+                occupancy=occupancy,
+                billing_start=billing_start,
+                billing_end=billing_end,
+                rent_amount=occupancy.rent,
+                charges_amount=0,
+                due_date=billing_start,
             )
 
-        # 🔥 DAILY BILLING
-        else:
+            occupancy.next_due_date = billing_end
+            occupancy.save()
+            created_count += 1
 
-            billing_end = (
-                billing_start +
-                timedelta(days=1)
-            )
-
-        Invoice.objects.create(
-
-            occupancy=occupancy,
-
-            billing_start=billing_start,
-
-            billing_end=billing_end,
-
-            rent_amount=occupancy.rent,
-
-            charges_amount=0,
-
-            due_date=billing_start,
-        )
-
-        # 🔥 UPDATE NEXT DUE DATE
-        occupancy.next_due_date = billing_end
-
-        occupancy.save()
+    return created_count
