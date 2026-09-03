@@ -30,7 +30,7 @@ class Migration(migrations.Migration):
             field=models.ForeignKey(
                 null=True,
                 on_delete=django.db.models.deletion.PROTECT,
-                related_name="properties",
+                related_name="workspace_properties",
                 to="workspaces.workspace",
             ),
         ),
@@ -44,7 +44,7 @@ class Migration(migrations.Migration):
             name="workspace",
             field=models.ForeignKey(
                 on_delete=django.db.models.deletion.PROTECT,
-                related_name="properties",
+                related_name="workspace_properties",
                 to="workspaces.workspace",
             ),
         ),
