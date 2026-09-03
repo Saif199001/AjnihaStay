@@ -1,19 +1,10 @@
 from django.core.exceptions import ValidationError
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from workspaces.context import get_workspace_for_request
-from workspaces.permissions import WorkspaceManagerPermission
+from workspaces.permissions import WorkspaceManagerPermission, WorkspaceStaffPermission
 from .serializers import ChargeSerializer, OccupancySerializer, TenantSerializer
 from .services import create_charge, create_occupancy, create_tenant, get_charges, get_tenants
-
-
-def _workspace_or_error(request):
-    try:
-        return get_workspace_for_request(request)
-    except Exception as exc:
-        return None, Response({"error": str(exc)}, status=403)
 
 
 @api_view(["POST"])
@@ -30,12 +21,9 @@ def tenant_create_api(request):
 
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticated])
+@permission_classes([WorkspaceStaffPermission])
 def tenant_list_api(request):
-    workspace, error = _workspace_or_error(request)
-    if error:
-        return error
-    return Response({"data": TenantSerializer(get_tenants(workspace), many=True).data})
+    return Response({"data": TenantSerializer(get_tenants(request.workspace), many=True).data})
 
 
 @api_view(["POST"])
@@ -65,11 +53,8 @@ def charge_create_api(request):
 
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticated])
+@permission_classes([WorkspaceStaffPermission])
 def charge_list_api(request):
-    workspace, error = _workspace_or_error(request)
-    if error:
-        return error
     occupancy_id = request.GET.get("occupancy")
-    charges = get_charges(occupancy_id, workspace)
+    charges = get_charges(occupancy_id, request.workspace)
     return Response(ChargeSerializer(charges, many=True).data)
