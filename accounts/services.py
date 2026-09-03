@@ -1,33 +1,55 @@
 from django.contrib.auth import authenticate
-from .models import User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
+from django.db import transaction
+from django.utils.text import slugify
 
-def create_user_account(email, password, confirm_password):
+from .models import User
+from workspaces.models import Membership, Workspace
 
+
+def _unique_workspace_slug(email):
+    base = slugify(email.split("@")[0]) or "workspace"
+    slug = base
+    counter = 2
+    while Workspace.objects.filter(slug=slug).exists():
+        slug = f"{base}-{counter}"
+        counter += 1
+    return slug
+
+
+def create_user_account(email, password, confirm_password, workspace_name=None):
     email = email.lower()
 
     if password != confirm_password:
         raise ValidationError("Passwords do not match")
 
-    # 🔥 Django password validation
     validate_password(password)
 
     if User.objects.filter(email=email).exists():
         raise ValidationError("Email already exists")
 
-    user = User.objects.create_user(
-        email=email,
-        password=password,
-        role="owner"
-    )
+    with transaction.atomic():
+        user = User.objects.create_user(
+            email=email,
+            password=password,
+            role="owner",
+        )
+        name = (workspace_name or "").strip() or f"{email}'s Workspace"
+        workspace = Workspace.objects.create(
+            name=name,
+            slug=_unique_workspace_slug(email),
+            owner=user,
+        )
+        Membership.objects.create(
+            workspace=workspace,
+            user=user,
+            role=Membership.ROLE_OWNER,
+            is_active=True,
+        )
 
     return user
 
 
-# 🔥 Login Service
 def login_user_service(request, email, password):
-
-    user = authenticate(request, email=email, password=password)
-
-    return user
+    return authenticate(request, email=email, password=password)
