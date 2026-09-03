@@ -3,7 +3,6 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from workspaces.context import get_workspace_for_request
 from workspaces.permissions import WorkspaceManagerPermission, WorkspaceStaffPermission
 from .serializers import InvoiceSerializer, PaymentSerializer
 from .services import (
@@ -13,13 +12,6 @@ from .services import (
     get_invoices,
     get_payments,
 )
-
-
-def _workspace_or_error(request):
-    try:
-        return get_workspace_for_request(request)
-    except Exception as exc:
-        return None, Response({"error": str(exc)}, status=403)
 
 
 @api_view(["POST"])
@@ -61,7 +53,10 @@ def payment_create_api(request):
 @permission_classes([WorkspaceStaffPermission])
 def payment_list_api(request):
     invoice_id = request.GET.get("invoice")
-    payments = get_payments(invoice_id, request.workspace)
+    try:
+        payments = get_payments(invoice_id, request.workspace)
+    except ValidationError as exc:
+        return Response({"error": str(exc)}, status=400)
     return Response({"data": PaymentSerializer(payments, many=True).data})
 
 
