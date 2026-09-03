@@ -1,0 +1,67 @@
+name: Django CI
+
+on:
+  push:
+    branches:
+      - master
+      - 'phase-*'
+      - 'phase-*/*'
+  pull_request:
+
+jobs:
+  test:
+    name: Django checks and tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: ajnihastay
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ajnihastay"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      SECRET_KEY: ci-only-secret-key
+      DEBUG: '1'
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/ajnihastay
+      DB_RLS_ENABLED: 'false'
+      ALLOWED_HOSTS: localhost,127.0.0.1
+      SECURE_SSL_REDIRECT: 'false'
+      SESSION_COOKIE_SECURE: 'false'
+      CSRF_COOKIE_SECURE: 'false'
+      SECURE_HSTS_SECONDS: '0'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Check migration graph
+        run: python manage.py showmigrations --plan
+
+      - name: Check migrations are up to date
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: Apply migrations
+        run: python manage.py migrate --noinput
+
+      - name: Run Django test suite
+        run: python manage.py test --verbosity 2
+
+      - name: Django system checks
+        run: python manage.py check
