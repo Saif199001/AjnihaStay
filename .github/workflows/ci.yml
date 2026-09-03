@@ -31,7 +31,7 @@ jobs:
       SECRET_KEY: ci-only-secret-key
       DEBUG: '1'
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/ajnihastay
-      DB_RLS_ENABLED: 'false'
+      DB_RLS_ENABLED: 'true'
       ALLOWED_HOSTS: localhost,127.0.0.1
       SECURE_SSL_REDIRECT: 'false'
       SESSION_COOKIE_SECURE: 'false'
@@ -59,6 +59,9 @@ jobs:
 
       - name: Apply migrations
         run: python manage.py migrate --noinput
+
+      - name: Enable and force workspace RLS
+        run: python manage.py enable_workspace_rls
 
       - name: Run Django test suite
         run: python manage.py test --verbosity 2
