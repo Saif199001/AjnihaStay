@@ -7,6 +7,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('properties', '0002_alter_property_thumbnail_alter_propertyimage_image'),
+        ('properties', '0002_workspace'),
     ]
 
     operations = [
