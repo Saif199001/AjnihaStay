@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import ValidationError
 
@@ -6,9 +6,22 @@ from properties.models import Property
 from .models import SubUnit, Unit
 
 
+def _optional_positive_id(value, field_name):
+    if value in (None, ""):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        raise ValidationError(f"Invalid {field_name} ID")
+    if parsed <= 0:
+        raise ValidationError(f"Invalid {field_name} ID")
+    return parsed
+
+
 def get_units(workspace, property_id=None):
+    property_id = _optional_positive_id(property_id, "property")
     units = Unit.objects.filter(property__workspace=workspace)
-    if property_id:
+    if property_id is not None:
         units = units.filter(property_id=property_id)
     return units
 
@@ -22,12 +35,18 @@ def create_unit(workspace, data):
     if not data.get("unit_number"):
         raise ValidationError("Unit number required")
 
+    try:
+        rent = Decimal(data.get("rent") or 0)
+        capacity = int(data.get("capacity") or 1)
+    except (TypeError, ValueError, InvalidOperation):
+        raise ValidationError("Invalid unit values")
+
     return Unit.objects.create(
         property=property_obj,
         unit_number=data.get("unit_number"),
         unit_type=data.get("unit_type"),
-        rent=Decimal(data.get("rent") or 0),
-        capacity=int(data.get("capacity") or 1),
+        rent=rent,
+        capacity=capacity,
         description=data.get("description"),
     )
 
@@ -43,7 +62,10 @@ def create_subunit(workspace, data):
     if not unit.rent:
         raise ValidationError("Unit rent must be set")
 
-    new_rent = Decimal(data.get("rent") or 0)
+    try:
+        new_rent = Decimal(data.get("rent") or 0)
+    except (TypeError, ValueError, InvalidOperation):
+        raise ValidationError("Invalid rent")
     if new_rent <= 0:
         raise ValidationError("Invalid rent")
 
