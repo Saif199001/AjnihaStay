@@ -1,10 +1,12 @@
+from django.db import connection, transaction
 from django.test import TestCase
 from rest_framework.test import APIClient
 
 from accounts.models import User
 from properties.models import Property
-from .models import Membership, Workspace
 from .context import get_workspace_for_request
+from .db import set_workspace_context
+from .models import Membership, Workspace
 
 
 class WorkspaceFoundationTests(TestCase):
@@ -122,3 +124,16 @@ class WorkspaceFoundationTests(TestCase):
         self.assertEqual(Property.objects.filter(workspace=workspace).count(), 1)
         self.assertEqual(Property.objects.filter(workspace=other_workspace).count(), 0)
         self.assertEqual(prop.workspace_id, workspace.id)
+
+    def test_workspace_context_is_transaction_local(self):
+        workspace = Workspace.objects.create(name="Context", slug="context-test", owner=User.objects.create_user("db-context@example.com", self.password))
+
+        with transaction.atomic():
+            set_workspace_context(workspace.id)
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT current_setting('app.workspace_id', true)")
+                self.assertEqual(cursor.fetchone()[0], str(workspace.id))
+
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT current_setting('app.workspace_id', true)")
+            self.assertIn(cursor.fetchone()[0], (None, ""))
