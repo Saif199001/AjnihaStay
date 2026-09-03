@@ -1,43 +1,47 @@
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.decorators import permission_classes
+from rest_framework.response import Response
 
+from workspaces.context import get_workspace_for_request
 from .models import Property
 from .serializers import PropertySerializer
 from .services import create_property
 
 
-@api_view(['GET'])
+@api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def property_list_api(request):
+    try:
+        workspace, _ = get_workspace_for_request(request)
+    except Exception as exc:
+        return Response({"error": str(exc)}, status=403)
 
-    properties = Property.objects.filter(owner=request.user)
-    serializer = PropertySerializer(properties, many=True)
-
-    return Response({"data": serializer.data})
+    properties = Property.objects.filter(workspace=workspace, is_active=True).order_by("id")
+    return Response({"data": PropertySerializer(properties, many=True).data})
 
 
-@api_view(['POST'])
+@api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def property_create_api(request):
+    try:
+        workspace, _ = get_workspace_for_request(request)
+    except Exception as exc:
+        return Response({"error": str(exc)}, status=403)
 
     serializer = PropertySerializer(data=request.data)
-
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
 
     try:
-        property = create_property(
+        property_obj = create_property(
             request.user,
+            workspace,
             serializer.validated_data,
-            request.FILES
+            request.FILES,
         )
-
         return Response({
             "message": "Property created successfully",
-            "data": PropertySerializer(property).data
+            "data": PropertySerializer(property_obj).data,
         })
-
-    except Exception as e:
-        return Response({"error": str(e)}, status=400)
+    except Exception as exc:
+        return Response({"error": str(exc)}, status=400)
