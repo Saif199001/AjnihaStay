@@ -36,7 +36,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="tenant",
-            index=models.Index(fields=["workspace", "is_active"], name="tenant__workspace_idx"),
+            index=models.Index(fields=["workspace", "created_at"], name="tenant__workspace_idx"),
         ),
         migrations.RunPython(assign_workspaces, clear_workspaces),
         migrations.AlterField(
