@@ -1,6 +1,7 @@
 from rest_framework.permissions import BasePermission
 
 from .context import get_workspace_for_request
+from .db import set_workspace_context
 
 
 ROLE_RANK = {
@@ -21,6 +22,10 @@ class HasWorkspaceMembership(BasePermission):
             return False
         request.workspace = workspace
         request.workspace_membership = membership
+        try:
+            set_workspace_context(workspace.id)
+        except Exception:
+            return False
         return True
 
 
@@ -31,3 +36,19 @@ class HasWorkspaceRole(HasWorkspaceMembership):
         if not super().has_permission(request, view):
             return False
         return ROLE_RANK[request.workspace_membership.role] >= ROLE_RANK[self.minimum_role]
+
+
+class WorkspaceStaffPermission(HasWorkspaceRole):
+    minimum_role = "staff"
+
+
+class WorkspaceManagerPermission(HasWorkspaceRole):
+    minimum_role = "manager"
+
+
+class WorkspaceAdminPermission(HasWorkspaceRole):
+    minimum_role = "admin"
+
+
+class WorkspaceOwnerPermission(HasWorkspaceRole):
+    minimum_role = "owner"
