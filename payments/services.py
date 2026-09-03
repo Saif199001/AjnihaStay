@@ -91,7 +91,20 @@ def create_payment(user, workspace, data):
         return payment
 
 
+def _optional_positive_id(value, field_name):
+    if value in (None, ""):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        raise ValidationError(f"Invalid {field_name} ID")
+    if parsed <= 0:
+        raise ValidationError(f"Invalid {field_name} ID")
+    return parsed
+
+
 def get_payments(invoice_id, workspace):
+    invoice_id = _optional_positive_id(invoice_id, "invoice")
     return Payment.objects.filter(
         invoice_id=invoice_id,
         invoice__occupancy__tenant__workspace=workspace,
