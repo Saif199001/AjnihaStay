@@ -2,7 +2,9 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 
 from accounts.models import User
+from properties.models import Property
 from .models import Membership, Workspace
+from .context import get_workspace_for_request
 
 
 class WorkspaceFoundationTests(TestCase):
@@ -52,10 +54,71 @@ class WorkspaceFoundationTests(TestCase):
 
         self.client.force_authenticate(user=user)
         response = self.client.get(
-            "/api/workspaces/",
+            "/api/workspaces/current/",
             HTTP_X_WORKSPACE_ID=str(workspace.id),
         )
 
-        # Listing ignores the header and exposes only the caller's memberships.
+        self.assertEqual(response.status_code, 403)
+
+    def test_single_membership_is_selected_without_header(self):
+        user = User.objects.create_user("single@example.com", self.password)
+        workspace = Workspace.objects.create(name="Single", slug="single", owner=user)
+        Membership.objects.create(workspace=workspace, user=user, role="owner")
+
+        self.client.force_authenticate(user=user)
+        response = self.client.get("/api/workspaces/current/")
+
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["data"], [])
+        self.assertEqual(response.data["data"]["workspace"]["id"], workspace.id)
+
+    def test_multiple_memberships_require_explicit_workspace(self):
+        user = User.objects.create_user("multi@example.com", self.password)
+        workspace_a = Workspace.objects.create(name="A", slug="multi-a", owner=user)
+        workspace_b = Workspace.objects.create(name="B", slug="multi-b", owner=user)
+        Membership.objects.create(workspace=workspace_a, user=user, role="owner")
+        Membership.objects.create(workspace=workspace_b, user=user, role="admin")
+
+        self.client.force_authenticate(user=user)
+        response = self.client.get("/api/workspaces/current/")
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_workspace_context_returns_only_callers_membership(self):
+        user = User.objects.create_user("context@example.com", self.password)
+        workspace = Workspace.objects.create(name="Mine", slug="mine", owner=user)
+        Membership.objects.create(workspace=workspace, user=user, role="manager")
+
+        other = User.objects.create_user("intruder@example.com", self.password)
+        other_workspace = Workspace.objects.create(name="Other", slug="other-context", owner=other)
+        Membership.objects.create(workspace=other_workspace, user=other, role="owner")
+
+        self.client.force_authenticate(user=user)
+        request = self.client.get(
+            "/api/workspaces/current/",
+            HTTP_X_WORKSPACE_ID=str(other_workspace.id),
+        ).wsgi_request
+
+        with self.assertRaises(Exception):
+            get_workspace_for_request(request)
+
+    def test_property_is_scoped_to_workspace(self):
+        owner = User.objects.create_user("property-owner@example.com", self.password)
+        other = User.objects.create_user("property-other@example.com", self.password)
+        workspace = Workspace.objects.create(name="Owner WS", slug="property-owner", owner=owner)
+        other_workspace = Workspace.objects.create(name="Other WS", slug="property-other", owner=other)
+        Membership.objects.create(workspace=workspace, user=owner, role="owner")
+        Membership.objects.create(workspace=other_workspace, user=other, role="owner")
+        prop = Property.objects.create(
+            owner=owner,
+            workspace=workspace,
+            name="Owner Property",
+            property_type="pg",
+            address="Delhi",
+            city="Delhi",
+            state="Delhi",
+            pincode="110001",
+        )
+
+        self.assertEqual(Property.objects.filter(workspace=workspace).count(), 1)
+        self.assertEqual(Property.objects.filter(workspace=other_workspace).count(), 0)
+        self.assertEqual(prop.workspace_id, workspace.id)
