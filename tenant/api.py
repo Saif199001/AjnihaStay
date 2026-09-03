@@ -7,6 +7,10 @@ from .serializers import ChargeSerializer, OccupancySerializer, TenantSerializer
 from .services import create_charge, create_occupancy, create_tenant, get_charges, get_tenants
 
 
+def _validation_message(exc):
+    return exc.messages[0] if exc.messages else str(exc)
+
+
 @api_view(["POST"])
 @permission_classes([WorkspaceManagerPermission])
 def tenant_create_api(request):
@@ -17,7 +21,7 @@ def tenant_create_api(request):
         tenant = create_tenant(request.user, request.workspace, serializer.validated_data, request.FILES)
         return Response({"message": "Tenant created", "data": TenantSerializer(tenant).data})
     except ValidationError as exc:
-        return Response({"error": str(exc)}, status=400)
+        return Response({"error": _validation_message(exc)}, status=400)
 
 
 @api_view(["GET"])
@@ -36,7 +40,7 @@ def occupancy_create_api(request):
         occupancy = create_occupancy(request.user, request.workspace, serializer.validated_data)
         return Response({"message": "Occupancy created", "data": OccupancySerializer(occupancy).data})
     except ValidationError as exc:
-        return Response({"error": str(exc)}, status=400)
+        return Response({"error": _validation_message(exc)}, status=400)
 
 
 @api_view(["POST"])
@@ -49,7 +53,7 @@ def charge_create_api(request):
         charge = create_charge(request.user, request.workspace, serializer.validated_data)
         return Response({"message": "Charges Created", "data": ChargeSerializer(charge).data})
     except ValidationError as exc:
-        return Response({"error": str(exc)}, status=400)
+        return Response({"error": _validation_message(exc)}, status=400)
 
 
 @api_view(["GET"])
@@ -59,5 +63,5 @@ def charge_list_api(request):
     try:
         charges = get_charges(occupancy_id, request.workspace)
     except ValidationError as exc:
-        return Response({"error": str(exc)}, status=400)
+        return Response({"error": _validation_message(exc)}, status=400)
     return Response(ChargeSerializer(charges, many=True).data)
