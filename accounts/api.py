@@ -8,7 +8,8 @@ from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -27,6 +28,7 @@ def get_tokens_for_user(user):
 
 
 @api_view(["POST"])
+@permission_classes([AllowAny])
 def login_api(request):
     email = request.data.get("email", "").strip().lower()
     password = request.data.get("password")
@@ -52,6 +54,7 @@ def login_api(request):
 
 
 @api_view(["POST"])
+@permission_classes([AllowAny])
 def signup_api(request):
     try:
         email = request.data.get("email", "").strip().lower()
@@ -75,6 +78,7 @@ def signup_api(request):
 
 
 @api_view(["POST"])
+@permission_classes([AllowAny])
 def logout_api(request):
     refresh_token = request.data.get("refresh")
 
@@ -91,6 +95,7 @@ def logout_api(request):
 
 
 @api_view(["POST"])
+@permission_classes([AllowAny])
 def forgot_password_api(request):
     email = request.data.get("email", "").strip().lower()
 
@@ -134,6 +139,7 @@ def forgot_password_api(request):
 
 
 @api_view(["POST"])
+@permission_classes([AllowAny])
 def reset_password_api(request, uidb64, token):
     password = request.data.get("password")
     confirm_password = request.data.get("confirm_password")
