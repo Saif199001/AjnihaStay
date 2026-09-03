@@ -4,6 +4,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from workspaces.context import get_workspace_for_request
+from workspaces.permissions import WorkspaceManagerPermission
 from .serializers import SubUnitSerializer, UnitSerializer
 from .services import create_subunit, create_unit, get_units
 
@@ -27,32 +28,26 @@ def unit_list_api(request):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([WorkspaceManagerPermission])
 def unit_create_api(request):
-    workspace, error = _workspace_or_error(request)
-    if error:
-        return error
     serializer = UnitSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
     try:
-        unit = create_unit(workspace, serializer.validated_data)
+        unit = create_unit(request.workspace, serializer.validated_data)
     except ValidationError as exc:
         return Response({"error": str(exc)}, status=400)
     return Response({"message": "Unit created", "data": UnitSerializer(unit).data})
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([WorkspaceManagerPermission])
 def subunit_create_api(request):
-    workspace, error = _workspace_or_error(request)
-    if error:
-        return error
     serializer = SubUnitSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
     try:
-        subunit = create_subunit(workspace, serializer.validated_data)
+        subunit = create_subunit(request.workspace, serializer.validated_data)
     except ValidationError as exc:
         return Response({"error": str(exc)}, status=400)
     return Response({"message": "SubUnit created", "data": SubUnitSerializer(subunit).data})
