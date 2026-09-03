@@ -3,7 +3,6 @@ from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.test import TestCase
-from rest_framework.test import APIRequestFactory
 
 from accounts.models import User
 from properties.models import Property
