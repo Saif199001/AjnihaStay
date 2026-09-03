@@ -1,7 +1,8 @@
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import Sum
 
 from .models import Invoice, Payment
 from tenant.models import Occupancy
@@ -13,12 +14,21 @@ def create_invoice(user, workspace, data):
     except Occupancy.DoesNotExist:
         raise ValidationError("Occupancy not found")
 
+    try:
+        rent_amount = Decimal(data.get("rent_amount"))
+        charges_amount = Decimal(data.get("charges_amount") or 0)
+    except (TypeError, ValueError, InvalidOperation):
+        raise ValidationError("Invalid invoice amount")
+
+    if rent_amount < 0 or charges_amount < 0:
+        raise ValidationError("Invoice amounts cannot be negative")
+
     return Invoice.objects.create(
         occupancy=occupancy,
         billing_start=data.get("billing_start"),
         billing_end=data.get("billing_end"),
-        rent_amount=data.get("rent_amount"),
-        charges_amount=data.get("charges_amount") or 0,
+        rent_amount=rent_amount,
+        charges_amount=charges_amount,
         due_date=data.get("due_date"),
     )
 
@@ -47,7 +57,19 @@ def create_payment(user, workspace, data):
         except Invoice.DoesNotExist:
             raise ValidationError("Invoice not found")
 
-        amount = Decimal(data.get("amount"))
+        try:
+            amount = Decimal(data.get("amount"))
+        except (TypeError, ValueError, InvalidOperation):
+            raise ValidationError("Invalid payment amount")
+
+        if amount <= 0:
+            raise ValidationError("Payment amount must be greater than zero")
+
+        total_paid = invoice.payments.aggregate(total=Sum("amount"))["total"] or Decimal("0")
+        outstanding = invoice.total_amount - total_paid
+        if amount > outstanding:
+            raise ValidationError("Payment exceeds remaining amount")
+
         payment = Payment.objects.create(
             invoice=invoice,
             amount=amount,
@@ -57,9 +79,9 @@ def create_payment(user, workspace, data):
             notes=data.get("notes") or "",
         )
 
-        total_paid = sum(existing_payment.amount for existing_payment in invoice.payments.all())
+        total_paid += amount
         invoice.paid_amount = total_paid
-        if total_paid >= invoice.total_amount:
+        if total_paid == invoice.total_amount:
             invoice.status = "paid"
         elif total_paid > 0:
             invoice.status = "partial"
@@ -86,12 +108,16 @@ def calculate_final_settlement(occupancy_id, workspace):
         raise ValidationError("Occupancy not found")
 
     invoices = occupancy.invoices.all()
-    total_rent = sum(invoice.rent_amount or 0 for invoice in invoices)
-    total_charges = sum(invoice.charges_amount or 0 for invoice in invoices)
-    total_paid = sum(invoice.paid_amount or 0 for invoice in invoices)
+    total_rent = sum((invoice.rent_amount or Decimal("0") for invoice in invoices), Decimal("0"))
+    total_charges = sum((invoice.charges_amount or Decimal("0") for invoice in invoices), Decimal("0"))
     total_amount = total_rent + total_charges
-    due_amount = total_amount - total_paid
-    security_deposit = occupancy.security_deposit or 0
+
+    payment_totals = Payment.objects.filter(
+        invoice__occupancy=occupancy,
+    ).aggregate(total=Sum("amount"))
+    total_paid = payment_totals["total"] or Decimal("0")
+    total_due = max(total_amount - total_paid, Decimal("0"))
+    security_deposit = occupancy.security_deposit or Decimal("0")
 
     return {
         "tenant": occupancy.tenant.full_name,
@@ -99,7 +125,7 @@ def calculate_final_settlement(occupancy_id, workspace):
         "total_rent": total_rent,
         "total_charges": total_charges,
         "total_paid": total_paid,
-        "total_due": due_amount,
+        "total_due": total_due,
         "security_deposit": security_deposit,
-        "final_balance": due_amount - security_deposit,
+        "final_balance": total_due - security_deposit,
     }
