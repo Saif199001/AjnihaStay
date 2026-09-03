@@ -46,22 +46,31 @@ def create_occupancy(user, data):
 
         if subunit_id:
             try:
-                subunit = SubUnit.objects.select_related("unit__property").get(
+                # Lock the parent Unit first so allocation of a whole Unit and
+                # allocation of any SubUnit cannot race each other.
+                unit = Unit.objects.select_for_update().select_related("property").get(
+                    id=unit_id if unit_id else SubUnit.objects.filter(
+                        id=subunit_id,
+                        unit__property__owner=user,
+                    ).values("unit_id").first()["unit_id"],
+                    property__owner=user,
+                )
+            except (Unit.DoesNotExist, TypeError):
+                raise ValidationError("Unit not found")
+
+            try:
+                subunit = SubUnit.objects.select_for_update().get(
                     id=subunit_id,
-                    unit__property__owner=user,
+                    unit=unit,
                 )
             except SubUnit.DoesNotExist:
                 raise ValidationError("SubUnit not found")
 
-            if unit_id and int(unit_id) != subunit.unit_id:
-                raise ValidationError("SubUnit does not belong to selected Unit")
-
-            unit = subunit.unit
             unit_id = unit.id
             subunit_id = subunit.id
         else:
             try:
-                unit = Unit.objects.select_related("property").get(
+                unit = Unit.objects.select_for_update().select_related("property").get(
                     id=unit_id,
                     property__owner=user,
                 )
