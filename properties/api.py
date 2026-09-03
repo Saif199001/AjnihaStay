@@ -3,6 +3,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from workspaces.context import get_workspace_for_request
+from workspaces.permissions import WorkspaceManagerPermission
 from .models import Property
 from .serializers import PropertySerializer
 from .services import create_property
@@ -21,13 +22,8 @@ def property_list_api(request):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([WorkspaceManagerPermission])
 def property_create_api(request):
-    try:
-        workspace, _ = get_workspace_for_request(request)
-    except Exception as exc:
-        return Response({"error": str(exc)}, status=403)
-
     serializer = PropertySerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
@@ -35,7 +31,7 @@ def property_create_api(request):
     try:
         property_obj = create_property(
             request.user,
-            workspace,
+            request.workspace,
             serializer.validated_data,
             request.FILES,
         )
