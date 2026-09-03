@@ -87,6 +87,7 @@ def create_occupancy(user, workspace, data):
             billing_type=data.get("billing_type"),
             billing_cycle=data.get("billing_cycle"),
             check_in_date=data.get("check_in_date"),
+            check_out_date=data.get("check_out_date"),
             next_due_date=data.get("next_due_date"),
             security_deposit=data.get("security_deposit") or 0,
             deposit_paid=data.get("deposit_paid") or False,
