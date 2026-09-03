@@ -38,10 +38,12 @@ def get_invoice(invoice_id, workspace):
 
 def create_payment(user, workspace, data):
     with transaction.atomic():
+        invoice_value = data.get("invoice")
+        invoice_id = getattr(invoice_value, "id", invoice_value)
         try:
             invoice = Invoice.objects.select_for_update().select_related(
                 "occupancy__tenant"
-            ).get(id=data.get("invoice"), occupancy__tenant__workspace=workspace)
+            ).get(id=invoice_id, occupancy__tenant__workspace=workspace)
         except Invoice.DoesNotExist:
             raise ValidationError("Invoice not found")
 
@@ -52,7 +54,7 @@ def create_payment(user, workspace, data):
             payment_method=data.get("payment_method"),
             payment_date=data.get("payment_date"),
             reference_id=data.get("reference_id"),
-            notes=data.get("notes"),
+            notes=data.get("notes") or "",
         )
 
         total_paid = sum(existing_payment.amount for existing_payment in invoice.payments.all())
