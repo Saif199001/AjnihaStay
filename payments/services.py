@@ -112,33 +112,44 @@ def get_payments(invoice_id, workspace):
 
 
 def calculate_final_settlement(occupancy_id, workspace):
-    try:
-        occupancy = Occupancy.objects.select_related("tenant", "unit").get(
-            id=occupancy_id,
-            tenant__workspace=workspace,
+    with transaction.atomic():
+        try:
+            occupancy = Occupancy.objects.select_for_update().select_related(
+                "tenant", "unit"
+            ).get(
+                id=occupancy_id,
+                tenant__workspace=workspace,
+            )
+        except Occupancy.DoesNotExist:
+            raise ValidationError("Occupancy not found")
+
+        invoices = list(
+            occupancy.invoices.select_for_update().order_by("id")
         )
-    except Occupancy.DoesNotExist:
-        raise ValidationError("Occupancy not found")
+        total_rent = sum(
+            (invoice.rent_amount or Decimal("0") for invoice in invoices),
+            Decimal("0"),
+        )
+        total_charges = sum(
+            (invoice.charges_amount or Decimal("0") for invoice in invoices),
+            Decimal("0"),
+        )
+        total_amount = total_rent + total_charges
 
-    invoices = occupancy.invoices.all()
-    total_rent = sum((invoice.rent_amount or Decimal("0") for invoice in invoices), Decimal("0"))
-    total_charges = sum((invoice.charges_amount or Decimal("0") for invoice in invoices), Decimal("0"))
-    total_amount = total_rent + total_charges
+        payment_totals = Payment.objects.filter(
+            invoice__occupancy=occupancy,
+        ).aggregate(total=Sum("amount"))
+        total_paid = payment_totals["total"] or Decimal("0")
+        total_due = max(total_amount - total_paid, Decimal("0"))
+        security_deposit = occupancy.security_deposit or Decimal("0")
 
-    payment_totals = Payment.objects.filter(
-        invoice__occupancy=occupancy,
-    ).aggregate(total=Sum("amount"))
-    total_paid = payment_totals["total"] or Decimal("0")
-    total_due = max(total_amount - total_paid, Decimal("0"))
-    security_deposit = occupancy.security_deposit or Decimal("0")
-
-    return {
-        "tenant": occupancy.tenant.full_name,
-        "unit": occupancy.unit.unit_number,
-        "total_rent": total_rent,
-        "total_charges": total_charges,
-        "total_paid": total_paid,
-        "total_due": total_due,
-        "security_deposit": security_deposit,
-        "final_balance": total_due - security_deposit,
-    }
+        return {
+            "tenant": occupancy.tenant.full_name,
+            "unit": occupancy.unit.unit_number,
+            "total_rent": total_rent,
+            "total_charges": total_charges,
+            "total_paid": total_paid,
+            "total_due": total_due,
+            "security_deposit": security_deposit,
+            "final_balance": total_due - security_deposit,
+        }
