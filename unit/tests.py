@@ -50,6 +50,14 @@ class UnitWorkspaceIsolationTests(TestCase):
         units = get_units(self.workspace, self.other_property.id)
         self.assertEqual(units.count(), 0)
 
+    def test_get_units_rejects_malformed_property_id(self):
+        with self.assertRaisesMessage(ValidationError, "Invalid property ID"):
+            get_units(self.workspace, "not-a-number")
+
+    def test_get_units_rejects_zero_property_id(self):
+        with self.assertRaisesMessage(ValidationError, "Invalid property ID"):
+            get_units(self.workspace, "0")
+
     def test_create_unit_rejects_cross_workspace_property(self):
         with self.assertRaises(ValidationError):
             create_unit(self.workspace, {
@@ -92,3 +100,21 @@ class UnitWorkspaceIsolationTests(TestCase):
             HTTP_X_WORKSPACE_ID=str(self.workspace.id),
         )
         self.assertEqual(response.status_code, 400)
+
+    def test_unit_api_list_rejects_malformed_property_id(self):
+        self.client.force_authenticate(user=self.owner)
+        response = self.client.get(
+            "/api/units/?property=not-a-number",
+            HTTP_X_WORKSPACE_ID=str(self.workspace.id),
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["error"], "Invalid property ID")
+
+    def test_unit_api_list_rejects_zero_property_id(self):
+        self.client.force_authenticate(user=self.owner)
+        response = self.client.get(
+            "/api/units/?property=0",
+            HTTP_X_WORKSPACE_ID=str(self.workspace.id),
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["error"], "Invalid property ID")
