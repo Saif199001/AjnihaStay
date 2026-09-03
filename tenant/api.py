@@ -4,6 +4,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from workspaces.context import get_workspace_for_request
+from workspaces.permissions import WorkspaceManagerPermission
 from .serializers import ChargeSerializer, OccupancySerializer, TenantSerializer
 from .services import create_charge, create_occupancy, create_tenant, get_charges, get_tenants
 
@@ -16,16 +17,13 @@ def _workspace_or_error(request):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([WorkspaceManagerPermission])
 def tenant_create_api(request):
-    workspace, error = _workspace_or_error(request)
-    if error:
-        return error
     serializer = TenantSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
     try:
-        tenant = create_tenant(request.user, workspace, serializer.validated_data, request.FILES)
+        tenant = create_tenant(request.user, request.workspace, serializer.validated_data, request.FILES)
         return Response({"message": "Tenant created", "data": TenantSerializer(tenant).data})
     except ValidationError as exc:
         return Response({"error": str(exc)}, status=400)
@@ -41,34 +39,28 @@ def tenant_list_api(request):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([WorkspaceManagerPermission])
 def occupancy_create_api(request):
-    workspace, error = _workspace_or_error(request)
-    if error:
-        return error
     serializer = OccupancySerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
     try:
-        occupancy = create_occupancy(request.user, workspace, serializer.validated_data)
+        occupancy = create_occupancy(request.user, request.workspace, serializer.validated_data)
         return Response({"message": "Occupancy created", "data": OccupancySerializer(occupancy).data})
     except ValidationError as exc:
         return Response({"error": str(exc)}, status=400)
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([WorkspaceManagerPermission])
 def charge_create_api(request):
-    workspace, error = _workspace_or_error(request)
-    if error:
-        return error
     serializer = ChargeSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
     try:
-        charge = create_charge(request.user, workspace, serializer.validated_data)
+        charge = create_charge(request.user, request.workspace, serializer.validated_data)
         return Response({"message": "Charges Created", "data": ChargeSerializer(charge).data})
-    except (ValidationError, Exception) as exc:
+    except Exception as exc:
         return Response({"error": str(exc)}, status=400)
 
 
