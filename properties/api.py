@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
@@ -5,6 +6,10 @@ from workspaces.permissions import WorkspaceManagerPermission, WorkspaceStaffPer
 from .models import Property
 from .serializers import PropertySerializer
 from .services import create_property
+
+
+def _validation_message(exc):
+    return exc.messages[0] if exc.messages else str(exc)
 
 
 @api_view(["GET"])
@@ -32,5 +37,5 @@ def property_create_api(request):
             "message": "Property created successfully",
             "data": PropertySerializer(property_obj).data,
         })
-    except Exception as exc:
-        return Response({"error": str(exc)}, status=400)
+    except ValidationError as exc:
+        return Response({"error": _validation_message(exc)}, status=400)
