@@ -1,17 +1,18 @@
-from .models import Tenant, Occupancy, Charge
+from decimal import Decimal
+
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from decimal import Decimal
+
 from payments.models import Invoice
+from .models import Tenant, Occupancy, Charge
+from unit.models import Unit, SubUnit
+
 
 def create_tenant(user, data, files):
-
     if not data.get("full_name"):
         raise ValidationError("Full name required")
-
     if not data.get("phone"):
         raise ValidationError("Phone number required")
-
     return Tenant.objects.create(
         owner=user,
         full_name=data.get("full_name"),
@@ -30,28 +31,47 @@ def create_tenant(user, data, files):
     )
 
 
-# 🔥 CREATE TENANT (ALL FIELDS SUPPORT)
 def create_occupancy(user, data):
-
-    with transaction.atomic():   # 🔥 TRANSACTION START
-
-        # 🔐 Ownership check (add if missing)
+    with transaction.atomic():
         try:
-            tenant = Tenant.objects.get(id=data.get("tenant"))
+            tenant = Tenant.objects.get(id=data.get("tenant"), owner=user)
         except Tenant.DoesNotExist:
             raise ValidationError("Tenant not found")
 
-        if tenant.owner != user:
-            raise ValidationError("Unauthorized")
+        unit_id = data.get("unit")
+        subunit_id = data.get("subunit")
 
-        if not data.get("unit") and not data.get("subunit"):
+        if not unit_id and not subunit_id:
             raise ValidationError("Unit or SubUnit required")
 
-        # ✅ CREATE OCCUPANCY
+        if subunit_id:
+            try:
+                subunit = SubUnit.objects.select_related("unit__property").get(
+                    id=subunit_id,
+                    unit__property__owner=user,
+                )
+            except SubUnit.DoesNotExist:
+                raise ValidationError("SubUnit not found")
+
+            if unit_id and int(unit_id) != subunit.unit_id:
+                raise ValidationError("SubUnit does not belong to selected Unit")
+
+            unit = subunit.unit
+            unit_id = unit.id
+            subunit_id = subunit.id
+        else:
+            try:
+                unit = Unit.objects.select_related("property").get(
+                    id=unit_id,
+                    property__owner=user,
+                )
+            except Unit.DoesNotExist:
+                raise ValidationError("Unit not found")
+
         occupancy = Occupancy.objects.create(
             tenant=tenant,
-            unit_id=data.get("unit"),
-            subunit_id=data.get("subunit"),
+            unit=unit,
+            subunit_id=subunit_id,
             allotted_by=user,
             rent=data.get("rent"),
             billing_type=data.get("billing_type"),
@@ -63,9 +83,7 @@ def create_occupancy(user, data):
         )
 
         charges_amount = Decimal(data.get("charges_amount") or 0)
-
-        # 🔥 AUTO CREATE INVOICE
-        invoice = Invoice.objects.create(
+        Invoice.objects.create(
             occupancy=occupancy,
             billing_start=data.get("check_in_date"),
             billing_end=data.get("next_due_date"),
@@ -73,24 +91,22 @@ def create_occupancy(user, data):
             charges_amount=charges_amount,
             due_date=data.get("next_due_date"),
         )
-
         return occupancy
 
 
-# 🔥 GET TENANTS
 def get_tenants(user):
     return Tenant.objects.filter(owner=user)
 
 
-# 🔥 CREATE CHARGE
 def create_charge(user, data):
-
     with transaction.atomic():
-
-        occupancy = Occupancy.objects.get(id=data.get("occupancy"))
-
-        if occupancy.tenant.owner != user:
-            raise ValidationError("Unauthorized")
+        try:
+            occupancy = Occupancy.objects.select_related("tenant").get(
+                id=data.get("occupancy"),
+                tenant__owner=user,
+            )
+        except Occupancy.DoesNotExist:
+            raise ValidationError("Occupancy not found")
 
         charge = Charge.objects.create(
             occupancy=occupancy,
@@ -100,21 +116,18 @@ def create_charge(user, data):
             charge_date=data.get("charge_date"),
         )
 
-        # 🔥 GET LATEST INVOICE
         invoice = occupancy.invoices.filter(status="pending").last()
-
         if not invoice:
             raise ValidationError("No active invoice found")
 
-        # 🔥 UPDATE INVOICE
         invoice.charges_amount += charge.amount
         invoice.total_amount = invoice.rent_amount + invoice.charges_amount
         invoice.save()
-
         return charge
 
 
-# 🔥 GET CHARGES (BY OCCUPANCY)
 def get_charges(occupancy_id, user):
-    return Charge.objects.filter(occupancy_id=occupancy_id, occupancy__tenant__owner=user
+    return Charge.objects.filter(
+        occupancy_id=occupancy_id,
+        occupancy__tenant__owner=user,
     )
