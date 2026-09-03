@@ -72,11 +72,18 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
+    # API endpoints are private by default. Public endpoints must opt in with
+    # AllowAny explicitly (login/signup/password reset).
+    "DEFAULT_PERMISSION_CLASSES": (
+        "rest_framework.permissions.IsAuthenticated",
+    ),
     "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
         "rest_framework.throttling.UserRateThrottle",
     ],
     "DEFAULT_THROTTLE_RATES": {
-        "user": os.getenv("DRF_USER_THROTTLE_RATE", "10/min"),
+        "anon": os.getenv("DRF_ANON_THROTTLE_RATE", "5/min"),
+        "user": os.getenv("DRF_USER_THROTTLE_RATE", "60/min"),
     },
 }
 
