@@ -4,6 +4,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from workspaces.context import get_workspace_for_request
+from workspaces.permissions import WorkspaceManagerPermission, WorkspaceStaffPermission
 from .serializers import InvoiceSerializer, PaymentSerializer
 from .services import (
     calculate_final_settlement,
@@ -28,64 +29,49 @@ def invoice_create_api(request):
 
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticated])
+@permission_classes([WorkspaceStaffPermission])
 def invoice_list_api(request):
-    workspace, error = _workspace_or_error(request)
-    if error:
-        return error
-    return Response({"data": InvoiceSerializer(get_invoices(workspace), many=True).data})
+    return Response({"data": InvoiceSerializer(get_invoices(request.workspace), many=True).data})
 
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticated])
+@permission_classes([WorkspaceStaffPermission])
 def invoice_detail_api(request, invoice_id):
-    workspace, error = _workspace_or_error(request)
-    if error:
-        return error
     try:
-        invoice = get_invoice(invoice_id, workspace)
+        invoice = get_invoice(invoice_id, request.workspace)
     except ValidationError as exc:
         return Response({"error": str(exc)}, status=404)
     return Response({"data": InvoiceSerializer(invoice).data})
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([WorkspaceManagerPermission])
 def payment_create_api(request):
-    workspace, error = _workspace_or_error(request)
-    if error:
-        return error
     serializer = PaymentSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
     try:
-        payment = create_payment(request.user, workspace, serializer.validated_data)
+        payment = create_payment(request.user, request.workspace, serializer.validated_data)
     except ValidationError as exc:
         return Response({"error": str(exc)}, status=400)
     return Response({"message": "Payment created", "data": PaymentSerializer(payment).data})
 
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticated])
+@permission_classes([WorkspaceStaffPermission])
 def payment_list_api(request):
-    workspace, error = _workspace_or_error(request)
-    if error:
-        return error
     invoice_id = request.GET.get("invoice")
-    payments = get_payments(invoice_id, workspace)
+    payments = get_payments(invoice_id, request.workspace)
     return Response({"data": PaymentSerializer(payments, many=True).data})
 
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticated])
+@permission_classes([WorkspaceStaffPermission])
 def final_settlement_api(request, occupancy_id):
-    workspace, error = _workspace_or_error(request)
-    if error:
-        return error
     try:
-        data = calculate_final_settlement(occupancy_id, workspace)
+        data = calculate_final_settlement(occupancy_id, request.workspace)
     except ValidationError as exc:
-        return Response({"error": str(exc)}, status=400)
+        return Response({"error": str(exc)}, status=404)
     return Response({"data": data})
 
 
