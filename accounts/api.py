@@ -21,10 +21,7 @@ User = get_user_model()
 
 def get_tokens_for_user(user):
     refresh = RefreshToken.for_user(user)
-    return {
-        "refresh": str(refresh),
-        "access": str(refresh.access_token),
-    }
+    return {"refresh": str(refresh), "access": str(refresh.access_token)}
 
 
 @api_view(["POST"])
@@ -37,7 +34,6 @@ def login_api(request):
         return Response({"error": "Email and password required"}, status=400)
 
     user = login_user_service(request, email, password)
-
     if user is None:
         return Response({"error": "Invalid credentials"}, status=401)
 
@@ -45,7 +41,6 @@ def login_api(request):
         return Response({"error": "Account is inactive"}, status=403)
 
     refresh = RefreshToken.for_user(user)
-
     return Response({
         "message": "Login successful",
         "access": str(refresh.access_token),
@@ -60,11 +55,12 @@ def signup_api(request):
         email = request.data.get("email", "").strip().lower()
         password = request.data.get("password")
         confirm_password = request.data.get("confirm_password")
+        workspace_name = request.data.get("workspace_name")
 
         if not email or not password or not confirm_password:
             return Response({"error": "All fields required"}, status=400)
 
-        user = create_user_account(email, password, confirm_password)
+        user = create_user_account(email, password, confirm_password, workspace_name)
         tokens = get_tokens_for_user(user)
 
         return Response({
@@ -81,13 +77,11 @@ def signup_api(request):
 @permission_classes([AllowAny])
 def logout_api(request):
     refresh_token = request.data.get("refresh")
-
     if not refresh_token:
         return Response({"error": "Refresh token required"}, status=400)
 
     try:
-        token = RefreshToken(refresh_token)
-        token.blacklist()
+        RefreshToken(refresh_token).blacklist()
     except Exception:
         return Response({"error": "Invalid or expired token"}, status=400)
 
@@ -98,11 +92,9 @@ def logout_api(request):
 @permission_classes([AllowAny])
 def forgot_password_api(request):
     email = request.data.get("email", "").strip().lower()
-
     if not email:
         return Response({"error": "Email is required"}, status=400)
 
-    # Do not reveal whether an email belongs to an account.
     generic_response = {"message": "If the account exists, a password reset link has been sent"}
 
     try:
@@ -112,7 +104,6 @@ def forgot_password_api(request):
 
     uid = urlsafe_base64_encode(force_bytes(user.pk))
     token = default_token_generator.make_token(user)
-
     frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
     reset_url = f"{frontend_url}/reset-password/{uid}/{token}/"
 
@@ -120,7 +111,6 @@ def forgot_password_api(request):
         return Response({"error": "Password reset service is not configured"}, status=503)
 
     resend.api_key = settings.RESEND_API_KEY
-
     try:
         resend.Emails.send({
             "from": os.getenv("EMAIL_FROM", "onboarding@resend.dev"),
@@ -143,10 +133,8 @@ def forgot_password_api(request):
 def reset_password_api(request, uidb64, token):
     password = request.data.get("password")
     confirm_password = request.data.get("confirm_password")
-
     if not password or not confirm_password:
         return Response({"error": "Password and confirmation are required"}, status=400)
-
     if password != confirm_password:
         return Response({"error": "Passwords do not match"}, status=400)
 
@@ -168,13 +156,11 @@ def reset_password_api(request, uidb64, token):
     user.set_password(password)
     user.save(update_fields=["password"])
 
-    # Revoke all outstanding refresh tokens after a password reset.
     try:
         from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
         for outstanding in OutstandingToken.objects.filter(user=user):
             BlacklistedToken.objects.get_or_create(token=outstanding)
     except Exception:
-        # Do not expose token-revocation implementation details to the client.
         pass
 
     return Response({"message": "Password reset successful"})
