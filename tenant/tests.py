@@ -1,5 +1,6 @@
 from datetime import date
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
@@ -65,6 +66,25 @@ class OccupancySecurityTests(TestCase):
         data["check_out_date"] = date(2026, 8, 31)
         with self.assertRaises(ValidationError):
             create_occupancy(self.owner, self.workspace, data)
+
+    def test_occupancy_creation_rolls_back_if_invoice_creation_fails(self):
+        data = self.occupancy_data(self.unit.id)
+        with patch("tenant.services.Invoice.objects.create", side_effect=ValidationError("Invoice creation failed")):
+            with self.assertRaises(ValidationError):
+                create_occupancy(self.owner, self.workspace, data)
+        self.assertEqual(Occupancy.objects.count(), 0)
+
+    def test_subunit_occupancy_creation_is_workspace_scoped_and_atomic(self):
+        subunit = SubUnit.objects.create(unit=self.unit, subunit_number="A", rent=Decimal("5000.00"))
+        data = self.occupancy_data(self.unit.id)
+        data["subunit"] = subunit.id
+        data["rent"] = Decimal("5000.00")
+        occupancy = create_occupancy(self.owner, self.workspace, data)
+        occupancy.refresh_from_db()
+        self.assertEqual(occupancy.unit_id, self.unit.id)
+        self.assertEqual(occupancy.subunit_id, subunit.id)
+        self.assertEqual(occupancy.tenant.workspace_id, self.workspace.id)
+        self.assertEqual(occupancy.invoices.count(), 1)
 
     def test_tenant_serializer_cannot_assign_owner_or_workspace(self):
         serializer = TenantSerializer(data={"owner": self.other_owner.id, "workspace": self.other_workspace.id, "full_name": "Injected Tenant", "phone": "9999999998", "permanent_address": "Delhi"})
