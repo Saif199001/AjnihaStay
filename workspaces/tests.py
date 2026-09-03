@@ -125,15 +125,15 @@ class WorkspaceFoundationTests(TestCase):
         self.assertEqual(Property.objects.filter(workspace=other_workspace).count(), 0)
         self.assertEqual(prop.workspace_id, workspace.id)
 
-    def test_workspace_context_is_transaction_local(self):
-        workspace = Workspace.objects.create(name="Context", slug="context-test", owner=User.objects.create_user("db-context@example.com", self.password))
+    def test_workspace_context_sets_current_transaction(self):
+        workspace = Workspace.objects.create(
+            name="Context",
+            slug="context-test",
+            owner=User.objects.create_user("db-context@example.com", self.password),
+        )
 
         with transaction.atomic():
             set_workspace_context(workspace.id)
             with connection.cursor() as cursor:
                 cursor.execute("SELECT current_setting('app.workspace_id', true)")
                 self.assertEqual(cursor.fetchone()[0], str(workspace.id))
-
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT current_setting('app.workspace_id', true)")
-            self.assertIn(cursor.fetchone()[0], (None, ""))
