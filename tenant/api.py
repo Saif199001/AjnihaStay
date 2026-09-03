@@ -48,7 +48,7 @@ def charge_create_api(request):
     try:
         charge = create_charge(request.user, request.workspace, serializer.validated_data)
         return Response({"message": "Charges Created", "data": ChargeSerializer(charge).data})
-    except Exception as exc:
+    except ValidationError as exc:
         return Response({"error": str(exc)}, status=400)
 
 
