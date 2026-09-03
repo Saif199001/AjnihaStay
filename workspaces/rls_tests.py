@@ -34,6 +34,8 @@ class WorkspaceRLSTests(TestCase):
             cursor.execute(f"GRANT USAGE ON SCHEMA public TO {RLS_ROLE}")
             for table in PROTECTED_TABLES:
                 cursor.execute(f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {table} TO {RLS_ROLE}")
+            cursor.execute(f"GRANT SELECT ON TABLE accounts_user, workspaces_workspace TO {RLS_ROLE}")
+            cursor.execute(f"GRANT USAGE, SELECT ON SEQUENCE properties_property_id_seq TO {RLS_ROLE}")
 
     @classmethod
     def tearDownClass(cls):
