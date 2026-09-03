@@ -32,7 +32,7 @@ class Property(models.Model):
     state = models.CharField(max_length=100)
     pincode = models.CharField(max_length=10)
     amenities = models.JSONField(default=list, blank=True)
-    thumbnail = CloudinaryField("properties", blank=True, default=None)
+    thumbnail = CloudinaryField("properties", blank=True, null=True, default=None)
     is_active = models.BooleanField(default=True)
     is_listed = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -59,7 +59,7 @@ class PropertyImage(models.Model):
         on_delete=models.CASCADE,
         related_name="images",
     )
-    image = CloudinaryField("properties", blank=True, default=None)
+    image = CloudinaryField("properties", blank=True, null=True, default=None)
     caption = models.CharField(max_length=255, blank=True, null=True)
     is_primary = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
