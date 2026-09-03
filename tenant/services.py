@@ -146,7 +146,20 @@ def create_charge(user, workspace, data):
         return charge
 
 
+def _optional_positive_id(value, field_name):
+    if value in (None, ""):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        raise ValidationError(f"Invalid {field_name} ID")
+    if parsed <= 0:
+        raise ValidationError(f"Invalid {field_name} ID")
+    return parsed
+
+
 def get_charges(occupancy_id, workspace):
+    occupancy_id = _optional_positive_id(occupancy_id, "occupancy")
     return Charge.objects.filter(
         occupancy_id=occupancy_id,
         occupancy__tenant__workspace=workspace,
