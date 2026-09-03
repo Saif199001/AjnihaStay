@@ -1,20 +1,17 @@
-from .models import Invoice, Payment
 from decimal import Decimal
-from tenant.models import Occupancy
-from django.db import transaction
+
 from django.core.exceptions import ValidationError
+from django.db import transaction
+
+from .models import Invoice, Payment
+from tenant.models import Occupancy
 
 
-# 🔥 CREATE INVOICE
-def create_invoice(user, data):
-
+def create_invoice(user, workspace, data):
     try:
-        occupancy = Occupancy.objects.get(id=data.get("occupancy"))
+        occupancy = Occupancy.objects.get(id=data.get("occupancy"), tenant__workspace=workspace)
     except Occupancy.DoesNotExist:
         raise ValidationError("Occupancy not found")
-
-    if occupancy.tenant.owner != user:
-        raise ValidationError("Unauthorized")
 
     return Invoice.objects.create(
         occupancy=occupancy,
@@ -26,45 +23,29 @@ def create_invoice(user, data):
     )
 
 
-# 🔥 GET ALL INVOICES (OWNER BASED)
-def get_invoices(user):
-
+def get_invoices(workspace):
     return Invoice.objects.filter(
-        occupancy__tenant__owner=user
+        occupancy__tenant__workspace=workspace
     ).select_related("occupancy", "occupancy__tenant")
 
 
-# 🔥 GET SINGLE INVOICE
-def get_invoice(invoice_id, user):
-
+def get_invoice(invoice_id, workspace):
     try:
-        return Invoice.objects.get(
-            id=invoice_id,
-            occupancy__tenant__owner=user
-        )
+        return Invoice.objects.get(id=invoice_id, occupancy__tenant__workspace=workspace)
     except Invoice.DoesNotExist:
         raise ValidationError("Invoice not found")
 
 
-# 🔥 CREATE PAYMENT
-def create_payment(user, data):
-
+def create_payment(user, workspace, data):
     with transaction.atomic():
-
         try:
-            # Serialize payment creation for this invoice. Without this lock,
-            # two concurrent payments can both pass the overpayment check.
             invoice = Invoice.objects.select_for_update().select_related(
                 "occupancy__tenant"
-            ).get(id=data.get("invoice"))
+            ).get(id=data.get("invoice"), occupancy__tenant__workspace=workspace)
         except Invoice.DoesNotExist:
             raise ValidationError("Invoice not found")
 
-        if invoice.occupancy.tenant.owner != user:
-            raise ValidationError("Unauthorized")
-
         amount = Decimal(data.get("amount"))
-
         payment = Payment.objects.create(
             invoice=invoice,
             amount=amount,
@@ -74,11 +55,7 @@ def create_payment(user, data):
             notes=data.get("notes"),
         )
 
-        total_paid = sum(
-            existing_payment.amount
-            for existing_payment in invoice.payments.all()
-        )
-
+        total_paid = sum(existing_payment.amount for existing_payment in invoice.payments.all())
         invoice.paid_amount = total_paid
         if total_paid >= invoice.total_amount:
             invoice.status = "paid"
@@ -86,92 +63,41 @@ def create_payment(user, data):
             invoice.status = "partial"
         else:
             invoice.status = "pending"
-
         invoice.save(update_fields=["paid_amount", "status"])
         return payment
 
 
-# 🔥 GET PAYMENTS (BY INVOICE)
-def get_payments(invoice_id, user):
-
+def get_payments(invoice_id, workspace):
     return Payment.objects.filter(
         invoice_id=invoice_id,
-        invoice__occupancy__tenant__owner=user
+        invoice__occupancy__tenant__workspace=workspace,
     ).select_related("invoice").order_by("-created_at")
 
 
-def calculate_final_settlement( occupancy_id, user ):
-
+def calculate_final_settlement(occupancy_id, workspace):
     try:
-
-        occupancy = Occupancy.objects.get(
-            id=occupancy_id
+        occupancy = Occupancy.objects.select_related("tenant", "unit").get(
+            id=occupancy_id,
+            tenant__workspace=workspace,
         )
-
     except Occupancy.DoesNotExist:
-
-        raise ValidationError(
-            "Occupancy not found"
-        )
-
-    # 🔐 SECURITY CHECK
-    if occupancy.tenant.owner != user:
-
-        raise ValidationError(
-            "Unauthorized"
-        )
+        raise ValidationError("Occupancy not found")
 
     invoices = occupancy.invoices.all()
-
-    total_rent = sum(
-        invoice.rent_amount or 0
-        for invoice in invoices
-    )
-
-    total_charges = sum(
-        invoice.charges_amount or 0
-        for invoice in invoices
-    )
-
-    total_paid = sum(
-        invoice.paid_amount or 0
-        for invoice in invoices
-    )
-
-    total_amount = (
-        total_rent +
-        total_charges
-    )
-
-    due_amount = (
-        total_amount -
-        total_paid
-    )
-
-    security_deposit = (
-        occupancy.security_deposit or 0
-    )
-
-    final_balance = (
-        due_amount -
-        security_deposit
-    )
+    total_rent = sum(invoice.rent_amount or 0 for invoice in invoices)
+    total_charges = sum(invoice.charges_amount or 0 for invoice in invoices)
+    total_paid = sum(invoice.paid_amount or 0 for invoice in invoices)
+    total_amount = total_rent + total_charges
+    due_amount = total_amount - total_paid
+    security_deposit = occupancy.security_deposit or 0
 
     return {
-
         "tenant": occupancy.tenant.full_name,
-
         "unit": occupancy.unit.unit_number,
-
         "total_rent": total_rent,
-
         "total_charges": total_charges,
-
         "total_paid": total_paid,
-
         "total_due": due_amount,
-
         "security_deposit": security_deposit,
-
-        "final_balance": final_balance,
+        "final_balance": due_amount - security_deposit,
     }
