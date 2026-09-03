@@ -2,10 +2,8 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.core.exceptions import ValidationError
-from .utils import generate_recurring_invoices
 
 from .services import (
-    create_invoice,
     get_invoices,
     get_invoice,
     create_payment,
@@ -15,10 +13,12 @@ from .services import (
 
 from .serializers import InvoiceSerializer, PaymentSerializer
 
+
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def invoice_create_api(request):
     return Response({"error": "Invoice creation is disabled"}, status=403)
+
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
@@ -28,8 +28,9 @@ def invoice_list_api(request):
     serializer = InvoiceSerializer(invoices, many=True)
 
     return Response({
-        "data": serializer.data 
+        "data": serializer.data
     })
+
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
@@ -40,11 +41,12 @@ def invoice_detail_api(request, invoice_id):
         serializer = InvoiceSerializer(invoice)
 
         return Response({
-            "data": serializer.data 
+            "data": serializer.data
         })
 
     except ValidationError as e:
         return Response({"error": str(e)}, status=404)
+
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
@@ -69,6 +71,7 @@ def payment_create_api(request):
     except ValidationError as e:
         return Response({"error": str(e)}, status=400)
 
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def payment_list_api(request):
@@ -79,8 +82,9 @@ def payment_list_api(request):
     serializer = PaymentSerializer(payments, many=True)
 
     return Response({
-        "data": serializer.data 
+        "data": serializer.data
     })
+
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
@@ -110,9 +114,9 @@ def final_settlement_api(
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def generate_invoice_api(request):
+    """Recurring invoice generation is reserved for a trusted job.
 
-    generate_recurring_invoices()
-
-    return Response({
-        "message": "Recurring invoices generated"
-    })
+    This endpoint must not allow one tenant to trigger invoice mutations for
+    every tenant in the database.
+    """
+    return Response({"error": "Recurring invoice generation is disabled"}, status=403)
