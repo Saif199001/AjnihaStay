@@ -3,12 +3,14 @@ from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.test import TestCase
+from rest_framework.test import APIRequestFactory
 
 from accounts.models import User
 from properties.models import Property
 from unit.models import SubUnit, Unit
 from workspaces.models import Membership, Workspace
 from .models import Occupancy, Tenant
+from .serializers import TenantSerializer
 from .services import create_occupancy
 
 
@@ -65,3 +67,15 @@ class OccupancySecurityTests(TestCase):
         )
         with self.assertRaises(ValidationError):
             create_occupancy(self.owner, self.workspace, self.occupancy_data(self.unit.id))
+
+    def test_tenant_serializer_cannot_assign_owner_or_workspace(self):
+        serializer = TenantSerializer(data={
+            "owner": self.other_owner.id,
+            "workspace": self.other_workspace.id,
+            "full_name": "Injected Tenant",
+            "phone": "9999999998",
+            "permanent_address": "Delhi",
+        })
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertNotIn("owner", serializer.validated_data)
+        self.assertNotIn("workspace", serializer.validated_data)
