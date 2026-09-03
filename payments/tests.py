@@ -85,6 +85,23 @@ class PaymentIntegrityTests(TestCase):
         self.assertEqual(self.invoice.status, "paid")
         self.assertEqual(self.invoice.due_amount, Decimal("0.00"))
 
+    def test_invoice_save_reconciles_paid_amount_and_status_from_payments(self):
+        create_payment(self.owner, self.workspace, self.payment_data("4000.00"))
+        self.invoice.refresh_from_db()
+        self.invoice.paid_amount = Decimal("9999.00")
+        self.invoice.status = "paid"
+        self.invoice.save()
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.paid_amount, Decimal("4000.00"))
+        self.assertEqual(self.invoice.status, "partial")
+
+    def test_invoice_cannot_reduce_total_below_actual_payments(self):
+        create_payment(self.owner, self.workspace, self.payment_data("4000.00"))
+        self.invoice.refresh_from_db()
+        self.invoice.rent_amount = Decimal("3000.00")
+        with self.assertRaises(ValidationError):
+            self.invoice.save()
+
     def test_settlement_uses_actual_payment_rows(self):
         create_payment(self.owner, self.workspace, self.payment_data("4000.00"))
         self.invoice.paid_amount = Decimal("9999.00")
