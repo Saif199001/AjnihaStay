@@ -1,8 +1,9 @@
-from django.db import models
-from tenant.models import Occupancy
-from payments.utils import generate_invoice_number
 from django.core.exceptions import ValidationError
-from django.db.models import Sum
+from django.db import models
+from django.db.models import F, Q, Sum
+
+from payments.utils import generate_invoice_number
+from tenant.models import Occupancy
 
 
 class Invoice(models.Model):
@@ -48,6 +49,17 @@ class Invoice(models.Model):
         if not self.invoice_number:
             self.invoice_number = generate_invoice_number()
         self.total_amount = (self.rent_amount or 0) + (self.charges_amount or 0)
+
+        if self.pk:
+            total_paid = self.payments.aggregate(total=Sum("amount"))["total"] or 0
+            self.paid_amount = total_paid
+            if total_paid >= self.total_amount:
+                self.status = "paid"
+            elif total_paid > 0:
+                self.status = "partial"
+            else:
+                self.status = "pending"
+
         self.clean()
         super().save(*args, **kwargs)
 
@@ -65,15 +77,15 @@ class Invoice(models.Model):
             models.Index(fields=["due_date"]),
         ]
         constraints = [
-            models.CheckConstraint(condition=models.Q(rent_amount__gte=0), name="invoice_rent_non_negative"),
-            models.CheckConstraint(condition=models.Q(charges_amount__gte=0), name="invoice_charges_non_negative"),
-            models.CheckConstraint(condition=models.Q(paid_amount__gte=0), name="invoice_paid_non_negative"),
+            models.CheckConstraint(condition=Q(rent_amount__gte=0), name="invoice_rent_non_negative"),
+            models.CheckConstraint(condition=Q(charges_amount__gte=0), name="invoice_charges_non_negative"),
+            models.CheckConstraint(condition=Q(paid_amount__gte=0), name="invoice_paid_non_negative"),
             models.CheckConstraint(
-                condition=models.Q(total_amount__isnull=True) | models.Q(total_amount__gte=0),
+                condition=Q(total_amount__isnull=True) | Q(total_amount__gte=0),
                 name="invoice_total_non_negative",
             ),
             models.CheckConstraint(
-                condition=models.Q(total_amount__isnull=True) | models.Q(paid_amount__lte=models.F("total_amount")),
+                condition=Q(total_amount__isnull=True) | Q(paid_amount__lte=F("total_amount")),
                 name="invoice_paid_lte_total",
             ),
         ]
@@ -119,5 +131,5 @@ class Payment(models.Model):
             models.Index(fields=["payment_date"]),
         ]
         constraints = [
-            models.CheckConstraint(condition=models.Q(amount__gt=0), name="payment_amount_positive"),
+            models.CheckConstraint(condition=Q(amount__gt=0), name="payment_amount_positive"),
         ]
