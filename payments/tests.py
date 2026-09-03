@@ -2,6 +2,7 @@ from datetime import date
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError
 from django.test import TestCase
 from rest_framework.test import APIClient
 
@@ -10,8 +11,8 @@ from properties.models import Property
 from tenant.models import Occupancy, Tenant
 from unit.models import Unit
 from workspaces.models import Membership, Workspace
-from .models import Invoice
-from .services import create_payment
+from .models import Invoice, Payment
+from .services import calculate_final_settlement, create_payment
 
 
 class PaymentIntegrityTests(TestCase):
@@ -49,6 +50,18 @@ class PaymentIntegrityTests(TestCase):
             "payment_date": date(2026, 9, 3),
         }
 
+    def test_invoice_rejects_negative_amounts(self):
+        with self.assertRaises(ValidationError):
+            Invoice.objects.create(
+                occupancy=self.occupancy,
+                billing_start=date(2026, 9, 1), billing_end=date(2026, 10, 1),
+                rent_amount=Decimal("-1.00"), charges_amount=Decimal("0.00"), due_date=date(2026, 10, 1),
+            )
+
+    def test_payment_rejects_non_positive_amount(self):
+        with self.assertRaises(ValidationError):
+            create_payment(self.owner, self.workspace, self.payment_data("0.00"))
+
     def test_payment_cannot_overpay_invoice(self):
         create_payment(self.owner, self.workspace, self.payment_data("7000.00"))
         with self.assertRaises(ValidationError):
@@ -71,6 +84,32 @@ class PaymentIntegrityTests(TestCase):
         self.assertEqual(self.invoice.paid_amount, Decimal("10000.00"))
         self.assertEqual(self.invoice.status, "paid")
         self.assertEqual(self.invoice.due_amount, Decimal("0.00"))
+
+    def test_settlement_uses_actual_payment_rows(self):
+        create_payment(self.owner, self.workspace, self.payment_data("4000.00"))
+        self.invoice.paid_amount = Decimal("9999.00")
+        self.invoice.status = "partial"
+        self.invoice.save(update_fields=["paid_amount", "status"])
+
+        settlement = calculate_final_settlement(self.occupancy.id, self.workspace)
+        self.assertEqual(settlement["total_paid"], Decimal("4000.00"))
+        self.assertEqual(settlement["total_due"], Decimal("6000.00"))
+
+    def test_settlement_does_not_report_negative_due(self):
+        create_payment(self.owner, self.workspace, self.payment_data("10000.00"))
+        settlement = calculate_final_settlement(self.occupancy.id, self.workspace)
+        self.assertEqual(settlement["total_due"], Decimal("0.00"))
+
+    def test_database_constraint_blocks_invalid_payment_row(self):
+        with self.assertRaises(IntegrityError):
+            Payment.objects.bulk_create([
+                Payment(
+                    invoice=self.invoice,
+                    amount=Decimal("0.00"),
+                    payment_method="upi",
+                    payment_date=date(2026, 9, 3),
+                )
+            ])
 
 
 class PaymentWorkspaceAPITests(TestCase):
