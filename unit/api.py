@@ -7,11 +7,18 @@ from .serializers import SubUnitSerializer, UnitSerializer
 from .services import create_subunit, create_unit, get_units
 
 
+def _validation_message(exc):
+    return exc.messages[0] if exc.messages else str(exc)
+
+
 @api_view(["GET"])
 @permission_classes([WorkspaceStaffPermission])
 def unit_list_api(request):
     property_id = request.GET.get("property")
-    units = get_units(request.workspace, property_id).select_related("property").prefetch_related("subunits")
+    try:
+        units = get_units(request.workspace, property_id).select_related("property").prefetch_related("subunits")
+    except ValidationError as exc:
+        return Response({"error": _validation_message(exc)}, status=400)
     return Response({"message": "units fetched", "data": UnitSerializer(units, many=True).data})
 
 
@@ -24,7 +31,7 @@ def unit_create_api(request):
     try:
         unit = create_unit(request.workspace, serializer.validated_data)
     except ValidationError as exc:
-        return Response({"error": str(exc)}, status=400)
+        return Response({"error": _validation_message(exc)}, status=400)
     return Response({"message": "Unit created", "data": UnitSerializer(unit).data})
 
 
@@ -37,5 +44,5 @@ def subunit_create_api(request):
     try:
         subunit = create_subunit(request.workspace, serializer.validated_data)
     except ValidationError as exc:
-        return Response({"error": str(exc)}, status=400)
+        return Response({"error": _validation_message(exc)}, status=400)
     return Response({"message": "SubUnit created", "data": SubUnitSerializer(subunit).data})
