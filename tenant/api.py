@@ -56,5 +56,8 @@ def charge_create_api(request):
 @permission_classes([WorkspaceStaffPermission])
 def charge_list_api(request):
     occupancy_id = request.GET.get("occupancy")
-    charges = get_charges(occupancy_id, request.workspace)
+    try:
+        charges = get_charges(occupancy_id, request.workspace)
+    except ValidationError as exc:
+        return Response({"error": str(exc)}, status=400)
     return Response(ChargeSerializer(charges, many=True).data)
