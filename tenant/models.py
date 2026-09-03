@@ -21,7 +21,7 @@ class Tenant(models.Model):
     full_name = models.CharField(max_length=200)
     phone = models.CharField(max_length=15)
     email = models.EmailField(blank=True, null=True)
-    profile_photo = CloudinaryField("tenants_photo", blank=True, default=None)
+    profile_photo = CloudinaryField("tenants_photo", blank=True, null=True, default=None)
     nationality = models.CharField(max_length=100, default="Indian")
     id_proof_type = models.CharField(max_length=50, blank=True, null=True)
     id_number = models.CharField(max_length=100, blank=True, null=True)
