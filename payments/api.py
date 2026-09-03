@@ -14,6 +14,10 @@ from .services import (
 )
 
 
+def _validation_message(exc):
+    return exc.messages[0] if exc.messages else str(exc)
+
+
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def invoice_create_api(request):
@@ -32,7 +36,7 @@ def invoice_detail_api(request, invoice_id):
     try:
         invoice = get_invoice(invoice_id, request.workspace)
     except ValidationError as exc:
-        return Response({"error": str(exc)}, status=404)
+        return Response({"error": _validation_message(exc)}, status=404)
     return Response({"data": InvoiceSerializer(invoice).data})
 
 
@@ -45,7 +49,7 @@ def payment_create_api(request):
     try:
         payment = create_payment(request.user, request.workspace, serializer.validated_data)
     except ValidationError as exc:
-        return Response({"error": str(exc)}, status=400)
+        return Response({"error": _validation_message(exc)}, status=400)
     return Response({"message": "Payment created", "data": PaymentSerializer(payment).data})
 
 
@@ -56,7 +60,7 @@ def payment_list_api(request):
     try:
         payments = get_payments(invoice_id, request.workspace)
     except ValidationError as exc:
-        return Response({"error": str(exc)}, status=400)
+        return Response({"error": _validation_message(exc)}, status=400)
     return Response({"data": PaymentSerializer(payments, many=True).data})
 
 
@@ -66,7 +70,7 @@ def final_settlement_api(request, occupancy_id):
     try:
         data = calculate_final_settlement(occupancy_id, request.workspace)
     except ValidationError as exc:
-        return Response({"error": str(exc)}, status=404)
+        return Response({"error": _validation_message(exc)}, status=404)
     return Response({"data": data})
 
 
