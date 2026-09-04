@@ -121,5 +121,5 @@ class Phase2FinalRegressionTests(TestCase):
                 },
             )
 
-        self.assertEqual(Occupancy.objects.filter(workspace=self.workspace).count(), 1)
-        self.assertEqual(Occupancy.objects.filter(workspace=self.other_workspace).count(), 0)
+        self.assertEqual(Occupancy.objects.filter(tenant__workspace=self.workspace).count(), 1)
+        self.assertEqual(Occupancy.objects.filter(tenant__workspace=self.other_workspace).count(), 0)
