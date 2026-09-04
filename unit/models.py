@@ -1,4 +1,6 @@
+from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 from properties.models import Property
 from cloudinary.models import CloudinaryField
@@ -45,11 +47,24 @@ class Unit(models.Model):
         indexes = [
             models.Index(fields=["property"]),
         ]
+        constraints = [
+            models.CheckConstraint(condition=Q(capacity__gte=1), name="unit_capacity_positive"),
+            models.CheckConstraint(condition=Q(rent__isnull=True) | Q(rent__gte=0), name="unit_rent_non_negative"),
+        ]
 
     def __str__(self):
         return f"{self.property.name if self.property else 'No Property'} - {self.unit_number}"
 
-    # ✅ SIMPLE & SAFE
+    def clean(self):
+        if self.capacity < 1:
+            raise ValidationError("Unit capacity must be at least 1")
+        if self.rent is not None and self.rent < 0:
+            raise ValidationError("Unit rent cannot be negative")
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+
     def is_occupied(self):
         from tenant.models import Occupancy
 
@@ -57,6 +72,7 @@ class Unit(models.Model):
             unit=self,
             is_active=True
         ).exists()
+
 
 class SubUnit(models.Model):
 
@@ -76,11 +92,21 @@ class SubUnit(models.Model):
 
     class Meta:
         unique_together = ["unit", "subunit_number"]
+        constraints = [
+            models.CheckConstraint(condition=Q(rent__gte=0), name="subunit_rent_non_negative"),
+        ]
 
     def __str__(self):
         return f"{self.unit} - {self.subunit_number}"
 
-    # ✅ SIMPLE & SAFE
+    def clean(self):
+        if self.rent < 0:
+            raise ValidationError("SubUnit rent cannot be negative")
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+
     def is_occupied(self):
         from tenant.models import Occupancy
 
