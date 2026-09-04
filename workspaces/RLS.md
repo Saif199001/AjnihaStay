@@ -21,6 +21,12 @@ The protected tables are:
 
 `ATOMIC_REQUESTS` is enabled when `DB_RLS_ENABLED=true`, so the transaction-local workspace setting remains active for the complete API view. PostgreSQL `set_config(..., true)` makes the setting transaction-local.
 
+## Missing workspace context
+
+A protected-table query without `app.workspace_id` must fail closed by returning no protected rows. The RLS policies therefore treat an unset/empty workspace setting as `NULL`; they must not rely on casting an empty string to `bigint`.
+
+Application code should still establish workspace context before querying protected domain data. The fail-closed policy is a database safety net, not a replacement for application authorization.
+
 ## Activation
 
 RLS policies are installed by migration but remain disabled until the deployment is explicitly activated.
@@ -37,6 +43,14 @@ python manage.py enable_workspace_rls
 
 The runtime database role must have permission to alter the tables during activation. The command uses `FORCE ROW LEVEL SECURITY`, which also subjects the table owner to the policies.
 
+## Django Admin
+
+Django Admin is a platform-level administrative surface, not a workspace-scoped customer API. When `FORCE ROW LEVEL SECURITY` is enabled, a database role without RLS bypass privileges cannot safely perform unrestricted cross-workspace Admin operations.
+
+The application API must remain on a non-bypass database role so RLS remains a real defense-in-depth boundary. Production platform-admin operations therefore require a separately designed privileged Admin database path/role; granting `BYPASSRLS` to the normal application database role is not an acceptable workaround.
+
+Until that separate Admin path exists, Django Admin must not be treated as a supported cross-workspace production management surface while forced RLS is enabled.
+
 ## Emergency rollback
 
 Temporarily disable RLS with:
@@ -49,4 +63,4 @@ Then diagnose the workspace context and deployment configuration before re-enabl
 
 ## Important
 
-Do not run production domain queries without a workspace context after RLS is enabled. A missing `app.workspace_id` intentionally results in no matching protected rows.
+Do not run production domain queries without a workspace context after RLS is enabled. A missing `app.workspace_id` must fail closed and return no matching protected rows.
