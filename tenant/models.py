@@ -29,6 +29,21 @@ class Tenant(models.Model):
     class Meta:
         indexes = [models.Index(fields=["workspace", "created_at"])]
 
+    def clean(self):
+        if self.owner_id and self.workspace_id:
+            from workspaces.models import Membership
+
+            if not Membership.objects.filter(
+                workspace_id=self.workspace_id,
+                user_id=self.owner_id,
+                is_active=True,
+            ).exists():
+                raise ValidationError("Tenant owner must be an active workspace member")
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return self.full_name
 
@@ -62,6 +77,15 @@ class Occupancy(models.Model):
             raise ValidationError("SubUnit must belong to selected Unit")
         if self.tenant.workspace_id != self.unit.property.workspace_id:
             raise ValidationError("Tenant and Unit must belong to the same workspace")
+        if self.allotted_by_id:
+            from workspaces.models import Membership
+
+            if not Membership.objects.filter(
+                workspace_id=self.tenant.workspace_id,
+                user_id=self.allotted_by_id,
+                is_active=True,
+            ).exists():
+                raise ValidationError("Allotted by user must be an active workspace member")
         if self.rent < 0:
             raise ValidationError("Rent cannot be negative")
         if self.security_deposit < 0:
