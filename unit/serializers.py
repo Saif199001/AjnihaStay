@@ -34,7 +34,8 @@ class UnitSerializer(serializers.ModelSerializer):
 
     def get_occupied_count(self, obj):
         return Occupancy.objects.filter(
-            Q(unit=obj) | Q(subunit__unit=obj),
+            unit=obj,
+            subunit__isnull=True,
             is_active=True,
         ).count()
 
