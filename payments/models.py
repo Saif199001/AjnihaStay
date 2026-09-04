@@ -16,7 +16,7 @@ class Invoice(models.Model):
 
     occupancy = models.ForeignKey(
         Occupancy,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="invoices"
     )
 
@@ -100,7 +100,7 @@ class Payment(models.Model):
         ("card", "Card"),
     )
 
-    invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name="payments")
+    invoice = models.ForeignKey(Invoice, on_delete=models.PROTECT, related_name="payments")
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     payment_method = models.CharField(max_length=20, choices=PAYMENT_METHODS)
     payment_date = models.DateField()
