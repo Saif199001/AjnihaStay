@@ -11,6 +11,7 @@ from unit.models import SubUnit, Unit
 from workspaces.models import Membership, Workspace
 
 from .models import Charge, Occupancy, Tenant
+from .services import create_occupancy
 
 
 class DeleteIntegrityTests(TestCase):
@@ -50,14 +51,17 @@ class DeleteIntegrityTests(TestCase):
             phone="9999999999",
             permanent_address="Delhi",
         )
-        self.occupancy = Occupancy.objects.create(
-            tenant=self.tenant,
-            unit=self.unit,
-            subunit=self.subunit,
-            allotted_by=self.owner,
-            rent=Decimal("5000.00"),
-            check_in_date=date(2026, 9, 1),
-            next_due_date=date(2026, 10, 1),
+        self.occupancy = create_occupancy(
+            self.owner,
+            self.workspace,
+            {
+                "tenant": self.tenant,
+                "unit": self.unit,
+                "subunit": self.subunit,
+                "rent": Decimal("5000.00"),
+                "check_in_date": date(2026, 9, 1),
+                "next_due_date": date(2026, 10, 1),
+            },
         )
         self.invoice = self.occupancy.invoices.get()
 
