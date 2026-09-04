@@ -6,7 +6,7 @@ from django.test import TestCase
 from accounts.models import User
 from payments.services import create_payment
 from properties.models import Property
-from tenant.models import Occupancy, Tenant
+from tenant.models import Tenant
 from tenant.services import create_occupancy
 from unit.models import SubUnit, Unit
 from workspaces.models import Membership, Workspace
@@ -88,7 +88,8 @@ class DashboardReadModelTests(TestCase):
         self.assertEqual(data["availability"][0]["available_capacity"], 1)
         self.assertEqual(data["availability"][0]["type"], "unit")
         self.assertEqual(len(data["upcoming_vacancies"]), 1)
-        self.assertEqual(data["upcoming_vacancies"][0]["occupancy_id"] if "occupancy_id" in data["upcoming_vacancies"][0] else occupancy.id, occupancy.id)
+        self.assertEqual(data["upcoming_vacancies"][0]["occupancy_id"], occupancy.id)
+        self.assertEqual(data["upcoming_vacancies"][0]["vacancy_date"], self.today + timedelta(days=5))
 
     def test_dashboard_lists_vacant_subunits_without_consuming_unit_capacity(self):
         subunit_a = SubUnit.objects.create(unit=self.unit, subunit_number="A", rent=Decimal("6000.00"))
