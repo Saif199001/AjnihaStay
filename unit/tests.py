@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
@@ -6,8 +7,9 @@ from rest_framework.test import APIClient
 
 from accounts.models import User
 from properties.models import Property
+from tenant.models import Occupancy, Tenant
 from workspaces.models import Membership, Workspace
-from .models import Unit
+from .models import Unit, SubUnit
 from .serializers import UnitSerializer
 from .services import create_unit, create_subunit, get_units
 
@@ -58,6 +60,66 @@ class UnitWorkspaceIsolationTests(TestCase):
         input_serializer = UnitSerializer(data={"property": self.property.id, "unit_number": "102", "unit_type": "room", "rent": "9000.00", "capacity": 1})
         self.assertTrue(input_serializer.is_valid(), input_serializer.errors)
         self.assertEqual(input_serializer.validated_data["property"], self.property)
+
+    def test_unit_occupancy_read_semantics_ignore_subunit_occupancy(self):
+        unit = Unit.objects.create(
+            property=self.property,
+            unit_type="room",
+            unit_number="102",
+            rent=Decimal("10000.00"),
+            capacity=2,
+        )
+        subunit = SubUnit.objects.create(
+            unit=unit,
+            subunit_number="A",
+            rent=Decimal("5000.00"),
+        )
+        tenant = Tenant.objects.create(
+            owner=self.owner,
+            workspace=self.workspace,
+            full_name="SubUnit Tenant",
+            phone="9999999999",
+            permanent_address="Delhi",
+        )
+        Occupancy.objects.create(
+            tenant=tenant,
+            unit=unit,
+            subunit=subunit,
+            allotted_by=self.owner,
+            rent=Decimal("5000.00"),
+            check_in_date=date(2026, 9, 1),
+            check_out_date=date(2026, 9, 30),
+            next_due_date=date(2026, 10, 1),
+        )
+
+        serializer = UnitSerializer(instance=unit)
+        self.assertEqual(serializer.data["occupied_count"], 0)
+        self.assertEqual(serializer.data["occupancy_status"], "Vacant")
+        self.assertFalse(unit.is_occupied())
+        self.assertTrue(subunit.is_occupied())
+
+    def test_unit_occupancy_read_semantics_count_unit_level_occupancy(self):
+        tenant = Tenant.objects.create(
+            owner=self.owner,
+            workspace=self.workspace,
+            full_name="Unit Tenant",
+            phone="9999999998",
+            permanent_address="Delhi",
+        )
+        Occupancy.objects.create(
+            tenant=tenant,
+            unit=self.unit,
+            allotted_by=self.owner,
+            rent=Decimal("10000.00"),
+            check_in_date=date(2026, 9, 1),
+            check_out_date=date(2026, 9, 30),
+            next_due_date=date(2026, 10, 1),
+        )
+
+        serializer = UnitSerializer(instance=self.unit)
+        self.assertEqual(serializer.data["occupied_count"], 1)
+        self.assertEqual(serializer.data["occupancy_status"], "Full")
+        self.assertTrue(self.unit.is_occupied())
 
     def test_unit_api_list_is_workspace_scoped(self):
         self.client.force_authenticate(user=self.other)
