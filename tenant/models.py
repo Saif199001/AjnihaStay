@@ -8,7 +8,7 @@ from unit.models import Unit, SubUnit
 
 
 class Tenant(models.Model):
-    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="tenants")
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="tenants")
     workspace = models.ForeignKey("workspaces.Workspace", on_delete=models.PROTECT, related_name="workspace_tenants")
     full_name = models.CharField(max_length=200)
     phone = models.CharField(max_length=15)
@@ -51,9 +51,9 @@ class Tenant(models.Model):
 class Occupancy(models.Model):
     BILLING_TYPES = (("advance", "Advance"), ("arrears", "Arrears"))
     BILLING_CYCLES = (("monthly", "Monthly"), ("daily", "Daily"))
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="occupancies")
-    unit = models.ForeignKey(Unit, on_delete=models.CASCADE, related_name="occupancies")
-    subunit = models.ForeignKey(SubUnit, on_delete=models.CASCADE, blank=True, null=True, related_name="occupancies")
+    tenant = models.ForeignKey(Tenant, on_delete=models.PROTECT, related_name="occupancies")
+    unit = models.ForeignKey(Unit, on_delete=models.PROTECT, related_name="occupancies")
+    subunit = models.ForeignKey(SubUnit, on_delete=models.PROTECT, blank=True, null=True, related_name="occupancies")
     allotted_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="allotted_units")
     rent = models.DecimalField(max_digits=10, decimal_places=2)
     billing_type = models.CharField(max_length=20, choices=BILLING_TYPES, default="advance")
@@ -128,7 +128,7 @@ class Occupancy(models.Model):
 
 class Charge(models.Model):
     CHARGE_TYPES = (("electricity", "Electricity"), ("food", "Food"), ("maintenance", "Maintenance"), ("laundry", "Laundry"), ("custom", "Custom"))
-    occupancy = models.ForeignKey(Occupancy, on_delete=models.CASCADE, related_name="charges")
+    occupancy = models.ForeignKey(Occupancy, on_delete=models.PROTECT, related_name="charges")
     charge_type = models.CharField(max_length=50, choices=CHARGE_TYPES)
     description = models.CharField(max_length=255, blank=True, null=True)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
