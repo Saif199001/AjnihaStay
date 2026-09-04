@@ -59,8 +59,12 @@ class DeleteIntegrityTests(TestCase):
                 "unit": self.unit,
                 "subunit": self.subunit,
                 "rent": Decimal("5000.00"),
+                "billing_type": "advance",
+                "billing_cycle": "monthly",
                 "check_in_date": date(2026, 9, 1),
                 "next_due_date": date(2026, 10, 1),
+                "security_deposit": Decimal("0.00"),
+                "deposit_paid": False,
             },
         )
         self.invoice = self.occupancy.invoices.get()
