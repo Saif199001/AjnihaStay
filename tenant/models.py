@@ -94,18 +94,23 @@ class Occupancy(models.Model):
             raise ValidationError("Check-out date cannot be before check-in date")
         if self.next_due_date < self.check_in_date:
             raise ValidationError("Next due date cannot be before check-in date")
-        if self.subunit_id:
-            if self.subunit.is_occupied():
-                raise ValidationError("SubUnit already occupied")
-        elif self.unit.is_occupied():
-            raise ValidationError("Unit already occupied")
-        existing = Occupancy.objects.filter(is_active=True).exclude(id=self.id)
-        existing = existing.filter(subunit_id=self.subunit_id) if self.subunit_id else existing.filter(unit_id=self.unit_id)
-        existing = existing.filter(check_in_date__lte=self.check_out_date or self.check_in_date).filter(
+
+        overlap_filter = Q(check_in_date__lte=self.check_out_date or self.check_in_date) & (
             Q(check_out_date__gte=self.check_in_date) | Q(check_out_date__isnull=True)
         )
-        if existing.exists():
-            raise ValidationError("This unit is already occupied for selected dates")
+        existing = Occupancy.objects.filter(is_active=True).exclude(id=self.id).filter(overlap_filter)
+
+        if self.subunit_id:
+            if not self.subunit.is_active:
+                raise ValidationError("SubUnit is inactive")
+            if existing.filter(subunit_id=self.subunit_id).exists():
+                raise ValidationError("SubUnit is already occupied for selected dates")
+        else:
+            if not self.unit.is_active:
+                raise ValidationError("Unit is inactive")
+            overlapping_count = existing.filter(unit_id=self.unit_id, subunit_id__isnull=True).count()
+            if overlapping_count >= self.unit.capacity:
+                raise ValidationError("Unit capacity is full for selected dates")
 
     def save(self, *args, **kwargs):
         self.clean()
