@@ -8,6 +8,10 @@ from unit.models import SubUnit, Unit
 from .models import Charge, Occupancy, Tenant
 
 
+DEFAULT_BILLING_TYPE = "advance"
+DEFAULT_BILLING_CYCLE = "monthly"
+
+
 def create_tenant(user, workspace, data, files):
     if not data.get("full_name"):
         raise ValidationError("Full name required")
@@ -89,8 +93,8 @@ def create_occupancy(user, workspace, data):
             subunit_id=subunit_id,
             allotted_by=user,
             rent=data.get("rent"),
-            billing_type=data.get("billing_type"),
-            billing_cycle=data.get("billing_cycle"),
+            billing_type=data.get("billing_type") or DEFAULT_BILLING_TYPE,
+            billing_cycle=data.get("billing_cycle") or DEFAULT_BILLING_CYCLE,
             check_in_date=data.get("check_in_date"),
             check_out_date=data.get("check_out_date"),
             next_due_date=data.get("next_due_date"),
