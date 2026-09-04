@@ -70,6 +70,7 @@ class Unit(models.Model):
 
         return Occupancy.objects.filter(
             unit=self,
+            subunit__isnull=True,
             is_active=True
         ).exists()
 
