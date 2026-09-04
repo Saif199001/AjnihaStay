@@ -1,4 +1,5 @@
 from rest_framework.test import APIClient
+from django.core.exceptions import ValidationError
 from django.test import TestCase
 
 from accounts.models import User
@@ -79,3 +80,32 @@ class PropertyWorkspaceIsolationTests(TestCase):
         created = Property.objects.get(name="New Property")
         self.assertEqual(created.workspace_id, self.workspace.id)
         self.assertEqual(created.owner_id, self.owner.id)
+
+    def test_property_rejects_owner_from_another_workspace(self):
+        with self.assertRaises(ValidationError):
+            Property.objects.create(
+                owner=self.other,
+                workspace=self.workspace,
+                name="Cross Workspace Property",
+                property_type="pg",
+                address="Delhi",
+                city="Delhi",
+                state="Delhi",
+                pincode="110004",
+            )
+
+    def test_property_rejects_inactive_workspace_owner(self):
+        membership = Membership.objects.get(workspace=self.workspace, user=self.owner)
+        membership.is_active = False
+        membership.save(update_fields=["is_active"])
+        with self.assertRaises(ValidationError):
+            Property.objects.create(
+                owner=self.owner,
+                workspace=self.workspace,
+                name="Inactive Owner Property",
+                property_type="pg",
+                address="Delhi",
+                city="Delhi",
+                state="Delhi",
+                pincode="110005",
+            )
