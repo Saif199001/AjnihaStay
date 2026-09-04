@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 from cloudinary.models import CloudinaryField
 
@@ -45,6 +46,21 @@ class Property(models.Model):
             models.Index(fields=["property_type"]),
             models.Index(fields=["workspace", "is_active"]),
         ]
+
+    def clean(self):
+        if self.owner_id and self.workspace_id:
+            from workspaces.models import Membership
+
+            if not Membership.objects.filter(
+                workspace_id=self.workspace_id,
+                user_id=self.owner_id,
+                is_active=True,
+            ).exists():
+                raise ValidationError("Property owner must be an active workspace member")
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.name} - {self.city}"
