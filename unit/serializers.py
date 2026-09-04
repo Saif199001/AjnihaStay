@@ -14,6 +14,9 @@ class SubUnitSerializer(serializers.ModelSerializer):
 
 
 class UnitPropertyField(serializers.PrimaryKeyRelatedField):
+    def use_pk_only_optimization(self):
+        return False
+
     def to_representation(self, value):
         return PropertySerializer(value).data
 
