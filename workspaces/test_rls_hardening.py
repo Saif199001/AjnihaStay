@@ -1,5 +1,7 @@
+from unittest import skipUnless
+
 from django.db import connection, transaction
-from django.test import TestCase, skipUnless
+from django.test import TestCase
 
 from accounts.models import User
 from properties.models import Property
