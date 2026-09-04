@@ -34,8 +34,13 @@ def restore_policies(apps, schema_editor):
     if schema_editor.connection.vendor != "postgresql":
         return
 
-    with connection.cursor() as cursor:
-        pass
+    with schema_editor.connection.cursor() as cursor:
+        for table, expression in POLICIES.items():
+            policy_name = f"workspace_isolation_{table}"
+            cursor.execute(f"DROP POLICY IF EXISTS {policy_name} ON {table}")
+            cursor.execute(
+                f"CREATE POLICY {policy_name} ON {table} USING ({expression}) WITH CHECK ({expression})"
+            )
 
 
 class Migration(migrations.Migration):
@@ -44,5 +49,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(replace_policies, migrations.RunPython.noop),
+        migrations.RunPython(replace_policies, restore_policies),
     ]
