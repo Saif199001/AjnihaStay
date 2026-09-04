@@ -120,6 +120,28 @@ class OccupancySecurityTests(TestCase):
         with self.assertRaises(IntegrityError):
             Charge.objects.bulk_create([Charge(occupancy=occupancy, charge_type="maintenance", amount=Decimal("0.00"), charge_date=date(2026, 9, 3))])
 
+    def test_charge_creation_rolls_back_if_invoice_update_fails(self):
+        occupancy = Occupancy.objects.create(tenant=self.tenant, unit=self.unit, allotted_by=self.owner, rent=Decimal("10000.00"), check_in_date=date(2026, 9, 1), next_due_date=date(2026, 10, 1))
+        from payments.models import Invoice
+        invoice = Invoice.objects.create(occupancy=occupancy, billing_start=date(2026, 9, 1), billing_end=date(2026, 10, 1), rent_amount=Decimal("10000.00"), charges_amount=Decimal("0.00"), due_date=date(2026, 10, 1))
+        with patch("tenant.services.Invoice.save", side_effect=ValidationError("Invoice update failed")):
+            with self.assertRaises(ValidationError):
+                create_charge(self.owner, self.workspace, {"occupancy": occupancy.id, "charge_type": "maintenance", "description": "Rollback", "amount": Decimal("100.00"), "charge_date": date(2026, 9, 3)})
+        self.assertFalse(Charge.objects.filter(occupancy=occupancy).exists())
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.charges_amount, Decimal("0.00"))
+        self.assertEqual(invoice.total_amount, Decimal("10000.00"))
+
+    def test_charge_and_invoice_total_remain_financially_consistent(self):
+        occupancy = Occupancy.objects.create(tenant=self.tenant, unit=self.unit, allotted_by=self.owner, rent=Decimal("10000.00"), check_in_date=date(2026, 9, 1), next_due_date=date(2026, 10, 1))
+        from payments.models import Invoice
+        invoice = Invoice.objects.create(occupancy=occupancy, billing_start=date(2026, 9, 1), billing_end=date(2026, 10, 1), rent_amount=Decimal("10000.00"), charges_amount=Decimal("0.00"), due_date=date(2026, 10, 1))
+        charge = create_charge(self.owner, self.workspace, {"occupancy": occupancy.id, "charge_type": "maintenance", "description": "Consistent", "amount": Decimal("250.00"), "charge_date": date(2026, 9, 3)})
+        invoice.refresh_from_db()
+        self.assertEqual(charge.amount, Decimal("250.00"))
+        self.assertEqual(invoice.charges_amount, Decimal("250.00"))
+        self.assertEqual(invoice.total_amount, invoice.rent_amount + invoice.charges_amount)
+
 
 class TenantWorkspaceAPITests(TestCase):
     def setUp(self):
