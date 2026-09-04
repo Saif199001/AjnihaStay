@@ -34,11 +34,7 @@ def get_dashboard_data(workspace, *, period_start=None, period_end=None, upcomin
         Unit.objects.filter(is_active=True, property__workspace=workspace, property__is_active=True)
         .prefetch_related(
             Prefetch("subunits", queryset=active_subunits, to_attr="dashboard_subunits"),
-            Prefetch(
-                "occupancies",
-                queryset=unit_occupancies,
-                to_attr="dashboard_unit_occupancies",
-            ),
+            Prefetch("occupancies", queryset=unit_occupancies, to_attr="dashboard_unit_occupancies"),
         )
         .select_related("property")
         .order_by("property_id", "unit_number")
@@ -92,10 +88,7 @@ def get_dashboard_data(workspace, *, period_start=None, period_end=None, upcomin
 
     available_subunits = total_subunits - occupied_subunits
     active_tenants = (
-        Tenant.objects.filter(
-            workspace=workspace,
-            occupancies__in=current_occupancies,
-        )
+        Tenant.objects.filter(workspace=workspace, occupancies__in=current_occupancies)
         .distinct()
         .count()
     )
@@ -121,13 +114,15 @@ def get_dashboard_data(workspace, *, period_start=None, period_end=None, upcomin
         F("total_amount") - F("paid_amount"),
         output_field=DecimalField(max_digits=12, decimal_places=2),
     )
-    outstanding = Invoice.objects.filter(
-        occupancy__tenant__workspace=workspace,
-    ).aggregate(total=Sum(outstanding_expression))["total"] or Decimal("0")
-    overdue = Invoice.objects.filter(
-        occupancy__tenant__workspace=workspace,
-        due_date__lt=today,
-    ).exclude(status="paid").aggregate(total=Sum(outstanding_expression))["total"] or Decimal("0")
+    outstanding = Invoice.objects.filter(occupancy__tenant__workspace=workspace).aggregate(
+        total=Sum(outstanding_expression)
+    )["total"] or Decimal("0")
+    overdue = (
+        Invoice.objects.filter(occupancy__tenant__workspace=workspace, due_date__lt=today)
+        .exclude(status="paid")
+        .aggregate(total=Sum(outstanding_expression))["total"]
+        or Decimal("0")
+    )
 
     upcoming_end = today + timedelta(days=upcoming_days)
     upcoming_vacancies = []
@@ -139,6 +134,7 @@ def get_dashboard_data(workspace, *, period_start=None, period_end=None, upcomin
     ).select_related("tenant", "unit__property", "subunit"):
         upcoming_vacancies.append(
             {
+                "occupancy_id": occupancy.id,
                 "property_id": occupancy.unit.property_id,
                 "property_name": occupancy.unit.property.name,
                 "unit_id": occupancy.unit_id,
