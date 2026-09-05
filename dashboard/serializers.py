@@ -1,5 +1,4 @@
-from datetime import date
-
+from django.utils import timezone
 from rest_framework import serializers
 
 
@@ -11,7 +10,7 @@ class DashboardQuerySerializer(serializers.Serializer):
     upcoming_vacancy_limit = serializers.IntegerField(required=False, min_value=1, max_value=500)
 
     def validate(self, attrs):
-        today = date.today()
+        today = timezone.localdate()
         start = attrs.get("period_start") or today.replace(day=1)
         end = attrs.get("period_end") or today
         if start > end:
