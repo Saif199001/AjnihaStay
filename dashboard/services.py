@@ -53,6 +53,7 @@ def get_dashboard_data(
     )
     active_subunits = (
         SubUnit.objects.filter(is_active=True)
+        .prefetch_related(subunit_occupancy_qs)
         .order_by("subunit_number", "id")
     )
     active_units = (
