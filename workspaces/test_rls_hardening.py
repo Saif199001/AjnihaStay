@@ -11,6 +11,18 @@ from .models import Membership, Workspace
 
 
 RLS_ROLE = "ajnihastay_rls_test"
+RLS_TABLES = (
+    "properties_property",
+    "properties_propertyimage",
+    "unit_unit",
+    "unit_unitimage",
+    "unit_subunit",
+    "tenant_tenant",
+    "tenant_occupancy",
+    "tenant_charge",
+    "payments_invoice",
+    "payments_payment",
+)
 
 
 @skipUnless(connection.vendor == "postgresql", "Workspace RLS requires PostgreSQL")
@@ -22,23 +34,15 @@ class WorkspaceRLSHardeningTests(TestCase):
             cursor.execute(f"DROP ROLE IF EXISTS {RLS_ROLE}")
             cursor.execute(f"CREATE ROLE {RLS_ROLE} NOLOGIN NOSUPERUSER NOBYPASSRLS")
             cursor.execute(f"GRANT USAGE ON SCHEMA public TO {RLS_ROLE}")
-            for table in (
-                "properties_property",
-                "properties_propertyimage",
-                "unit_unit",
-                "unit_unitimage",
-                "unit_subunit",
-                "tenant_tenant",
-                "tenant_occupancy",
-                "tenant_charge",
-                "payments_invoice",
-                "payments_payment",
-            ):
+            for table in RLS_TABLES:
+                cursor.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
+                cursor.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
                 cursor.execute(f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {table} TO {RLS_ROLE}")
 
     @classmethod
     def tearDownClass(cls):
         with connection.cursor() as cursor:
+            cursor.execute(f"DROP OWNED BY {RLS_ROLE}")
             cursor.execute(f"DROP ROLE IF EXISTS {RLS_ROLE}")
         super().tearDownClass()
 
