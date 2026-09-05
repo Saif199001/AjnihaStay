@@ -20,7 +20,7 @@ User = get_user_model()
 
 class DashboardReadModelTests(TestCase):
     def setUp(self):
-        self.user = User.objects.create_user(username="dashboard-owner", email="dashboard@example.com", password="testpass123")
+        self.user = User.objects.create_user(email="dashboard@example.com", password="testpass123")
         self.workspace = Workspace.objects.create(name="Dashboard Workspace", slug="dashboard-workspace", owner=self.user)
         Membership.objects.create(workspace=self.workspace, user=self.user, role="owner")
         self.property = Property.objects.create(name="Main Property", owner=self.user, workspace=self.workspace)
@@ -57,7 +57,7 @@ class DashboardReadModelTests(TestCase):
         self.assertEqual(vacant[0]["subunit_id"], vacant_subunit.id)
 
     def test_dashboard_financials_are_workspace_isolated(self):
-        other_user = User.objects.create_user(username="other-owner", email="other@example.com", password="testpass123")
+        other_user = User.objects.create_user(email="other@example.com", password="testpass123")
         other_workspace = Workspace.objects.create(name="Other Workspace", slug="other-workspace", owner=other_user)
         Membership.objects.create(workspace=other_workspace, user=other_user, role="owner")
         tenant = Tenant.objects.create(name="Financial Tenant", email="financial@example.com", phone="123", workspace=self.workspace, owner=self.user)
@@ -81,7 +81,7 @@ class DashboardReadModelTests(TestCase):
 
 class DashboardEmptyWorkspaceTests(TestCase):
     def setUp(self):
-        self.user = User.objects.create_user(username="empty-owner", email="empty@example.com", password="testpass123")
+        self.user = User.objects.create_user(email="empty@example.com", password="testpass123")
         self.workspace = Workspace.objects.create(name="Empty Workspace", slug="empty-workspace", owner=self.user)
         Membership.objects.create(workspace=self.workspace, user=self.user, role="owner")
         self.today = timezone.localdate()
@@ -112,7 +112,7 @@ class DashboardEmptyWorkspaceTests(TestCase):
 class DashboardAPIContractTests(TestCase):
     def setUp(self):
         self.client = APIClient()
-        self.user = User.objects.create_user(username="api-owner", email="api@example.com", password="testpass123")
+        self.user = User.objects.create_user(email="api@example.com", password="testpass123")
         self.workspace = Workspace.objects.create(name="API Workspace", slug="api-workspace", owner=self.user)
         Membership.objects.create(workspace=self.workspace, user=self.user, role="owner")
 
@@ -135,7 +135,7 @@ class DashboardAPIContractTests(TestCase):
         self.assertEqual(response.status_code, 400)
 
     def test_dashboard_api_requires_workspace_membership(self):
-        outsider = User.objects.create_user(username="outsider", email="outsider@example.com", password="testpass123")
+        outsider = User.objects.create_user(email="outsider@example.com", password="testpass123")
         self.client.force_authenticate(user=outsider)
         response = self.client.get("/api/dashboard/")
         self.assertIn(response.status_code, (403, 404))
