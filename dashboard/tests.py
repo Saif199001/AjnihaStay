@@ -2,6 +2,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from django.test import TestCase
+from rest_framework.test import APIClient
 
 from accounts.models import User
 from payments.services import create_payment
@@ -234,3 +235,66 @@ class DashboardEmptyWorkspaceTests(TestCase):
         self.assertEqual(data["financial"]["period_collected"], Decimal("0"))
         self.assertEqual(data["availability"], [])
         self.assertEqual(data["upcoming_vacancies"], [])
+
+
+class DashboardAPIContractTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.owner = User.objects.create_user("dashboard-api@example.com", "StrongPass123!")
+        self.workspace = Workspace.objects.create(
+            name="Dashboard API Workspace",
+            slug="dashboard-api-workspace",
+            owner=self.owner,
+        )
+        Membership.objects.create(workspace=self.workspace, user=self.owner, role="owner")
+        self.client.force_authenticate(self.owner)
+
+    def test_dashboard_api_returns_contract_and_accepts_period_parameters(self):
+        start = date(2026, 8, 1)
+        end = date(2026, 8, 31)
+        response = self.client.get(
+            "/api/dashboard/",
+            {
+                "period_start": start.isoformat(),
+                "period_end": end.isoformat(),
+                "upcoming_days": 14,
+            },
+            HTTP_X_WORKSPACE_ID=str(self.workspace.id),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["period"]["start"], start)
+        self.assertEqual(response.data["period"]["end"], end)
+        self.assertEqual(response.data["as_of"], date.today())
+        self.assertEqual(response.data["availability"], [])
+        self.assertEqual(response.data["upcoming_vacancies"], [])
+        self.assertIn("summary", response.data)
+        self.assertIn("financial", response.data)
+
+    def test_dashboard_api_rejects_invalid_period_and_upcoming_days(self):
+        response = self.client.get(
+            "/api/dashboard/",
+            {"period_start": "2026-09-10", "period_end": "2026-09-01"},
+            HTTP_X_WORKSPACE_ID=str(self.workspace.id),
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("period_end", response.data)
+
+        response = self.client.get(
+            "/api/dashboard/",
+            {"upcoming_days": "0"},
+            HTTP_X_WORKSPACE_ID=str(self.workspace.id),
+        )
+        self.assertEqual(response.status_code, 400)
+
+        response = self.client.get(
+            "/api/dashboard/",
+            {"upcoming_days": "91"},
+            HTTP_X_WORKSPACE_ID=str(self.workspace.id),
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_dashboard_api_requires_workspace_membership(self):
+        self.client.force_authenticate(None)
+        response = self.client.get("/api/dashboard/")
+        self.assertEqual(response.status_code, 401)
