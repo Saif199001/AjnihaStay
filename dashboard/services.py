@@ -2,6 +2,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from django.db.models import DecimalField, ExpressionWrapper, F, Prefetch, Q, Sum
+from django.utils import timezone
 
 from payments.models import Invoice, Payment
 from tenant.models import Occupancy, Tenant
@@ -17,7 +18,7 @@ def _current_occupancy_queryset(today):
 
 def get_dashboard_data(workspace, *, period_start=None, period_end=None, upcoming_days=30):
     """Build the read-only dashboard contract for one workspace."""
-    today = date.today()
+    today = timezone.localdate()
     period_start = period_start or today.replace(day=1)
     period_end = period_end or today
 
