@@ -7,6 +7,7 @@ from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from dashboard.serializers import DashboardQuerySerializer
 from dashboard.services import get_dashboard_data
 from payments.models import Invoice, Payment
 from properties.models import Property
@@ -86,6 +87,27 @@ class DashboardReadModelTests(TestCase):
         self.assertEqual(len(vacant), 1)
         self.assertEqual(vacant[0]["subunit_id"], vacant_subunit.id)
 
+    def test_dashboard_isolates_operational_data_by_workspace(self):
+        other_user = User.objects.create_user(email="other-ops@example.com", password="testpass123")
+        other_workspace = Workspace.objects.create(name="Other Workspace", slug="other-ops-workspace", owner=other_user)
+        Membership.objects.create(workspace=other_workspace, user=other_user, role="owner")
+        other_property = Property.objects.create(name="Other Property", owner=other_user, workspace=other_workspace)
+        other_unit = Unit.objects.create(
+            property=other_property,
+            unit_type="room",
+            unit_number="201",
+            rent=Decimal("9000"),
+            capacity=1,
+        )
+
+        data = get_dashboard_data(self.workspace)
+
+        self.assertEqual(data["summary"]["total_properties"], 1)
+        self.assertEqual(data["summary"]["total_units"], 0)
+        self.assertEqual(data["summary"]["total_unit_capacity"], 0)
+        self.assertEqual(data["availability"], [])
+        self.assertNotIn(other_unit.id, [item["unit_id"] for item in data["availability"]])
+
     def test_dashboard_financials_are_workspace_isolated(self):
         other_user = User.objects.create_user(email="other@example.com", password="testpass123")
         other_workspace = Workspace.objects.create(name="Other Workspace", slug="other-workspace", owner=other_user)
@@ -150,7 +172,7 @@ class DashboardReadModelTests(TestCase):
         self.assertEqual(data["financial"]["period_invoiced"], Decimal("5000"))
         self.assertEqual(data["financial"]["period_collected"], Decimal("1000"))
 
-    def test_dashboard_bounds_large_operational_lists_and_reports_totals(self):
+    def test_dashboard_has_bounded_operational_lists_and_reports_totals(self):
         for index in range(3):
             Unit.objects.create(
                 property=self.property,
@@ -187,6 +209,41 @@ class DashboardReadModelTests(TestCase):
         self.assertEqual(data["upcoming_vacancies_total"], len(units))
         self.assertEqual(len(data["upcoming_vacancies"]), 1)
         self.assertTrue(data["upcoming_vacancies_truncated"])
+
+    def test_dashboard_read_model_stays_within_fixed_query_budget(self):
+        unit = Unit.objects.create(property=self.property, unit_type="room", unit_number="301", rent=Decimal("7000"), capacity=2)
+        subunit = SubUnit.objects.create(unit=unit, subunit_number="A", rent=Decimal("7000"))
+        tenant = Tenant.objects.create(
+            full_name="Query Tenant",
+            email="query@example.com",
+            phone="123",
+            permanent_address="Test Address",
+            workspace=self.workspace,
+            owner=self.user,
+        )
+        occupancy = Occupancy.objects.create(
+            tenant=tenant,
+            unit=unit,
+            subunit=subunit,
+            check_in_date=self.today - timedelta(days=1),
+            check_out_date=self.today + timedelta(days=5),
+            next_due_date=self.today,
+            rent=Decimal("7000"),
+            security_deposit=Decimal("0"),
+        )
+        Invoice.objects.create(
+            occupancy=occupancy,
+            billing_start=self.today.replace(day=1),
+            billing_end=self.today,
+            rent_amount=Decimal("7000"),
+            charges_amount=Decimal("0"),
+            due_date=self.today,
+        )
+
+        with self.assertNumQueries(10):
+            data = get_dashboard_data(self.workspace)
+
+        self.assertEqual(data["summary"]["occupied_subunits"], 1)
 
 
 class DashboardEmptyWorkspaceTests(TestCase):
@@ -252,6 +309,14 @@ class DashboardAPIContractTests(TestCase):
         self.assertIn("upcoming_vacancies", response.data)
         self.assertIn("upcoming_vacancies_total", response.data)
 
+    @patch("dashboard.serializers.timezone.localdate")
+    def test_dashboard_query_validation_uses_timezone_localdate(self, mocked_localdate):
+        mocked_localdate.return_value = date(2026, 9, 5)
+        serializer = DashboardQuerySerializer(data={})
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data, {})
+
     def test_dashboard_api_rejects_invalid_period_and_list_limits(self):
         self.client.force_authenticate(user=self.user)
         response = self.client.get("/api/dashboard/", {"period_start": "2026-09-10", "period_end": "2026-09-01"})
@@ -262,6 +327,15 @@ class DashboardAPIContractTests(TestCase):
         self.assertEqual(response.status_code, 400)
         response = self.client.get("/api/dashboard/", {"upcoming_vacancy_limit": 0})
         self.assertEqual(response.status_code, 400)
+
+    def test_dashboard_api_allows_staff_members(self):
+        staff = User.objects.create_user(email="staff@example.com", password="testpass123")
+        Membership.objects.create(workspace=self.workspace, user=staff, role="staff")
+        self.client.force_authenticate(user=staff)
+
+        response = self.client.get("/api/dashboard/")
+
+        self.assertEqual(response.status_code, 200)
 
     def test_dashboard_api_requires_workspace_membership(self):
         outsider = User.objects.create_user(email="outsider@example.com", password="testpass123")
