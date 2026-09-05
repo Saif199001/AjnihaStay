@@ -1,6 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
+from django.core.exceptions import ValidationError
 from django.test import TestCase
 
 from accounts.models import User
@@ -81,12 +82,12 @@ class OccupancyServiceDefaultsTests(TestCase):
         self.assertEqual(occupancy.billing_type, "arrears")
         self.assertEqual(occupancy.billing_cycle, "daily")
 
-    def test_invalid_billing_values_are_rejected_by_model_validation(self):
+    def test_invalid_billing_values_are_rejected_by_service(self):
         data = self.occupancy_data()
         data["billing_type"] = "invalid"
         data["billing_cycle"] = "invalid"
 
-        with self.assertRaises(Exception):
+        with self.assertRaises(ValidationError):
             create_occupancy(self.owner, self.workspace, data)
 
         self.assertEqual(Occupancy.objects.count(), 0)
