@@ -150,6 +150,44 @@ class DashboardReadModelTests(TestCase):
         self.assertEqual(data["financial"]["period_invoiced"], Decimal("5000"))
         self.assertEqual(data["financial"]["period_collected"], Decimal("1000"))
 
+    def test_dashboard_bounds_large_operational_lists_and_reports_totals(self):
+        for index in range(3):
+            Unit.objects.create(
+                property=self.property,
+                unit_type="room",
+                unit_number=f"2{index:02d}",
+                rent=Decimal("1000"),
+                capacity=1,
+            )
+
+        tenant = Tenant.objects.create(
+            full_name="Vacancy Tenant",
+            email="vacancy@example.com",
+            phone="123",
+            permanent_address="Test Address",
+            workspace=self.workspace,
+            owner=self.user,
+        )
+        units = list(Unit.objects.filter(property=self.property).order_by("unit_number"))
+        for index, unit in enumerate(units):
+            Occupancy.objects.create(
+                tenant=tenant,
+                unit=unit,
+                check_in_date=self.today - timedelta(days=1),
+                check_out_date=self.today + timedelta(days=index + 1),
+                next_due_date=self.today,
+                rent=Decimal("1000"),
+                security_deposit=Decimal("0"),
+            )
+
+        data = get_dashboard_data(self.workspace, availability_limit=1, upcoming_vacancy_limit=1)
+
+        self.assertEqual(data["availability_total"], 0)
+        self.assertFalse(data["availability_truncated"])
+        self.assertEqual(data["upcoming_vacancies_total"], len(units))
+        self.assertEqual(len(data["upcoming_vacancies"]), 1)
+        self.assertTrue(data["upcoming_vacancies_truncated"])
+
 
 class DashboardEmptyWorkspaceTests(TestCase):
     def setUp(self):
@@ -178,7 +216,11 @@ class DashboardEmptyWorkspaceTests(TestCase):
         self.assertEqual(data["summary"]["available_unit_slots"], 0)
         self.assertEqual(data["summary"]["active_tenants"], 0)
         self.assertEqual(data["availability"], [])
+        self.assertEqual(data["availability_total"], 0)
+        self.assertFalse(data["availability_truncated"])
         self.assertEqual(data["upcoming_vacancies"], [])
+        self.assertEqual(data["upcoming_vacancies_total"], 0)
+        self.assertFalse(data["upcoming_vacancies_truncated"])
 
 
 class DashboardAPIContractTests(TestCase):
@@ -190,20 +232,35 @@ class DashboardAPIContractTests(TestCase):
 
     def test_dashboard_api_returns_contract_and_accepts_period_parameters(self):
         self.client.force_authenticate(user=self.user)
-        response = self.client.get("/api/dashboard/", {"period_start": "2026-08-01", "period_end": "2026-08-31", "upcoming_days": 45})
+        response = self.client.get(
+            "/api/dashboard/",
+            {
+                "period_start": "2026-08-01",
+                "period_end": "2026-08-31",
+                "upcoming_days": 45,
+                "availability_limit": 50,
+                "upcoming_vacancy_limit": 50,
+            },
+        )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["period"]["start"], date(2026, 8, 1))
         self.assertEqual(response.data["period"]["end"], date(2026, 8, 31))
         self.assertEqual(response.data["summary"]["total_units"], 0)
         self.assertIn("financial", response.data)
         self.assertIn("availability", response.data)
+        self.assertIn("availability_total", response.data)
         self.assertIn("upcoming_vacancies", response.data)
+        self.assertIn("upcoming_vacancies_total", response.data)
 
-    def test_dashboard_api_rejects_invalid_period_and_upcoming_days(self):
+    def test_dashboard_api_rejects_invalid_period_and_list_limits(self):
         self.client.force_authenticate(user=self.user)
         response = self.client.get("/api/dashboard/", {"period_start": "2026-09-10", "period_end": "2026-09-01"})
         self.assertEqual(response.status_code, 400)
         response = self.client.get("/api/dashboard/", {"upcoming_days": 0})
+        self.assertEqual(response.status_code, 400)
+        response = self.client.get("/api/dashboard/", {"availability_limit": 501})
+        self.assertEqual(response.status_code, 400)
+        response = self.client.get("/api/dashboard/", {"upcoming_vacancy_limit": 0})
         self.assertEqual(response.status_code, 400)
 
     def test_dashboard_api_requires_workspace_membership(self):
