@@ -7,6 +7,8 @@ class DashboardQuerySerializer(serializers.Serializer):
     period_start = serializers.DateField(required=False)
     period_end = serializers.DateField(required=False)
     upcoming_days = serializers.IntegerField(required=False, min_value=1, max_value=90)
+    availability_limit = serializers.IntegerField(required=False, min_value=1, max_value=500)
+    upcoming_vacancy_limit = serializers.IntegerField(required=False, min_value=1, max_value=500)
 
     def validate(self, attrs):
         today = date.today()
@@ -70,4 +72,8 @@ class DashboardResponseSerializer(serializers.Serializer):
     summary = DashboardSummarySerializer()
     financial = DashboardFinancialSerializer()
     availability = DashboardAvailabilitySerializer(many=True)
+    availability_total = serializers.IntegerField(min_value=0)
+    availability_truncated = serializers.BooleanField()
     upcoming_vacancies = DashboardVacancySerializer(many=True)
+    upcoming_vacancies_total = serializers.IntegerField(min_value=0)
+    upcoming_vacancies_truncated = serializers.BooleanField()
