@@ -47,9 +47,23 @@ The runtime database role must have permission to alter the tables during activa
 
 Django Admin is a platform-level administrative surface, not a workspace-scoped customer API. When `FORCE ROW LEVEL SECURITY` is enabled, a database role without RLS bypass privileges cannot safely perform unrestricted cross-workspace Admin operations.
 
-The application API must remain on a non-bypass database role so RLS remains a real defense-in-depth boundary. Production platform-admin operations therefore require a separately designed privileged Admin database path/role; granting `BYPASSRLS` to the normal application database role is not an acceptable workaround.
+The normal application database role must remain a non-bypass role so RLS remains a real defense-in-depth boundary. Granting `BYPASSRLS` to that role is explicitly not an acceptable workaround.
 
-Until that separate Admin path exists, Django Admin must not be treated as a supported cross-workspace production management surface while forced RLS is enabled.
+Therefore the RLS-protected customer domain models are intentionally **not registered in Django Admin** on this phase-1 application path. This prevents an administrator request from accidentally becoming an unrestricted cross-workspace domain query under forced RLS.
+
+`Workspace` and `Membership` remain available in Django Admin because they are platform-level control-plane records and are not protected by the customer-domain RLS policies.
+
+A future dedicated platform-admin surface may use a separately designed privileged database role/connection with explicit audit controls. That is a separate architecture task and must not weaken the normal application connection.
+
+## Regression guarantees
+
+The RLS test suite verifies:
+
+- missing workspace context returns no protected rows;
+- a selected workspace exposes only its own rows;
+- a wrong workspace context cannot expose another workspace's rows;
+- protected customer domain models are not registered in Django Admin;
+- workspace permission resolution binds the selected workspace before protected API work.
 
 ## Emergency rollback
 
