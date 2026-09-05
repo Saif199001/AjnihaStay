@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.test import TestCase
-from rest_framework.test import APIRequestFactory, force_authenticate
+from rest_framework.test import APIRequestFactory
 
 from accounts.models import User
 from properties.models import Property
@@ -33,7 +33,7 @@ class WorkspaceRLSAdminArchitectureTests(TestCase):
     def test_workspace_permission_binds_selected_workspace(self):
         factory = APIRequestFactory()
         request = factory.get("/api/test/")
-        force_authenticate(request, user=self.user)
+        request.user = self.user
 
         permission = WorkspaceStaffPermission()
         self.assertTrue(permission.has_permission(request, object()))
