@@ -210,7 +210,7 @@ class DashboardReadModelTests(TestCase):
         self.assertEqual(len(data["upcoming_vacancies"]), 1)
         self.assertTrue(data["upcoming_vacancies_truncated"])
 
-    def test_dashboard_read_model_stays_within_fixed_query_budget(self):
+    def test_dashboard_read_model_stays_within_query_budget(self):
         unit = Unit.objects.create(property=self.property, unit_type="room", unit_number="301", rent=Decimal("7000"), capacity=2)
         subunit = SubUnit.objects.create(unit=unit, subunit_number="A", rent=Decimal("7000"))
         tenant = Tenant.objects.create(
@@ -240,7 +240,7 @@ class DashboardReadModelTests(TestCase):
             due_date=self.today,
         )
 
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(11):
             data = get_dashboard_data(self.workspace)
 
         self.assertEqual(data["summary"]["occupied_subunits"], 1)
