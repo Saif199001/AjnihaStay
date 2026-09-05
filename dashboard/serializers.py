@@ -1,3 +1,5 @@
+from datetime import date
+
 from rest_framework import serializers
 
 
@@ -7,9 +9,10 @@ class DashboardQuerySerializer(serializers.Serializer):
     upcoming_days = serializers.IntegerField(required=False, min_value=1, max_value=90)
 
     def validate(self, attrs):
-        start = attrs.get("period_start")
-        end = attrs.get("period_end")
-        if start and end and start > end:
+        today = date.today()
+        start = attrs.get("period_start") or today.replace(day=1)
+        end = attrs.get("period_end") or today
+        if start > end:
             raise serializers.ValidationError({"period_end": "period_end must be on or after period_start."})
         return attrs
 
