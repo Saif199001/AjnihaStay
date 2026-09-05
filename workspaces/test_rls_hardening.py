@@ -85,9 +85,16 @@ class WorkspaceRLSHardeningTests(TestCase):
             rows = list(Property.objects.values_list("id", "workspace_id"))
         self.assertEqual(rows, [])
 
-    def test_workspace_context_still_isolates_rows(self):
+    def test_workspace_context_only_exposes_matching_workspace(self):
         with transaction.atomic():
             self._as_rls_role()
             set_workspace_context(self.workspace_a.id)
             rows = list(Property.objects.order_by("id").values_list("id", "workspace_id"))
         self.assertEqual(rows, [(self.property_a.id, self.workspace_a.id)])
+
+    def test_wrong_workspace_context_hides_existing_rows(self):
+        with transaction.atomic():
+            self._as_rls_role()
+            set_workspace_context(self.workspace_b.id)
+            rows = list(Property.objects.filter(id=self.property_a.id).values_list("id", "workspace_id"))
+        self.assertEqual(rows, [])
