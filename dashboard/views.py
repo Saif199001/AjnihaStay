@@ -7,6 +7,8 @@ from rest_framework.views import APIView
 from workspaces.permissions import WorkspaceStaffPermission
 from workspaces.context import get_workspace_for_request
 from workspaces.db import set_workspace_context
+
+from .serializers import DashboardQuerySerializer, DashboardResponseSerializer
 from .services import get_dashboard_data
 
 
@@ -14,7 +16,13 @@ class DashboardAPIView(APIView):
     permission_classes = [WorkspaceStaffPermission]
 
     def get(self, request):
-        return Response(get_dashboard_data(request.workspace))
+        query_serializer = DashboardQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+
+        data = get_dashboard_data(request.workspace, **query_serializer.validated_data)
+        response_serializer = DashboardResponseSerializer(data=data)
+        response_serializer.is_valid(raise_exception=True)
+        return Response(response_serializer.validated_data)
 
 
 @login_required(login_url="/login/")
