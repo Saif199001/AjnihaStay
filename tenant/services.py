@@ -12,6 +12,15 @@ DEFAULT_BILLING_TYPE = "advance"
 DEFAULT_BILLING_CYCLE = "monthly"
 
 
+def _billing_value(data, field_name, default, allowed_values):
+    value = data.get(field_name)
+    if value in (None, ""):
+        value = default
+    if value not in allowed_values:
+        raise ValidationError(f"Invalid {field_name}")
+    return value
+
+
 def create_tenant(user, workspace, data, files):
     if not data.get("full_name"):
         raise ValidationError("Full name required")
@@ -87,14 +96,27 @@ def create_occupancy(user, workspace, data):
             except (Unit.DoesNotExist, TypeError, ValueError):
                 raise ValidationError("Unit not found")
 
+        billing_type = _billing_value(
+            data,
+            "billing_type",
+            DEFAULT_BILLING_TYPE,
+            {value for value, _ in Occupancy.BILLING_TYPES},
+        )
+        billing_cycle = _billing_value(
+            data,
+            "billing_cycle",
+            DEFAULT_BILLING_CYCLE,
+            {value for value, _ in Occupancy.BILLING_CYCLES},
+        )
+
         occupancy = Occupancy.objects.create(
             tenant=tenant,
             unit=unit,
             subunit_id=subunit_id,
             allotted_by=user,
             rent=data.get("rent"),
-            billing_type=data.get("billing_type") or DEFAULT_BILLING_TYPE,
-            billing_cycle=data.get("billing_cycle") or DEFAULT_BILLING_CYCLE,
+            billing_type=billing_type,
+            billing_cycle=billing_cycle,
             check_in_date=data.get("check_in_date"),
             check_out_date=data.get("check_out_date"),
             next_due_date=data.get("next_due_date"),
