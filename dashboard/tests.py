@@ -28,8 +28,23 @@ class DashboardReadModelTests(TestCase):
 
     def test_dashboard_reports_capacity_aware_availability_and_upcoming_vacancy(self):
         unit = Unit.objects.create(property=self.property, unit_type="room", unit_number="101", rent=Decimal("10000"), capacity=2)
-        tenant = Tenant.objects.create(name="Current Tenant", email="current@example.com", phone="123", workspace=self.workspace, owner=self.user)
-        Occupancy.objects.create(tenant=tenant, unit=unit, check_in=self.today - timedelta(days=5), check_out=self.today + timedelta(days=10), rent=Decimal("10000"), security_deposit=Decimal("0"), workspace=self.workspace)
+        tenant = Tenant.objects.create(
+            full_name="Current Tenant",
+            email="current@example.com",
+            phone="123",
+            permanent_address="Test Address",
+            workspace=self.workspace,
+            owner=self.user,
+        )
+        Occupancy.objects.create(
+            tenant=tenant,
+            unit=unit,
+            check_in_date=self.today - timedelta(days=5),
+            check_out_date=self.today + timedelta(days=10),
+            next_due_date=self.today,
+            rent=Decimal("10000"),
+            security_deposit=Decimal("0"),
+        )
 
         data = get_dashboard_data(self.workspace)
 
@@ -41,10 +56,25 @@ class DashboardReadModelTests(TestCase):
 
     def test_dashboard_lists_vacant_subunits_without_consuming_unit_capacity(self):
         unit = Unit.objects.create(property=self.property, unit_type="room", unit_number="102", rent=Decimal("12000"), capacity=3)
-        occupied_subunit = SubUnit.objects.create(unit=unit, name="A")
-        vacant_subunit = SubUnit.objects.create(unit=unit, name="B")
-        tenant = Tenant.objects.create(name="Sub Tenant", email="sub@example.com", phone="123", workspace=self.workspace, owner=self.user)
-        Occupancy.objects.create(tenant=tenant, unit=unit, subunit=occupied_subunit, check_in=self.today - timedelta(days=2), rent=Decimal("12000"), security_deposit=Decimal("0"), workspace=self.workspace)
+        occupied_subunit = SubUnit.objects.create(unit=unit, subunit_number="A", rent=Decimal("12000"))
+        vacant_subunit = SubUnit.objects.create(unit=unit, subunit_number="B", rent=Decimal("12000"))
+        tenant = Tenant.objects.create(
+            full_name="Sub Tenant",
+            email="sub@example.com",
+            phone="123",
+            permanent_address="Test Address",
+            workspace=self.workspace,
+            owner=self.user,
+        )
+        Occupancy.objects.create(
+            tenant=tenant,
+            unit=unit,
+            subunit=occupied_subunit,
+            check_in_date=self.today - timedelta(days=2),
+            next_due_date=self.today,
+            rent=Decimal("12000"),
+            security_deposit=Decimal("0"),
+        )
 
         data = get_dashboard_data(self.workspace)
         vacant = [item for item in data["availability"] if item["type"] == "subunit"]
@@ -60,18 +90,60 @@ class DashboardReadModelTests(TestCase):
         other_user = User.objects.create_user(email="other@example.com", password="testpass123")
         other_workspace = Workspace.objects.create(name="Other Workspace", slug="other-workspace", owner=other_user)
         Membership.objects.create(workspace=other_workspace, user=other_user, role="owner")
-        tenant = Tenant.objects.create(name="Financial Tenant", email="financial@example.com", phone="123", workspace=self.workspace, owner=self.user)
+        tenant = Tenant.objects.create(
+            full_name="Financial Tenant",
+            email="financial@example.com",
+            phone="123",
+            permanent_address="Test Address",
+            workspace=self.workspace,
+            owner=self.user,
+        )
         unit = Unit.objects.create(property=self.property, unit_type="room", unit_number="103", rent=Decimal("5000"), capacity=1)
-        occupancy = Occupancy.objects.create(tenant=tenant, unit=unit, check_in=self.today - timedelta(days=2), rent=Decimal("5000"), security_deposit=Decimal("0"), workspace=self.workspace)
-        invoice = Invoice.objects.create(occupancy=occupancy, billing_start=self.today.replace(day=1), billing_end=self.today, rent_amount=Decimal("5000"), charges_amount=Decimal("0"))
-        Payment.objects.create(invoice=invoice, amount=Decimal("1000"), payment_date=self.today)
+        occupancy = Occupancy.objects.create(
+            tenant=tenant,
+            unit=unit,
+            check_in_date=self.today - timedelta(days=2),
+            next_due_date=self.today,
+            rent=Decimal("5000"),
+            security_deposit=Decimal("0"),
+        )
+        invoice = Invoice.objects.create(
+            occupancy=occupancy,
+            billing_start=self.today.replace(day=1),
+            billing_end=self.today,
+            rent_amount=Decimal("5000"),
+            charges_amount=Decimal("0"),
+            due_date=self.today,
+        )
+        Payment.objects.create(invoice=invoice, amount=Decimal("1000"), payment_method="cash", payment_date=self.today)
 
         other_property = Property.objects.create(name="Other Property", owner=other_user, workspace=other_workspace)
         other_unit = Unit.objects.create(property=other_property, unit_type="room", unit_number="201", rent=Decimal("9000"), capacity=1)
-        other_tenant = Tenant.objects.create(name="Other Tenant", email="other-fin@example.com", phone="123", workspace=other_workspace, owner=other_user)
-        other_occupancy = Occupancy.objects.create(tenant=other_tenant, unit=other_unit, check_in=self.today - timedelta(days=2), rent=Decimal("9000"), security_deposit=Decimal("0"), workspace=other_workspace)
-        other_invoice = Invoice.objects.create(occupancy=other_occupancy, billing_start=self.today.replace(day=1), billing_end=self.today, rent_amount=Decimal("9000"), charges_amount=Decimal("0"))
-        Payment.objects.create(invoice=other_invoice, amount=Decimal("9000"), payment_date=self.today)
+        other_tenant = Tenant.objects.create(
+            full_name="Other Tenant",
+            email="other-fin@example.com",
+            phone="123",
+            permanent_address="Other Address",
+            workspace=other_workspace,
+            owner=other_user,
+        )
+        other_occupancy = Occupancy.objects.create(
+            tenant=other_tenant,
+            unit=other_unit,
+            check_in_date=self.today - timedelta(days=2),
+            next_due_date=self.today,
+            rent=Decimal("9000"),
+            security_deposit=Decimal("0"),
+        )
+        other_invoice = Invoice.objects.create(
+            occupancy=other_occupancy,
+            billing_start=self.today.replace(day=1),
+            billing_end=self.today,
+            rent_amount=Decimal("9000"),
+            charges_amount=Decimal("0"),
+            due_date=self.today,
+        )
+        Payment.objects.create(invoice=other_invoice, amount=Decimal("9000"), payment_method="cash", payment_date=self.today)
 
         data = get_dashboard_data(self.workspace)
 
