@@ -9,6 +9,11 @@ from tenant.models import Occupancy, Tenant
 from unit.models import SubUnit, Unit
 
 
+DEFAULT_AVAILABILITY_LIMIT = 100
+DEFAULT_UPCOMING_VACANCY_LIMIT = 100
+MAX_DASHBOARD_LIST_LIMIT = 500
+
+
 def _current_occupancy_queryset(today):
     return Occupancy.objects.filter(
         is_active=True,
@@ -16,11 +21,27 @@ def _current_occupancy_queryset(today):
     ).filter(Q(check_out_date__isnull=True) | Q(check_out_date__gte=today))
 
 
-def get_dashboard_data(workspace, *, period_start=None, period_end=None, upcoming_days=30):
+def _bounded_limit(value, default):
+    if value is None:
+        return default
+    return min(value, MAX_DASHBOARD_LIST_LIMIT)
+
+
+def get_dashboard_data(
+    workspace,
+    *,
+    period_start=None,
+    period_end=None,
+    upcoming_days=30,
+    availability_limit=None,
+    upcoming_vacancy_limit=None,
+):
     """Build the read-only dashboard contract for one workspace."""
     today = timezone.localdate()
     period_start = period_start or today.replace(day=1)
     period_end = period_end or today
+    availability_limit = _bounded_limit(availability_limit, DEFAULT_AVAILABILITY_LIMIT)
+    upcoming_vacancy_limit = _bounded_limit(upcoming_vacancy_limit, DEFAULT_UPCOMING_VACANCY_LIMIT)
 
     current_occupancies = _current_occupancy_queryset(today)
     unit_occupancies = current_occupancies.filter(subunit_id__isnull=True)
@@ -30,7 +51,10 @@ def get_dashboard_data(workspace, *, period_start=None, period_end=None, upcomin
         queryset=current_occupancies,
         to_attr="dashboard_current_occupancies",
     )
-    active_subunits = SubUnit.objects.filter(is_active=True).prefetch_related(subunit_occupancy_qs)
+    active_subunits = (
+        SubUnit.objects.filter(is_active=True)
+        .order_by("subunit_number", "id")
+    )
     active_units = (
         Unit.objects.filter(is_active=True, property__workspace=workspace, property__is_active=True)
         .prefetch_related(
@@ -38,7 +62,7 @@ def get_dashboard_data(workspace, *, period_start=None, period_end=None, upcomin
             Prefetch("occupancies", queryset=unit_occupancies, to_attr="dashboard_unit_occupancies"),
         )
         .select_related("property")
-        .order_by("property_id", "unit_number")
+        .order_by("property_id", "unit_number", "id")
     )
 
     active_units = list(active_units)
@@ -50,6 +74,7 @@ def get_dashboard_data(workspace, *, period_start=None, period_end=None, upcomin
 
     total_subunits = 0
     occupied_subunits = 0
+    availability_total = 0
     available_spaces = []
 
     for unit in active_units:
@@ -59,33 +84,37 @@ def get_dashboard_data(workspace, *, period_start=None, period_end=None, upcomin
             if getattr(subunit, "dashboard_current_occupancies", []):
                 occupied_subunits += 1
             else:
+                availability_total += 1
+                if len(available_spaces) < availability_limit:
+                    available_spaces.append(
+                        {
+                            "property_id": unit.property_id,
+                            "property_name": unit.property.name,
+                            "unit_id": unit.id,
+                            "unit_number": unit.unit_number,
+                            "subunit_id": subunit.id,
+                            "subunit_number": subunit.subunit_number,
+                            "available_capacity": 1,
+                            "type": "subunit",
+                        }
+                    )
+
+        unit_remaining = max(unit.capacity - len(unit.dashboard_unit_occupancies), 0)
+        if unit_remaining:
+            availability_total += 1
+            if len(available_spaces) < availability_limit:
                 available_spaces.append(
                     {
                         "property_id": unit.property_id,
                         "property_name": unit.property.name,
                         "unit_id": unit.id,
                         "unit_number": unit.unit_number,
-                        "subunit_id": subunit.id,
-                        "subunit_number": subunit.subunit_number,
-                        "available_capacity": 1,
-                        "type": "subunit",
+                        "subunit_id": None,
+                        "subunit_number": None,
+                        "available_capacity": unit_remaining,
+                        "type": "unit",
                     }
                 )
-
-        unit_remaining = max(unit.capacity - len(unit.dashboard_unit_occupancies), 0)
-        if unit_remaining:
-            available_spaces.append(
-                {
-                    "property_id": unit.property_id,
-                    "property_name": unit.property.name,
-                    "unit_id": unit.id,
-                    "unit_number": unit.unit_number,
-                    "subunit_id": None,
-                    "subunit_number": None,
-                    "available_capacity": unit_remaining,
-                    "type": "unit",
-                }
-            )
 
     available_subunits = total_subunits - occupied_subunits
     active_tenants = (
@@ -99,9 +128,14 @@ def get_dashboard_data(workspace, *, period_start=None, period_end=None, upcomin
         billing_start__lte=period_end,
         billing_end__gte=period_start,
     )
-    period_invoiced = period_invoices.aggregate(total=Sum("total_amount"))["total"] or Decimal("0")
-    period_rent = period_invoices.aggregate(total=Sum("rent_amount"))["total"] or Decimal("0")
-    period_charges = period_invoices.aggregate(total=Sum("charges_amount"))["total"] or Decimal("0")
+    period_totals = period_invoices.aggregate(
+        invoiced=Sum("total_amount"),
+        rent=Sum("rent_amount"),
+        charges=Sum("charges_amount"),
+    )
+    period_invoiced = period_totals["invoiced"] or Decimal("0")
+    period_rent = period_totals["rent"] or Decimal("0")
+    period_charges = period_totals["charges"] or Decimal("0")
     period_collected = (
         Payment.objects.filter(
             invoice__occupancy__tenant__workspace=workspace,
@@ -127,12 +161,21 @@ def get_dashboard_data(workspace, *, period_start=None, period_end=None, upcomin
 
     upcoming_end = today + timedelta(days=upcoming_days)
     upcoming_vacancies = []
-    for occupancy in current_occupancies.filter(
-        check_out_date__isnull=False,
-        check_out_date__gte=today,
-        check_out_date__lte=upcoming_end,
-        tenant__workspace=workspace,
-    ).select_related("tenant", "unit__property", "subunit"):
+    upcoming_vacancies_total = 0
+    upcoming_queryset = (
+        current_occupancies.filter(
+            check_out_date__isnull=False,
+            check_out_date__gte=today,
+            check_out_date__lte=upcoming_end,
+            tenant__workspace=workspace,
+        )
+        .select_related("tenant", "unit__property", "subunit")
+        .order_by("check_out_date", "unit__property_id", "unit_id", "subunit_id", "id")
+    )
+    for occupancy in upcoming_queryset:
+        upcoming_vacancies_total += 1
+        if len(upcoming_vacancies) >= upcoming_vacancy_limit:
+            continue
         upcoming_vacancies.append(
             {
                 "occupancy_id": occupancy.id,
@@ -176,5 +219,9 @@ def get_dashboard_data(workspace, *, period_start=None, period_end=None, upcomin
             "overdue": overdue,
         },
         "availability": available_spaces,
+        "availability_total": availability_total,
+        "availability_truncated": availability_total > len(available_spaces),
         "upcoming_vacancies": upcoming_vacancies,
+        "upcoming_vacancies_total": upcoming_vacancies_total,
+        "upcoming_vacancies_truncated": upcoming_vacancies_total > len(upcoming_vacancies),
     }
