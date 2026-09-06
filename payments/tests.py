@@ -114,6 +114,7 @@ class PaymentIntegrityTests(TestCase):
 
     def test_direct_payment_create_does_not_mutate_invoice_state(self):
         payment = Payment.objects.create(
+            workspace=self.workspace,
             invoice=self.invoice,
             amount=Decimal("4000.00"),
             payment_method="upi",
@@ -151,6 +152,7 @@ class PaymentIntegrityTests(TestCase):
         with self.assertRaises(IntegrityError):
             Payment.objects.bulk_create([
                 Payment(
+                    workspace=self.workspace,
                     invoice=self.invoice,
                     amount=Decimal("0.00"),
                     payment_method="upi",
@@ -226,6 +228,7 @@ class PaymentWorkspaceAPITests(TestCase):
     @patch("payments.api.record_payment")
     def test_payment_create_api_delegates_to_canonical_service(self, record_payment_mock):
         payment = Payment.objects.create(
+            workspace=self.workspace,
             invoice=self.invoice,
             amount=Decimal("1000.00"),
             payment_method="upi",
