@@ -137,7 +137,13 @@ class DashboardReadModelTests(TestCase):
             charges_amount=Decimal("0"),
             due_date=self.today,
         )
-        Payment.objects.create(invoice=invoice, amount=Decimal("1000"), payment_method="cash", payment_date=self.today)
+        Payment.objects.create(
+            workspace=self.workspace,
+            invoice=invoice,
+            amount=Decimal("1000"),
+            payment_method="cash",
+            payment_date=self.today,
+        )
 
         other_property = Property.objects.create(name="Other Property", owner=other_user, workspace=other_workspace)
         other_unit = Unit.objects.create(property=other_property, unit_type="room", unit_number="201", rent=Decimal("9000"), capacity=1)
@@ -165,7 +171,13 @@ class DashboardReadModelTests(TestCase):
             charges_amount=Decimal("0"),
             due_date=self.today,
         )
-        Payment.objects.create(invoice=other_invoice, amount=Decimal("9000"), payment_method="cash", payment_date=self.today)
+        Payment.objects.create(
+            workspace=other_workspace,
+            invoice=other_invoice,
+            amount=Decimal("9000"),
+            payment_method="cash",
+            payment_date=self.today,
+        )
 
         data = get_dashboard_data(self.workspace)
 
