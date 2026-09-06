@@ -1,5 +1,6 @@
 from datetime import date
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
@@ -206,6 +207,34 @@ class PaymentWorkspaceAPITests(TestCase):
         }, format="json", **headers)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["data"]["invoice"], self.invoice.id)
+
+    @patch("payments.api.record_payment")
+    def test_payment_create_api_delegates_to_canonical_service(self, record_payment_mock):
+        payment = Payment.objects.create(
+            invoice=self.invoice,
+            amount=Decimal("1000.00"),
+            payment_method="upi",
+            payment_date=date(2026, 9, 3),
+        )
+        record_payment_mock.return_value = payment
+        headers = self.authenticate(self.manager)
+        response = self.client.post("/api/payments/create/", {
+            "invoice": self.invoice.id,
+            "amount": "1000.00",
+            "payment_method": "upi",
+            "payment_date": "2026-09-03",
+        }, format="json", **headers)
+        self.assertEqual(response.status_code, 200)
+        record_payment_mock.assert_called_once_with(
+            self.manager,
+            self.workspace,
+            {
+                "invoice": self.invoice,
+                "amount": Decimal("1000.00"),
+                "payment_method": "upi",
+                "payment_date": date(2026, 9, 3),
+            },
+        )
 
     def test_cross_workspace_payment_create_is_blocked(self):
         headers = self.authenticate(self.other, self.other_workspace)
