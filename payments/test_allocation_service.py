@@ -5,7 +5,9 @@ from django.test import TestCase
 
 from payments.allocation_service import allocate_payment
 from payments.models import Invoice, Payment, PaymentAllocation
-from tenant.models import Occupancy, Property, Tenant, Unit
+from properties.models import Property
+from tenant.models import Occupancy, Tenant
+from unit.models import Unit
 from workspaces.models import Workspace
 
 
