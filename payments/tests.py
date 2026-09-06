@@ -100,15 +100,17 @@ class PaymentIntegrityTests(TestCase):
         self.assertEqual(self.invoice.status, "paid")
         self.assertEqual(self.invoice.due_amount, Decimal("0.00"))
 
-    def test_invoice_save_does_not_reconcile_financial_state(self):
+    def test_invoice_save_cannot_forge_financial_state(self):
         record_payment(self.owner, self.workspace, self.payment_data("4000.00"))
         self.invoice.refresh_from_db()
         self.invoice.paid_amount = Decimal("9999.00")
         self.invoice.status = "paid"
-        self.invoice.save()
-        self.invoice.refresh_from_db()
-        self.assertEqual(self.invoice.paid_amount, Decimal("9999.00"))
-        self.assertEqual(self.invoice.status, "paid")
+
+        with self.assertRaisesMessage(
+            ValidationError,
+            "Invoice paid amount and status are managed by the canonical financial service",
+        ):
+            self.invoice.save()
 
     def test_direct_payment_create_does_not_mutate_invoice_state(self):
         payment = Payment.objects.create(
@@ -131,9 +133,10 @@ class PaymentIntegrityTests(TestCase):
 
     def test_settlement_uses_actual_payment_rows(self):
         record_payment(self.owner, self.workspace, self.payment_data("4000.00"))
-        self.invoice.paid_amount = Decimal("9999.00")
-        self.invoice.status = "partial"
-        self.invoice.save(update_fields=["paid_amount", "status"])
+        Invoice.objects.filter(id=self.invoice.id).update(
+            paid_amount=Decimal("9999.00"),
+            status="partial",
+        )
 
         settlement = calculate_final_settlement(self.occupancy.id, self.workspace)
         self.assertEqual(settlement["total_paid"], Decimal("4000.00"))
