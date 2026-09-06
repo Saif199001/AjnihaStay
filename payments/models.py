@@ -108,7 +108,18 @@ class Payment(models.Model):
         ("card", "Card"),
     )
 
-    invoice = models.ForeignKey(Invoice, on_delete=models.PROTECT, related_name="payments")
+    workspace = models.ForeignKey(
+        "workspaces.Workspace",
+        on_delete=models.PROTECT,
+        related_name="payments",
+    )
+    invoice = models.ForeignKey(
+        Invoice,
+        on_delete=models.PROTECT,
+        related_name="payments",
+        null=True,
+        blank=True,
+    )
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     payment_method = models.CharField(max_length=20, choices=PAYMENT_METHODS)
     payment_date = models.DateField()
@@ -119,12 +130,16 @@ class Payment(models.Model):
     def clean(self):
         if self.amount <= 0:
             raise ValidationError("Payment amount must be greater than zero")
-        if not self.invoice_id:
-            raise ValidationError("Invoice is required")
+        if not self.workspace_id:
+            raise ValidationError("Workspace is required")
 
-        total_paid = self.invoice.payments.exclude(id=self.id).aggregate(total=Sum("amount"))["total"] or 0
-        if total_paid + self.amount > (self.invoice.total_amount or 0):
-            raise ValidationError("Payment exceeds remaining amount")
+        if self.invoice_id:
+            if self.invoice.occupancy.tenant.workspace_id != self.workspace_id:
+                raise ValidationError("Payment and invoice must belong to the same workspace")
+
+            total_paid = self.invoice.payments.exclude(id=self.id).aggregate(total=Sum("amount"))["total"] or 0
+            if total_paid + self.amount > (self.invoice.total_amount or 0):
+                raise ValidationError("Payment exceeds remaining amount")
 
     def save(self, *args, **kwargs):
         if self.pk:
@@ -133,17 +148,80 @@ class Payment(models.Model):
                 raise ValidationError(
                     "Payment invoice and amount cannot be changed after creation"
                 )
+            if persisted.workspace_id != self.workspace_id:
+                raise ValidationError("Payment workspace cannot be changed after creation")
         self.clean()
         super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.amount} - {self.payment_method}"
 
+    @property
+    def allocated_amount(self):
+        return self.allocations.aggregate(total=Sum("amount"))["total"] or 0
+
+    @property
+    def unallocated_amount(self):
+        return max(self.amount - self.allocated_amount, 0)
+
     class Meta:
         indexes = [
+            models.Index(fields=["workspace", "invoice"]),
             models.Index(fields=["invoice"]),
             models.Index(fields=["payment_date"]),
         ]
         constraints = [
             models.CheckConstraint(condition=Q(amount__gt=0), name="payment_amount_positive"),
+        ]
+
+
+class PaymentAllocation(models.Model):
+    payment = models.ForeignKey(
+        Payment,
+        on_delete=models.PROTECT,
+        related_name="allocations",
+    )
+    invoice = models.ForeignKey(
+        Invoice,
+        on_delete=models.PROTECT,
+        related_name="allocations",
+    )
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def clean(self):
+        if self.amount <= 0:
+            raise ValidationError("Allocation amount must be greater than zero")
+        if self.payment.workspace_id != self.invoice.occupancy.tenant.workspace_id:
+            raise ValidationError("Payment and invoice must belong to the same workspace")
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            persisted = type(self).objects.get(pk=self.pk)
+            if (
+                persisted.payment_id != self.payment_id
+                or persisted.invoice_id != self.invoice_id
+                or persisted.amount != self.amount
+            ):
+                raise ValidationError(
+                    "Payment allocation payment, invoice and amount cannot be changed after creation"
+                )
+        self.clean()
+        super().save(*args, **kwargs)
+
+    @property
+    def workspace_id(self):
+        return self.payment.workspace_id
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["payment"]),
+            models.Index(fields=["invoice"]),
+            models.Index(fields=["invoice", "created_at"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(amount__gt=0),
+                name="payment_allocation_amount_positive",
+            ),
         ]
