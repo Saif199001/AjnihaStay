@@ -100,15 +100,27 @@ class PaymentIntegrityTests(TestCase):
         self.assertEqual(self.invoice.status, "paid")
         self.assertEqual(self.invoice.due_amount, Decimal("0.00"))
 
-    def test_invoice_save_reconciles_paid_amount_and_status_from_payments(self):
+    def test_invoice_save_does_not_reconcile_financial_state(self):
         record_payment(self.owner, self.workspace, self.payment_data("4000.00"))
         self.invoice.refresh_from_db()
         self.invoice.paid_amount = Decimal("9999.00")
         self.invoice.status = "paid"
         self.invoice.save()
         self.invoice.refresh_from_db()
-        self.assertEqual(self.invoice.paid_amount, Decimal("4000.00"))
-        self.assertEqual(self.invoice.status, "partial")
+        self.assertEqual(self.invoice.paid_amount, Decimal("9999.00"))
+        self.assertEqual(self.invoice.status, "paid")
+
+    def test_direct_payment_create_does_not_mutate_invoice_state(self):
+        payment = Payment.objects.create(
+            invoice=self.invoice,
+            amount=Decimal("4000.00"),
+            payment_method="upi",
+            payment_date=date(2026, 9, 3),
+        )
+        self.assertEqual(payment.amount, Decimal("4000.00"))
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.paid_amount, Decimal("0.00"))
+        self.assertEqual(self.invoice.status, "pending")
 
     def test_invoice_cannot_reduce_total_below_actual_payments(self):
         record_payment(self.owner, self.workspace, self.payment_data("4000.00"))
