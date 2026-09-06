@@ -12,6 +12,8 @@ def _decimal_amount(value):
         amount = Decimal(value)
     except (TypeError, ValueError, InvalidOperation):
         raise ValidationError("Invalid allocation amount")
+    if not amount.is_finite():
+        raise ValidationError("Invalid allocation amount")
     if amount <= 0:
         raise ValidationError("Allocation amount must be greater than zero")
     return amount
@@ -24,6 +26,8 @@ def _normalize_allocations(allocations):
     normalized = []
     seen = set()
     for item in allocations:
+        if not isinstance(item, dict):
+            raise ValidationError("Invalid allocation entry")
         invoice_value = item.get("invoice")
         invoice_id = getattr(invoice_value, "id", invoice_value)
         try:
