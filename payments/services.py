@@ -93,6 +93,7 @@ def record_payment(user, workspace, data):
             raise ValidationError("Payment exceeds remaining amount")
 
         payment = Payment.objects.create(
+            workspace=workspace,
             invoice=invoice,
             amount=amount,
             payment_method=data.get("payment_method"),
