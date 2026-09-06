@@ -46,7 +46,29 @@ def get_invoice(invoice_id, workspace):
         raise ValidationError("Invoice not found")
 
 
-def create_payment(user, workspace, data):
+def recalculate_invoice_state(invoice):
+    """Reconcile the compatibility invoice state from persisted payment rows."""
+    total_paid = invoice.payments.aggregate(total=Sum("amount"))["total"] or Decimal("0")
+    total_amount = invoice.total_amount or Decimal("0")
+
+    if total_paid == total_amount:
+        status = "paid"
+    elif total_paid > 0:
+        status = "partial"
+    else:
+        status = "pending"
+
+    Invoice.objects.filter(id=invoice.id).update(
+        paid_amount=total_paid,
+        status=status,
+    )
+    invoice.paid_amount = total_paid
+    invoice.status = status
+    return invoice
+
+
+def record_payment(user, workspace, data):
+    """Canonical financial transition for accepting a payment against an invoice."""
     with transaction.atomic():
         invoice_value = data.get("invoice")
         invoice_id = getattr(invoice_value, "id", invoice_value)
@@ -79,16 +101,13 @@ def create_payment(user, workspace, data):
             notes=data.get("notes") or "",
         )
 
-        total_paid += amount
-        invoice.paid_amount = total_paid
-        if total_paid == invoice.total_amount:
-            invoice.status = "paid"
-        elif total_paid > 0:
-            invoice.status = "partial"
-        else:
-            invoice.status = "pending"
-        invoice.save(update_fields=["paid_amount", "status"])
+        recalculate_invoice_state(invoice)
         return payment
+
+
+def create_payment(user, workspace, data):
+    """Backward-compatible wrapper; all payment mutations use record_payment()."""
+    return record_payment(user, workspace, data)
 
 
 def _optional_positive_id(value, field_name):
