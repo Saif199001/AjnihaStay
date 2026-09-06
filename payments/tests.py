@@ -12,7 +12,7 @@ from tenant.models import Occupancy, Tenant
 from unit.models import Unit
 from workspaces.models import Membership, Workspace
 from .models import Invoice, Payment
-from .services import calculate_final_settlement, create_payment
+from .services import calculate_final_settlement, create_payment, record_payment
 
 
 class PaymentIntegrityTests(TestCase):
@@ -62,31 +62,45 @@ class PaymentIntegrityTests(TestCase):
         with self.assertRaises(ValidationError):
             create_payment(self.owner, self.workspace, self.payment_data("0.00"))
 
+    def test_record_payment_is_canonical_transition(self):
+        payment = record_payment(self.owner, self.workspace, self.payment_data("4000.00"))
+        self.assertEqual(payment.amount, Decimal("4000.00"))
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.paid_amount, Decimal("4000.00"))
+        self.assertEqual(self.invoice.status, "partial")
+
+    def test_create_payment_remains_compatibility_wrapper(self):
+        payment = create_payment(self.owner, self.workspace, self.payment_data("4000.00"))
+        self.assertEqual(payment.amount, Decimal("4000.00"))
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.paid_amount, Decimal("4000.00"))
+        self.assertEqual(self.invoice.status, "partial")
+
     def test_payment_cannot_overpay_invoice(self):
         create_payment(self.owner, self.workspace, self.payment_data("7000.00"))
         with self.assertRaises(ValidationError):
-            create_payment(self.owner, self.workspace, self.payment_data("4000.00"))
+            record_payment(self.owner, self.workspace, self.payment_data("4000.00"))
 
     def test_payment_is_workspace_scoped(self):
         with self.assertRaises(ValidationError):
-            create_payment(self.other_owner, self.other_workspace, self.payment_data("1000.00"))
+            record_payment(self.other_owner, self.other_workspace, self.payment_data("1000.00"))
 
     def test_payment_updates_invoice_balance(self):
-        create_payment(self.owner, self.workspace, self.payment_data("4000.00"))
+        record_payment(self.owner, self.workspace, self.payment_data("4000.00"))
         self.invoice.refresh_from_db()
         self.assertEqual(self.invoice.paid_amount, Decimal("4000.00"))
         self.assertEqual(self.invoice.status, "partial")
         self.assertEqual(self.invoice.due_amount, Decimal("6000.00"))
 
     def test_full_payment_marks_invoice_paid(self):
-        create_payment(self.owner, self.workspace, self.payment_data("10000.00"))
+        record_payment(self.owner, self.workspace, self.payment_data("10000.00"))
         self.invoice.refresh_from_db()
         self.assertEqual(self.invoice.paid_amount, Decimal("10000.00"))
         self.assertEqual(self.invoice.status, "paid")
         self.assertEqual(self.invoice.due_amount, Decimal("0.00"))
 
     def test_invoice_save_reconciles_paid_amount_and_status_from_payments(self):
-        create_payment(self.owner, self.workspace, self.payment_data("4000.00"))
+        record_payment(self.owner, self.workspace, self.payment_data("4000.00"))
         self.invoice.refresh_from_db()
         self.invoice.paid_amount = Decimal("9999.00")
         self.invoice.status = "paid"
@@ -96,14 +110,14 @@ class PaymentIntegrityTests(TestCase):
         self.assertEqual(self.invoice.status, "partial")
 
     def test_invoice_cannot_reduce_total_below_actual_payments(self):
-        create_payment(self.owner, self.workspace, self.payment_data("4000.00"))
+        record_payment(self.owner, self.workspace, self.payment_data("4000.00"))
         self.invoice.refresh_from_db()
         self.invoice.rent_amount = Decimal("3000.00")
         with self.assertRaises(ValidationError):
             self.invoice.save()
 
     def test_settlement_uses_actual_payment_rows(self):
-        create_payment(self.owner, self.workspace, self.payment_data("4000.00"))
+        record_payment(self.owner, self.workspace, self.payment_data("4000.00"))
         self.invoice.paid_amount = Decimal("9999.00")
         self.invoice.status = "partial"
         self.invoice.save(update_fields=["paid_amount", "status"])
@@ -113,7 +127,7 @@ class PaymentIntegrityTests(TestCase):
         self.assertEqual(settlement["total_due"], Decimal("6000.00"))
 
     def test_settlement_does_not_report_negative_due(self):
-        create_payment(self.owner, self.workspace, self.payment_data("10000.00"))
+        record_payment(self.owner, self.workspace, self.payment_data("10000.00"))
         settlement = calculate_final_settlement(self.occupancy.id, self.workspace)
         self.assertEqual(settlement["total_due"], Decimal("0.00"))
 
@@ -204,7 +218,7 @@ class PaymentWorkspaceAPITests(TestCase):
         self.assertEqual(response.status_code, 400)
 
     def test_cross_workspace_payment_list_is_empty(self):
-        create_payment(self.owner, self.workspace, {
+        record_payment(self.owner, self.workspace, {
             "invoice": self.invoice.id,
             "amount": Decimal("1000.00"),
             "payment_method": "upi",
