@@ -49,17 +49,6 @@ class Invoice(models.Model):
         if not self.invoice_number:
             self.invoice_number = generate_invoice_number()
         self.total_amount = (self.rent_amount or 0) + (self.charges_amount or 0)
-
-        if self.pk:
-            total_paid = self.payments.aggregate(total=Sum("amount"))["total"] or 0
-            self.paid_amount = total_paid
-            if total_paid >= self.total_amount:
-                self.status = "paid"
-            elif total_paid > 0:
-                self.status = "partial"
-            else:
-                self.status = "pending"
-
         self.clean()
         super().save(*args, **kwargs)
 
