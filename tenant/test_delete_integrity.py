@@ -102,6 +102,7 @@ class DeleteIntegrityTests(TestCase):
 
     def test_invoice_delete_is_protected_when_payment_exists(self):
         Payment.objects.create(
+            workspace=self.workspace,
             invoice=self.invoice,
             amount=Decimal("1000.00"),
             payment_method="cash",
