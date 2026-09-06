@@ -46,6 +46,25 @@ class Invoice(models.Model):
             raise ValidationError("Paid amount cannot exceed invoice total")
 
     def save(self, *args, **kwargs):
+        if self.pk:
+            persisted = type(self).objects.get(pk=self.pk)
+            if (
+                persisted.paid_amount != self.paid_amount
+                or persisted.status != self.status
+            ):
+                raise ValidationError(
+                    "Invoice paid amount and status are managed by the canonical financial service"
+                )
+
+            if persisted.payments.exists() and (
+                persisted.occupancy_id != self.occupancy_id
+                or persisted.rent_amount != self.rent_amount
+                or persisted.charges_amount != self.charges_amount
+            ):
+                raise ValidationError(
+                    "Invoice financial terms cannot be changed after payments exist"
+                )
+
         if not self.invoice_number:
             self.invoice_number = generate_invoice_number()
         self.total_amount = (self.rent_amount or 0) + (self.charges_amount or 0)
@@ -108,6 +127,12 @@ class Payment(models.Model):
             raise ValidationError("Payment exceeds remaining amount")
 
     def save(self, *args, **kwargs):
+        if self.pk:
+            persisted = type(self).objects.get(pk=self.pk)
+            if persisted.invoice_id != self.invoice_id or persisted.amount != self.amount:
+                raise ValidationError(
+                    "Payment invoice and amount cannot be changed after creation"
+                )
         self.clean()
         super().save(*args, **kwargs)
 
