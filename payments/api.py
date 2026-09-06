@@ -7,10 +7,10 @@ from workspaces.permissions import WorkspaceManagerPermission, WorkspaceStaffPer
 from .serializers import InvoiceSerializer, PaymentSerializer
 from .services import (
     calculate_final_settlement,
-    create_payment,
     get_invoice,
     get_invoices,
     get_payments,
+    record_payment,
 )
 
 
@@ -47,7 +47,7 @@ def payment_create_api(request):
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
     try:
-        payment = create_payment(request.user, request.workspace, serializer.validated_data)
+        payment = record_payment(request.user, request.workspace, serializer.validated_data)
     except ValidationError as exc:
         return Response({"error": _validation_message(exc)}, status=400)
     return Response({"message": "Payment created", "data": PaymentSerializer(payment).data})
