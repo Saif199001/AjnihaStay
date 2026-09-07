@@ -5,6 +5,7 @@ from django.db import transaction
 from django.db.models import Sum
 
 from .models import Invoice, Payment, PaymentAllocation
+from .services import get_payment_available_allocation_amount
 
 
 def _decimal_amount(value):
@@ -96,16 +97,12 @@ def allocate_payment(user, workspace, payment, allocations):
                 "A legacy invoice-linked payment can only be allocated to its linked invoice"
             )
 
-        already_allocated = (
-            PaymentAllocation.objects.filter(payment=payment)
-            .aggregate(total=Sum("amount"))["total"]
-            or Decimal("0")
-        )
         requested_total = sum(
             (amount for _, amount in normalized), Decimal("0")
         )
-        if already_allocated + requested_total > payment.amount:
-            raise ValidationError("Allocation exceeds payment amount")
+        available_capacity = get_payment_available_allocation_amount(payment)
+        if requested_total > available_capacity:
+            raise ValidationError("Allocation exceeds available payment capacity")
 
         for invoice_id, amount in normalized:
             invoice = invoices_by_id[invoice_id]
