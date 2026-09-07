@@ -3,10 +3,15 @@ from django.db import migrations
 
 WORKSPACE_ID = "NULLIF(current_setting('app.workspace_id', true), '')::bigint"
 
-PAYMENT_POLICY = "workspace_id = {workspace_id}".format(workspace_id=WORKSPACE_ID)
+NEW_PAYMENT_POLICY = f"workspace_id = {WORKSPACE_ID}"
 ALLOCATION_POLICY = (
-    "payment_id IN (SELECT id FROM payments_payment WHERE workspace_id = {workspace_id})"
-    .format(workspace_id=WORKSPACE_ID)
+    f"payment_id IN (SELECT id FROM payments_payment WHERE workspace_id = {WORKSPACE_ID})"
+)
+LEGACY_PAYMENT_POLICY = (
+    f"invoice_id IN (SELECT i.id FROM payments_invoice i "
+    f"JOIN tenant_occupancy o ON o.id = i.occupancy_id "
+    f"JOIN tenant_tenant t ON t.id = o.tenant_id "
+    f"WHERE t.workspace_id = {WORKSPACE_ID})"
 )
 
 
@@ -18,7 +23,10 @@ def apply_rls_policies(apps, schema_editor):
         cursor.execute("DROP POLICY IF EXISTS workspace_isolation_payments_payment ON payments_payment")
         cursor.execute(
             "CREATE POLICY workspace_isolation_payments_payment ON payments_payment "
-            f"USING ({PAYMENT_POLICY}) WITH CHECK ({PAYMENT_POLICY})"
+            f"USING ({NEW_PAYMENT_POLICY}) WITH CHECK ({NEW_PAYMENT_POLICY})"
+        )
+        cursor.execute(
+            "DROP POLICY IF EXISTS workspace_isolation_payments_paymentallocation ON payments_paymentallocation"
         )
         cursor.execute(
             "CREATE POLICY workspace_isolation_payments_paymentallocation ON payments_paymentallocation "
@@ -31,11 +39,13 @@ def reverse_rls_policies(apps, schema_editor):
         return
 
     with schema_editor.connection.cursor() as cursor:
-        cursor.execute("DROP POLICY IF EXISTS workspace_isolation_payments_paymentallocation ON payments_paymentallocation")
+        cursor.execute(
+            "DROP POLICY IF EXISTS workspace_isolation_payments_paymentallocation ON payments_paymentallocation"
+        )
         cursor.execute("DROP POLICY IF EXISTS workspace_isolation_payments_payment ON payments_payment")
         cursor.execute(
             "CREATE POLICY workspace_isolation_payments_payment ON payments_payment "
-            f"USING ({ALLOCATION_POLICY.replace('payment_id IN (SELECT id FROM payments_payment WHERE workspace_id = ', 'invoice_id IN (SELECT i.id FROM payments_invoice i JOIN tenant_occupancy o ON o.id = i.occupancy_id JOIN tenant_tenant t ON t.id = o.tenant_id WHERE t.workspace_id = ')}) WITH CHECK ({ALLOCATION_POLICY.replace('payment_id IN (SELECT id FROM payments_payment WHERE workspace_id = ', 'invoice_id IN (SELECT i.id FROM payments_invoice i JOIN tenant_occupancy o ON o.id = i.occupancy_id JOIN tenant_tenant t ON t.id = o.occupancy_id WHERE t.workspace_id = ')})"
+            f"USING ({LEGACY_PAYMENT_POLICY}) WITH CHECK ({LEGACY_PAYMENT_POLICY})"
         )
 
 
