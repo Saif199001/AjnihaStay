@@ -239,11 +239,12 @@ class AdvanceCreditServiceTests(TestCase):
         self.assertEqual(self.invoice.paid_amount, Decimal("0.00"))
 
     def test_credit_application_cannot_exceed_invoice_outstanding(self):
-        credit = self.create_credit("10000")
+        PaymentAllocation.objects.create(payment=self.payment, invoice=self.invoice, amount=Decimal("6000.00"))
+        credit = self.create_credit("4000")
         with self.assertRaisesMessage(ValidationError, "Advance credit application exceeds invoice outstanding amount"):
             apply_advance_credit(
                 self.owner, self.workspace,
-                {"credit": credit.id, "invoice": self.invoice.id, "amount": "10000.01"},
+                {"credit": credit.id, "invoice": self.invoice.id, "amount": "4000.01"},
             )
         self.assertEqual(AdvanceCreditApplication.objects.count(), 0)
 
@@ -270,8 +271,15 @@ class AdvanceCreditServiceTests(TestCase):
             owner=self.owner, workspace=self.workspace, full_name="Other Invoice Tenant",
             phone="5555555555", permanent_address="Noida",
         )
+        other_property = Property.objects.create(
+            owner=self.owner, workspace=self.workspace, name="Other Invoice Property",
+            property_type="pg", address="Other Address", city="Delhi", state="Delhi", pincode="110002",
+        )
+        other_unit = Unit.objects.create(
+            property=other_property, unit_type="room", unit_number="AC-2", rent=Decimal("10000.00"),
+        )
         other_occupancy = Occupancy.objects.create(
-            tenant=other_tenant, unit=self.unit, allotted_by=self.owner, rent=Decimal("10000.00"),
+            tenant=other_tenant, unit=other_unit, allotted_by=self.owner, rent=Decimal("10000.00"),
             check_in_date=date(2026, 1, 1), next_due_date=date(2026, 2, 1),
             billing_type="arrears", billing_cycle="monthly",
         )
