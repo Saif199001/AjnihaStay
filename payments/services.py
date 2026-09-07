@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Sum
 
-from .models import Invoice, Payment
+from .models import Invoice, Payment, PaymentAllocation
 from tenant.models import Occupancy
 
 
@@ -87,7 +87,7 @@ def record_payment(user, workspace, data):
         if amount <= 0:
             raise ValidationError("Payment amount must be greater than zero")
 
-        total_paid = invoice.payments.aggregate(total=Sum("amount"))["total"] or Decimal("0")
+        total_paid = invoice.allocations.aggregate(total=Sum("amount"))["total"] or Decimal("0")
         outstanding = invoice.total_amount - total_paid
         if amount > outstanding:
             raise ValidationError("Payment exceeds remaining amount")
@@ -101,8 +101,18 @@ def record_payment(user, workspace, data):
             reference_id=data.get("reference_id"),
             notes=data.get("notes") or "",
         )
+        PaymentAllocation.objects.create(
+            payment=payment,
+            invoice=invoice,
+            amount=amount,
+        )
 
-        recalculate_invoice_state(invoice)
+        invoice.paid_amount = total_paid + amount
+        invoice.status = "paid" if invoice.paid_amount == invoice.total_amount else "partial"
+        Invoice.objects.filter(id=invoice.id).update(
+            paid_amount=invoice.paid_amount,
+            status=invoice.status,
+        )
         return payment
 
 
