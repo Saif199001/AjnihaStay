@@ -4,6 +4,12 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from workspaces.permissions import WorkspaceManagerPermission, WorkspaceStaffPermission
+from .advance_credit_service import (
+    apply_advance_credit,
+    create_advance_credit,
+    get_advance_credit,
+    get_advance_credits,
+)
 from .allocation_service import allocate_payment
 from .billing_service import (
     create_billing_schedule,
@@ -12,6 +18,10 @@ from .billing_service import (
     update_billing_schedule,
 )
 from .serializers import (
+    AdvanceCreditApplicationCreateSerializer,
+    AdvanceCreditApplicationSerializer,
+    AdvanceCreditCreateSerializer,
+    AdvanceCreditSerializer,
     BillingScheduleSerializer,
     InvoiceSerializer,
     PaymentAllocationCreateSerializer,
@@ -169,3 +179,72 @@ def billing_schedule_update_api(request, schedule_id):
     except ValidationError as exc:
         return Response({"error": _validation_message(exc)}, status=400)
     return Response({"message": "Billing schedule updated", "data": BillingScheduleSerializer(schedule).data})
+
+
+@api_view(["GET"])
+@permission_classes([WorkspaceStaffPermission])
+def advance_credit_list_api(request):
+    credits = get_advance_credits(request.workspace)
+    return Response({"data": AdvanceCreditSerializer(credits, many=True).data})
+
+
+@api_view(["POST"])
+@permission_classes([WorkspaceManagerPermission])
+def advance_credit_create_api(request):
+    serializer = AdvanceCreditCreateSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=400)
+    try:
+        credit = create_advance_credit(
+            request.user,
+            request.workspace,
+            serializer.validated_data,
+        )
+    except ValidationError as exc:
+        return Response({"error": _validation_message(exc)}, status=400)
+    credit = get_advance_credit(credit.id, request.workspace)
+    return Response(
+        {"message": "Advance credit created", "data": AdvanceCreditSerializer(credit).data},
+        status=201,
+    )
+
+
+@api_view(["GET"])
+@permission_classes([WorkspaceStaffPermission])
+def advance_credit_detail_api(request, credit_id):
+    try:
+        credit = get_advance_credit(credit_id, request.workspace)
+    except ValidationError as exc:
+        return Response({"error": _validation_message(exc)}, status=404)
+    return Response({"data": AdvanceCreditSerializer(credit).data})
+
+
+@api_view(["POST"])
+@permission_classes([WorkspaceManagerPermission])
+def advance_credit_apply_api(request, credit_id):
+    serializer = AdvanceCreditApplicationCreateSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=400)
+
+    data = dict(serializer.validated_data)
+    data["credit"] = credit_id
+    try:
+        application, remaining_credit, invoice = apply_advance_credit(
+            request.user,
+            request.workspace,
+            data,
+        )
+    except ValidationError as exc:
+        return Response({"error": _validation_message(exc)}, status=400)
+
+    return Response(
+        {
+            "message": "Advance credit applied",
+            "data": {
+                "application": AdvanceCreditApplicationSerializer(application).data,
+                "remaining_credit": remaining_credit,
+                "invoice": InvoiceSerializer(invoice).data,
+            },
+        },
+        status=201,
+    )
