@@ -46,9 +46,18 @@ def get_invoice(invoice_id, workspace):
         raise ValidationError("Invoice not found")
 
 
+def get_invoice_allocated_amount(invoice):
+    """Return the canonical paid amount represented by persisted allocations."""
+    return (
+        PaymentAllocation.objects.filter(invoice=invoice)
+        .aggregate(total=Sum("amount"))["total"]
+        or Decimal("0")
+    )
+
+
 def recalculate_invoice_state(invoice):
-    """Reconcile the compatibility invoice state from persisted payment rows."""
-    total_paid = invoice.payments.aggregate(total=Sum("amount"))["total"] or Decimal("0")
+    """Reconcile compatibility invoice state from canonical payment allocations."""
+    total_paid = get_invoice_allocated_amount(invoice)
     total_amount = invoice.total_amount or Decimal("0")
 
     if total_paid == total_amount:
@@ -87,7 +96,7 @@ def record_payment(user, workspace, data):
         if amount <= 0:
             raise ValidationError("Payment amount must be greater than zero")
 
-        total_paid = invoice.allocations.aggregate(total=Sum("amount"))["total"] or Decimal("0")
+        total_paid = get_invoice_allocated_amount(invoice)
         outstanding = invoice.total_amount - total_paid
         if amount > outstanding:
             raise ValidationError("Payment exceeds remaining amount")
@@ -166,10 +175,10 @@ def calculate_final_settlement(occupancy_id, workspace):
         )
         total_amount = total_rent + total_charges
 
-        payment_totals = Payment.objects.filter(
+        allocation_totals = PaymentAllocation.objects.filter(
             invoice__occupancy=occupancy,
         ).aggregate(total=Sum("amount"))
-        total_paid = payment_totals["total"] or Decimal("0")
+        total_paid = allocation_totals["total"] or Decimal("0")
         total_due = max(total_amount - total_paid, Decimal("0"))
         security_deposit = occupancy.security_deposit or Decimal("0")
 
