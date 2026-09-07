@@ -119,22 +119,16 @@ def generate_invoice_api(request):
     return Response({"error": "Recurring invoice generation is disabled"}, status=403)
 
 
-@api_view(["GET", "POST"])
+@api_view(["GET"])
 @permission_classes([WorkspaceStaffPermission])
-def billing_schedule_list_create_api(request):
-    if request.method == "GET":
-        schedules = get_billing_schedules(request.workspace)
-        return Response({"data": BillingScheduleSerializer(schedules, many=True).data})
+def billing_schedule_list_api(request):
+    schedules = get_billing_schedules(request.workspace)
+    return Response({"data": BillingScheduleSerializer(schedules, many=True).data})
 
-    if not request.user.is_authenticated:
-        return Response({"error": "Authentication required"}, status=401)
-    if not request.workspace.memberships.filter(user=request.user, is_active=True, role="owner").exists() and not request.user.is_superuser:
-        # WorkspaceManagerPermission is not reusable inside a function after DRF dispatch;
-        # explicit role check keeps schedule writes manager-only.
-        membership = request.workspace.memberships.filter(user=request.user, is_active=True).first()
-        if not membership or membership.role not in {"owner", "manager"}:
-            return Response({"detail": "You do not have permission to perform this action."}, status=403)
 
+@api_view(["POST"])
+@permission_classes([WorkspaceManagerPermission])
+def billing_schedule_create_api(request):
     serializer = BillingScheduleSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
@@ -145,21 +139,23 @@ def billing_schedule_list_create_api(request):
     return Response({"message": "Billing schedule created", "data": BillingScheduleSerializer(schedule).data}, status=201)
 
 
-@api_view(["GET", "PATCH"])
+@api_view(["GET"])
 @permission_classes([WorkspaceStaffPermission])
 def billing_schedule_detail_api(request, schedule_id):
     try:
         schedule = get_billing_schedule(schedule_id, request.workspace)
     except ValidationError as exc:
         return Response({"error": _validation_message(exc)}, status=404)
+    return Response({"data": BillingScheduleSerializer(schedule).data})
 
-    if request.method == "GET":
-        return Response({"data": BillingScheduleSerializer(schedule).data})
 
-    membership = request.workspace.memberships.filter(user=request.user, is_active=True).first()
-    if not request.user.is_superuser and (not membership or membership.role not in {"owner", "manager"}):
-        return Response({"detail": "You do not have permission to perform this action."}, status=403)
-
+@api_view(["PATCH"])
+@permission_classes([WorkspaceManagerPermission])
+def billing_schedule_update_api(request, schedule_id):
+    try:
+        schedule = get_billing_schedule(schedule_id, request.workspace)
+    except ValidationError as exc:
+        return Response({"error": _validation_message(exc)}, status=404)
     serializer = BillingScheduleSerializer(schedule, data=request.data, partial=True)
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
