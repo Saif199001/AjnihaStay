@@ -40,19 +40,10 @@ class WorkspaceRLSTests(TestCase):
             cursor.execute(f"DROP ROLE IF EXISTS {RLS_ROLE}")
             cursor.execute(f"CREATE ROLE {RLS_ROLE} NOLOGIN NOSUPERUSER NOBYPASSRLS")
             cursor.execute(f"GRANT USAGE ON SCHEMA public TO {RLS_ROLE}")
-
-            # The CI command enables RLS on the migration database, but Django
-            # creates the test database from migrations. Apply the same runtime
-            # RLS enforcement to the actual test database before impersonation.
             for table in PROTECTED_TABLES:
                 cursor.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
                 cursor.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
-                cursor.execute(
-                    f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {table} TO {RLS_ROLE}"
-                )
-
-            # Property/occupancy creation and workspace-permission checks may
-            # inspect membership while the test role is active.
+                cursor.execute(f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {table} TO {RLS_ROLE}")
             cursor.execute(
                 f"GRANT SELECT ON TABLE accounts_user, workspaces_workspace, workspaces_membership TO {RLS_ROLE}"
             )
@@ -63,8 +54,7 @@ class WorkspaceRLSTests(TestCase):
     @classmethod
     def tearDownClass(cls):
         with connection.cursor() as cursor:
-            # Explicit grants make DROP ROLE fail unless its owned privileges
-            # are removed first. Keep cleanup idempotent for repeated CI runs.
+            cursor.execute("RESET ROLE")
             cursor.execute(f"DROP OWNED BY {RLS_ROLE}")
             cursor.execute(f"DROP ROLE IF EXISTS {RLS_ROLE}")
         super().tearDownClass()
@@ -92,7 +82,10 @@ class WorkspaceRLSTests(TestCase):
         self.allocation_b = PaymentAllocation.objects.create(payment=self.payment_b, invoice=self.invoice_b, amount=Decimal("500.00"))
 
     def _as_rls_role(self):
-        connection.cursor().execute(f"SET LOCAL ROLE {RLS_ROLE}")
+        connection.cursor().execute(f"SET ROLE {RLS_ROLE}")
+
+    def _reset_rls_role(self):
+        connection.cursor().execute("RESET ROLE")
 
     def test_all_protected_tables_are_rls_enabled_and_forced(self):
         with connection.cursor() as cursor:
@@ -109,6 +102,7 @@ class WorkspaceRLSTests(TestCase):
             self._as_rls_role()
             set_workspace_context(self.workspace_a.id)
             rows = list(Property.objects.order_by("id").values_list("id", "workspace_id"))
+            self._reset_rls_role()
         self.assertEqual(rows, [(self.property_a.id, self.workspace_a.id)])
 
     def test_rls_hides_all_workspace_data_without_context(self):
@@ -118,6 +112,7 @@ class WorkspaceRLSTests(TestCase):
             rows = list(Property.objects.values_list("id", "workspace_id"))
             payments = list(Payment.objects.values_list("id", "workspace_id"))
             allocations = list(PaymentAllocation.objects.values_list("id", "payment_id"))
+            self._reset_rls_role()
         self.assertEqual(rows, [])
         self.assertEqual(payments, [])
         self.assertEqual(allocations, [])
@@ -127,6 +122,7 @@ class WorkspaceRLSTests(TestCase):
             self._as_rls_role()
             set_workspace_context(self.workspace_a.id)
             rows = list(Payment.objects.order_by("id").values_list("id", "workspace_id"))
+            self._reset_rls_role()
         self.assertEqual(rows, [(self.payment_a.id, self.workspace_a.id)])
 
     def test_payment_allocation_rls_hides_other_workspace(self):
@@ -134,6 +130,7 @@ class WorkspaceRLSTests(TestCase):
             self._as_rls_role()
             set_workspace_context(self.workspace_a.id)
             rows = list(PaymentAllocation.objects.order_by("id").values_list("id", "payment_id"))
+            self._reset_rls_role()
         self.assertEqual(rows, [(self.allocation_a.id, self.payment_a.id)])
 
     def test_rls_blocks_cross_workspace_insert(self):
@@ -141,21 +138,26 @@ class WorkspaceRLSTests(TestCase):
             self._as_rls_role()
             set_workspace_context(self.workspace_a.id)
             with self.assertRaises(Exception):
-                Property.objects.create(owner=self.owner_b, workspace=self.workspace_b, name="Blocked Cross Workspace", property_type="pg", address="Delhi", city="Delhi", state="Delhi", pincode="110003")
+                with transaction.atomic():
+                    Property.objects.create(owner=self.owner_b, workspace=self.workspace_b, name="Blocked Cross Workspace", property_type="pg", address="Delhi", city="Delhi", state="Delhi", pincode="110003")
+            self._reset_rls_role()
 
     def test_rls_blocks_cross_workspace_payment_allocation_insert(self):
         with transaction.atomic():
             self._as_rls_role()
             set_workspace_context(self.workspace_a.id)
             with self.assertRaises(Exception):
-                with connection.cursor() as cursor:
-                    cursor.execute("INSERT INTO payments_paymentallocation (id, payment_id, invoice_id, amount, created_at) VALUES (%s, %s, %s, %s, NOW())", [self.allocation_b.id + 1000000, self.payment_b.id, self.invoice_a.id, Decimal("100.00")])
+                with transaction.atomic():
+                    with connection.cursor() as cursor:
+                        cursor.execute("INSERT INTO payments_paymentallocation (id, payment_id, invoice_id, amount, created_at) VALUES (%s, %s, %s, %s, NOW())", [self.allocation_b.id + 1000000, self.payment_b.id, self.invoice_a.id, Decimal("100.00")])
+            self._reset_rls_role()
 
     def test_rls_blocks_cross_workspace_update(self):
         with transaction.atomic():
             self._as_rls_role()
             set_workspace_context(self.workspace_a.id)
             updated = Property.objects.filter(id=self.property_b.id).update(name="Blocked Update")
+            self._reset_rls_role()
         self.assertEqual(updated, 0)
         self.property_b.refresh_from_db()
         self.assertEqual(self.property_b.name, "RLS Property B")
