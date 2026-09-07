@@ -5,7 +5,7 @@ from django.db import transaction
 from django.db.models import Sum
 
 from .models import Invoice, Payment, PaymentAllocation
-from .services import get_payment_available_allocation_amount
+from .services import get_invoice_settled_amount, get_payment_available_allocation_amount
 
 
 def _decimal_amount(value):
@@ -45,10 +45,7 @@ def _normalize_allocations(allocations):
 
 
 def _recalculate_invoice_state_from_allocations(invoice):
-    total_paid = (
-        invoice.allocations.aggregate(total=Sum("amount"))["total"]
-        or Decimal("0")
-    )
+    total_paid = get_invoice_settled_amount(invoice)
     total_amount = invoice.total_amount or Decimal("0")
     if total_paid == total_amount:
         status = "paid"
@@ -111,7 +108,12 @@ def allocate_payment(user, workspace, payment, allocations):
                 .aggregate(total=Sum("amount"))["total"]
                 or Decimal("0")
             )
-            outstanding = (invoice.total_amount or Decimal("0")) - allocated_to_invoice
+            outstanding = (invoice.total_amount or Decimal("0")) - (
+                allocated_to_invoice
+                + invoice.advance_credit_applications.aggregate(total=Sum("amount"))["total"]
+                or Decimal("0")
+            )
+            outstanding = max(outstanding, Decimal("0"))
             if amount > outstanding:
                 raise ValidationError("Allocation exceeds invoice remaining amount")
 
