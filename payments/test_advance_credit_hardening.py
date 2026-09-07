@@ -153,7 +153,7 @@ class AdvanceCreditHardeningTests(TestCase):
         second_payment = Payment.objects.create(
             workspace=self.workspace,
             invoice=None,
-            amount=Decimal("4000.00"),
+            amount=Decimal("5000.00"),
             payment_method="bank",
             payment_date=date(2026, 9, 8),
         )
@@ -162,7 +162,7 @@ class AdvanceCreditHardeningTests(TestCase):
                 None,
                 self.workspace,
                 second_payment,
-                [{"invoice": self.invoice.id, "amount": "4000.01"}],
+                [{"invoice": self.invoice.id, "amount": "3000.01"}],
             )
 
         self.invoice.refresh_from_db()
