@@ -89,6 +89,13 @@ def allocate_payment(user, workspace, payment, allocations):
             raise ValidationError("One or more invoices were not found")
         invoices_by_id = {invoice.id: invoice for invoice in invoices}
 
+        if payment.invoice_id and any(
+            invoice_id != payment.invoice_id for invoice_id, _ in normalized
+        ):
+            raise ValidationError(
+                "A legacy invoice-linked payment can only be allocated to its linked invoice"
+            )
+
         already_allocated = (
             PaymentAllocation.objects.filter(payment=payment)
             .aggregate(total=Sum("amount"))["total"]
