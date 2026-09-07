@@ -21,6 +21,7 @@ from .serializers import (
     AdvanceCreditApplicationCreateSerializer,
     AdvanceCreditApplicationSerializer,
     AdvanceCreditCreateSerializer,
+    AdvanceCreditInvoiceSerializer,
     AdvanceCreditSerializer,
     BillingScheduleSerializer,
     InvoiceSerializer,
@@ -235,15 +236,18 @@ def advance_credit_apply_api(request, credit_id):
             data,
         )
     except ValidationError as exc:
-        return Response({"error": _validation_message(exc)}, status=400)
+        message = _validation_message(exc)
+        if message == "Advance credit not found":
+            return Response({"detail": "You do not have permission to perform this action."}, status=403)
+        return Response({"error": message}, status=400)
 
     return Response(
         {
             "message": "Advance credit applied",
             "data": {
                 "application": AdvanceCreditApplicationSerializer(application).data,
-                "remaining_credit": remaining_credit,
-                "invoice": InvoiceSerializer(invoice).data,
+                "remaining_credit": f"{remaining_credit:.2f}",
+                "invoice": AdvanceCreditInvoiceSerializer(invoice).data,
             },
         },
         status=201,
