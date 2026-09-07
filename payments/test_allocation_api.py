@@ -133,7 +133,7 @@ class PaymentAllocationAPITests(TestCase):
         self.assertFalse(PaymentAllocation.objects.filter(payment=payment).exists())
 
     def test_invoice_over_allocation_is_rejected_by_canonical_service(self):
-        payment = self.make_unallocated_payment("10000.00")
+        payment = self.make_unallocated_payment("20000.00")
         response = self.client.post(
             f"/api/payments/{payment.id}/allocations/",
             {"allocations": [{"invoice": self.invoice.id, "amount": "10001.00"}]},
