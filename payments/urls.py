@@ -1,5 +1,9 @@
 from django.urls import path
 from .api import (
+    advance_credit_apply_api,
+    advance_credit_create_api,
+    advance_credit_detail_api,
+    advance_credit_list_api,
     billing_schedule_create_api,
     billing_schedule_detail_api,
     billing_schedule_list_api,
@@ -35,4 +39,9 @@ urlpatterns = [
     path("api/billing-schedules/create/", billing_schedule_create_api),
     path("api/billing-schedules/<int:schedule_id>/", billing_schedule_detail_api),
     path("api/billing-schedules/<int:schedule_id>/update/", billing_schedule_update_api),
+
+    path("api/advance-credits/", advance_credit_list_api),
+    path("api/advance-credits/create/", advance_credit_create_api),
+    path("api/advance-credits/<int:credit_id>/", advance_credit_detail_api),
+    path("api/advance-credits/<int:credit_id>/apply/", advance_credit_apply_api),
 ]
