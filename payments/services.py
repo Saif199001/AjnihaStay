@@ -47,12 +47,25 @@ def get_invoice(invoice_id, workspace):
 
 
 def get_invoice_allocated_amount(invoice):
-    """Return the canonical paid amount represented by persisted allocations."""
+    """Return the amount settled by PaymentAllocation records only."""
     return (
         PaymentAllocation.objects.filter(invoice=invoice)
         .aggregate(total=Sum("amount"))["total"]
         or Decimal("0")
     )
+
+
+def get_invoice_credit_applied_amount(invoice):
+    """Return the amount settled by applied advance-credit records only."""
+    return (
+        invoice.advance_credit_applications.aggregate(total=Sum("amount"))["total"]
+        or Decimal("0")
+    )
+
+
+def get_invoice_settled_amount(invoice):
+    """Return the canonical invoice settlement across payments and prepaid credit."""
+    return get_invoice_allocated_amount(invoice) + get_invoice_credit_applied_amount(invoice)
 
 
 def get_payment_reserved_credit_amount(payment):
@@ -76,8 +89,8 @@ def get_payment_available_allocation_amount(payment):
 
 
 def recalculate_invoice_state(invoice):
-    """Reconcile compatibility invoice state from canonical payment allocations."""
-    total_paid = get_invoice_allocated_amount(invoice)
+    """Reconcile compatibility invoice state from canonical combined settlement."""
+    total_paid = get_invoice_settled_amount(invoice)
     total_amount = invoice.total_amount or Decimal("0")
 
     if total_paid == total_amount:
@@ -116,7 +129,7 @@ def record_payment(user, workspace, data):
         if amount <= 0:
             raise ValidationError("Payment amount must be greater than zero")
 
-        total_paid = get_invoice_allocated_amount(invoice)
+        total_paid = get_invoice_settled_amount(invoice)
         outstanding = invoice.total_amount - total_paid
         if amount > outstanding:
             raise ValidationError("Payment exceeds remaining amount")
@@ -195,10 +208,10 @@ def calculate_final_settlement(occupancy_id, workspace):
         )
         total_amount = total_rent + total_charges
 
-        allocation_totals = PaymentAllocation.objects.filter(
-            invoice__occupancy=occupancy,
-        ).aggregate(total=Sum("amount"))
-        total_paid = allocation_totals["total"] or Decimal("0")
+        total_paid = sum(
+            (get_invoice_settled_amount(invoice) for invoice in invoices),
+            Decimal("0"),
+        )
         total_due = max(total_amount - total_paid, Decimal("0"))
         security_deposit = occupancy.security_deposit or Decimal("0")
 
