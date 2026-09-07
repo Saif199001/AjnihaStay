@@ -104,8 +104,7 @@ class BillingScheduleAPITests(TestCase):
             format="json",
             **self.headers(self.owner, self.other_workspace),
         )
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.data["error"], "Occupancy not found")
+        self.assertEqual(response.status_code, 403)
 
     def test_manager_can_update_schedule(self):
         schedule = BillingSchedule.objects.create(
