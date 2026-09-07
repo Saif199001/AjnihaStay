@@ -2,11 +2,13 @@ from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import Sum
 
 from tenant.models import Occupancy, Tenant
 
 from .allocation_service import get_payment_available_allocation_amount
-from .models import AdvanceCredit, Payment
+from .models import AdvanceCredit, AdvanceCreditApplication, Invoice, Payment
+from .services import recalculate_invoice_state
 
 
 def _positive_decimal(value, field_name):
@@ -40,9 +42,6 @@ def create_advance_credit(user, workspace, data):
 
     with transaction.atomic():
         try:
-            # Lock the payment row itself. Do not select_related through the nullable
-            # invoice FK: PostgreSQL cannot apply FOR UPDATE to the nullable side
-            # of an outer join.
             payment = Payment.objects.select_for_update().get(
                 id=payment_id,
                 workspace=workspace,
@@ -90,3 +89,72 @@ def create_advance_credit(user, workspace, data):
             source_payment=payment,
             original_amount=amount,
         )
+
+
+def get_advance_credit_applied_amount(credit):
+    """Return the canonical amount of a credit already consumed by applications."""
+    return (
+        AdvanceCreditApplication.objects.filter(credit=credit)
+        .aggregate(total=Sum("amount"))["total"]
+        or Decimal("0")
+    )
+
+
+def get_advance_credit_available_amount(credit):
+    """Return the credit balance derived from immutable applications."""
+    return max(
+        credit.original_amount - get_advance_credit_applied_amount(credit),
+        Decimal("0"),
+    )
+
+
+def apply_advance_credit(user, workspace, data):
+    """Apply prepaid credit to an invoice through the canonical settlement service."""
+    credit_id = _positive_id(data.get("credit"), "advance credit")
+    invoice_id = _positive_id(data.get("invoice"), "invoice")
+    amount = _positive_decimal(data.get("amount"), "advance credit application")
+
+    with transaction.atomic():
+        try:
+            credit = AdvanceCredit.objects.select_for_update().get(
+                id=credit_id,
+                workspace=workspace,
+            )
+        except AdvanceCredit.DoesNotExist:
+            raise ValidationError("Advance credit not found")
+
+        try:
+            invoice = Invoice.objects.select_for_update().select_related(
+                "occupancy__tenant"
+            ).get(
+                id=invoice_id,
+                occupancy__tenant__workspace=workspace,
+            )
+        except Invoice.DoesNotExist:
+            raise ValidationError("Invoice not found")
+
+        if credit.tenant_id != invoice.occupancy.tenant_id:
+            raise ValidationError("Advance credit and invoice must belong to the same tenant")
+
+        available_credit = get_advance_credit_available_amount(credit)
+        if amount > available_credit:
+            raise ValidationError("Advance credit application exceeds available credit")
+
+        settled_before = invoice.allocations.aggregate(total=Sum("amount"))["total"] or Decimal("0")
+        settled_before += (
+            AdvanceCreditApplication.objects.filter(invoice=invoice)
+            .aggregate(total=Sum("amount"))["total"]
+            or Decimal("0")
+        )
+        outstanding = max(invoice.total_amount - settled_before, Decimal("0"))
+        if amount > outstanding:
+            raise ValidationError("Advance credit application exceeds invoice outstanding amount")
+
+        application = AdvanceCreditApplication.objects.create(
+            credit=credit,
+            invoice=invoice,
+            amount=amount,
+        )
+        invoice = recalculate_invoice_state(invoice)
+
+        return application, get_advance_credit_available_amount(credit), invoice
