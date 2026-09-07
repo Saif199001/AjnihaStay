@@ -40,16 +40,32 @@ class WorkspaceRLSTests(TestCase):
             cursor.execute(f"DROP ROLE IF EXISTS {RLS_ROLE}")
             cursor.execute(f"CREATE ROLE {RLS_ROLE} NOLOGIN NOSUPERUSER NOBYPASSRLS")
             cursor.execute(f"GRANT USAGE ON SCHEMA public TO {RLS_ROLE}")
+
+            # The CI command enables RLS on the migration database, but Django
+            # creates the test database from migrations. Apply the same runtime
+            # RLS enforcement to the actual test database before impersonation.
             for table in PROTECTED_TABLES:
+                cursor.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
+                cursor.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
                 cursor.execute(
                     f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {table} TO {RLS_ROLE}"
                 )
-            cursor.execute(f"GRANT SELECT ON TABLE accounts_user, workspaces_workspace TO {RLS_ROLE}")
-            cursor.execute(f"GRANT USAGE, SELECT ON SEQUENCE properties_property_id_seq TO {RLS_ROLE}")
+
+            # Property/occupancy creation and workspace-permission checks may
+            # inspect membership while the test role is active.
+            cursor.execute(
+                f"GRANT SELECT ON TABLE accounts_user, workspaces_workspace, workspaces_membership TO {RLS_ROLE}"
+            )
+            cursor.execute(
+                f"GRANT USAGE, SELECT ON SEQUENCE properties_property_id_seq TO {RLS_ROLE}"
+            )
 
     @classmethod
     def tearDownClass(cls):
         with connection.cursor() as cursor:
+            # Explicit grants make DROP ROLE fail unless its owned privileges
+            # are removed first. Keep cleanup idempotent for repeated CI runs.
+            cursor.execute(f"DROP OWNED BY {RLS_ROLE}")
             cursor.execute(f"DROP ROLE IF EXISTS {RLS_ROLE}")
         super().tearDownClass()
 
