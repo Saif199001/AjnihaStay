@@ -147,3 +147,15 @@ class PaymentAllocationServiceTests(TestCase):
         self.payment.refresh_from_db()
         self.assertEqual(self.payment.amount, Decimal("10000"))
         self.assertIsNone(self.payment.invoice_id)
+
+    def test_invoice_terms_cannot_change_after_allocation(self):
+        allocate_payment(None, self.workspace, self.payment, [{"invoice": self.invoice_a.id, "amount": "1000"}])
+        self.invoice_a.refresh_from_db()
+        self.invoice_a.rent_amount = Decimal("7000.00")
+        with self.assertRaisesMessage(
+            ValidationError,
+            "Invoice financial terms cannot be changed after payments exist",
+        ):
+            self.invoice_a.save()
+        self.invoice_a.refresh_from_db()
+        self.assertEqual(self.invoice_a.rent_amount, Decimal("6000.00"))
