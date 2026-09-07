@@ -40,10 +40,12 @@ def create_advance_credit(user, workspace, data):
 
     with transaction.atomic():
         try:
-            payment = (
-                Payment.objects.select_for_update()
-                .select_related("invoice__occupancy__tenant")
-                .get(id=payment_id, workspace=workspace)
+            # Lock the payment row itself. Do not select_related through the nullable
+            # invoice FK: PostgreSQL cannot apply FOR UPDATE to the nullable side
+            # of an outer join.
+            payment = Payment.objects.select_for_update().get(
+                id=payment_id,
+                workspace=workspace,
             )
         except Payment.DoesNotExist:
             raise ValidationError("Payment not found")
@@ -65,8 +67,14 @@ def create_advance_credit(user, workspace, data):
             if occupancy.tenant_id != tenant.id:
                 raise ValidationError("Advance credit occupancy must belong to the selected tenant")
 
-        if payment.invoice_id and payment.invoice.occupancy.tenant_id != tenant.id:
-            raise ValidationError("Advance credit tenant must match the payment invoice tenant")
+        if payment.invoice_id:
+            try:
+                payment_invoice = payment.invoice
+                payment_invoice_tenant_id = payment_invoice.occupancy.tenant_id
+            except (AttributeError, Occupancy.DoesNotExist):
+                raise ValidationError("Payment invoice is invalid")
+            if payment_invoice_tenant_id != tenant.id:
+                raise ValidationError("Advance credit tenant must match the payment invoice tenant")
 
         if AdvanceCredit.objects.filter(source_payment=payment).exists():
             raise ValidationError("Advance credit already exists for this source payment")
