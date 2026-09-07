@@ -15,19 +15,20 @@ def generate_invoice_number():
 
 
 def generate_recurring_invoices():
-    """Generate due recurring invoices safely for active occupancies.
+    """Generate due recurring invoices through the canonical invoice service.
 
     This is intended for a trusted scheduled/background job, not a normal
-    tenant-facing endpoint. Each workspace is processed inside its own
-    transaction with an explicit database workspace context, and each
-    occupancy is locked before invoice creation.
+    tenant-facing endpoint. Workspace context and recurring cursor movement
+    remain orchestration concerns; invoice creation is delegated to the
+    canonical domain service.
     """
-    from .models import Invoice
+    from .invoice_generation_service import generate_invoice_for_occupancy
 
     today = now().date()
     created_count = 0
 
     for workspace_id in Workspace.objects.filter(is_active=True).values_list("id", flat=True):
+        workspace = Workspace.objects.get(id=workspace_id)
         with transaction.atomic():
             set_workspace_context(workspace_id)
 
@@ -50,29 +51,23 @@ def generate_recurring_invoices():
                 if occupancy.next_due_date > today:
                     continue
 
-                existing_invoice = Invoice.objects.filter(
-                    occupancy=occupancy,
-                    due_date=occupancy.next_due_date,
-                ).exists()
-
-                if existing_invoice:
-                    continue
-
                 billing_start = occupancy.next_due_date
-
                 if occupancy.billing_cycle == "monthly":
                     billing_end = billing_start + relativedelta(months=1)
                 else:
                     billing_end = billing_start + timedelta(days=1)
 
-                Invoice.objects.create(
-                    occupancy=occupancy,
-                    billing_start=billing_start,
-                    billing_end=billing_end,
-                    rent_amount=occupancy.rent,
-                    charges_amount=0,
-                    due_date=billing_start,
+                invoice, created = generate_invoice_for_occupancy(
+                    None,
+                    workspace,
+                    occupancy,
+                    billing_start,
+                    billing_end,
+                    billing_start,
                 )
+
+                if not created:
+                    continue
 
                 occupancy.next_due_date = billing_end
                 occupancy.save()
