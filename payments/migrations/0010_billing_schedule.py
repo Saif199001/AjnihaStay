@@ -34,7 +34,8 @@ def reverse_rls(apps, schema_editor):
 class Migration(migrations.Migration):
     dependencies = [
         ("payments", "0009_payment_allocation_rls"),
-        ("tenant", "0005_alter_occupancy_options_and_more"),
+        ("tenant", "0009_allow_null_profile_photo"),
+        ("tenant", "0009_alter_tenant_profile_photo"),
     ]
 
     operations = [
