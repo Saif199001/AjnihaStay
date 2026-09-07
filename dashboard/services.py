@@ -2,9 +2,10 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from django.db.models import DecimalField, ExpressionWrapper, F, Prefetch, Q, Sum
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
-from payments.models import Invoice, Payment
+from payments.models import Invoice, PaymentAllocation
 from tenant.models import Occupancy, Tenant
 from unit.models import SubUnit, Unit
 
@@ -138,24 +139,36 @@ def get_dashboard_data(
     period_rent = period_totals["rent"] or Decimal("0")
     period_charges = period_totals["charges"] or Decimal("0")
     period_collected = (
-        Payment.objects.filter(
+        PaymentAllocation.objects.filter(
+            payment__workspace=workspace,
             invoice__occupancy__tenant__workspace=workspace,
-            payment_date__gte=period_start,
-            payment_date__lte=period_end,
+            payment__payment_date__gte=period_start,
+            payment__payment_date__lte=period_end,
         ).aggregate(total=Sum("amount"))["total"]
         or Decimal("0")
     )
 
-    outstanding_expression = ExpressionWrapper(
-        F("total_amount") - F("paid_amount"),
+    allocation_paid = Coalesce(
+        Sum("allocations__amount"),
+        Decimal("0"),
         output_field=DecimalField(max_digits=12, decimal_places=2),
     )
-    outstanding = Invoice.objects.filter(occupancy__tenant__workspace=workspace).aggregate(
-        total=Sum(outstanding_expression)
-    )["total"] or Decimal("0")
+    outstanding_expression = ExpressionWrapper(
+        F("total_amount") - F("allocation_paid"),
+        output_field=DecimalField(max_digits=12, decimal_places=2),
+    )
+    outstanding = Invoice.objects.filter(
+        occupancy__tenant__workspace=workspace,
+    ).annotate(
+        allocation_paid=allocation_paid,
+    ).aggregate(total=Sum(outstanding_expression))["total"] or Decimal("0")
     overdue = (
-        Invoice.objects.filter(occupancy__tenant__workspace=workspace, due_date__lt=today)
-        .exclude(status="paid")
+        Invoice.objects.filter(
+            occupancy__tenant__workspace=workspace,
+            due_date__lt=today,
+        )
+        .annotate(allocation_paid=allocation_paid)
+        .filter(allocation_paid__lt=F("total_amount"))
         .aggregate(total=Sum(outstanding_expression))["total"]
         or Decimal("0")
     )
