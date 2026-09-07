@@ -102,7 +102,7 @@ def allocate_payment(user, workspace, payment, allocations):
         )
         available_capacity = get_payment_available_allocation_amount(payment)
         if requested_total > available_capacity:
-            raise ValidationError("Allocation exceeds available payment capacity")
+            raise ValidationError("Allocation exceeds payment amount")
 
         for invoice_id, amount in normalized:
             invoice = invoices_by_id[invoice_id]
