@@ -52,6 +52,7 @@ def reverse_rls_policies(apps, schema_editor):
 class Migration(migrations.Migration):
     dependencies = [
         ("payments", "0008_merge_payment_allocation_heads"),
+        ("workspaces", "0006_rls_fail_closed"),
     ]
 
     operations = [
