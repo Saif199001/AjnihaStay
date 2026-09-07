@@ -1,6 +1,6 @@
 # Phase 3.4-D — Invoice Generation Foundation
 
-**Status: LOCKED**
+**Status: COMPLETE**
 
 ## Objective
 Establish one canonical domain-service seam for generating invoices from an occupancy billing period while preserving the existing financial lifecycle:
@@ -56,3 +56,16 @@ Phase 3.4-D is complete only after:
 - full Django regression passes;
 - CI is GREEN on the final commit;
 - final financial/workspace-isolation audit is completed.
+
+## Final Audit
+
+- Canonical invoice-generation service implemented in `payments/invoice_generation_service.py`.
+- Occupancy is resolved and row-locked inside the transaction with workspace scoping.
+- Active occupancy and billing-period/date invariants are enforced.
+- Rent is sourced from authoritative `Occupancy.rent`; charges are aggregated only for the requested occupancy and half-open billing period.
+- Same-period generation is idempotent and does not mutate an existing invoice.
+- No Payment or PaymentAllocation side effects are introduced by generation.
+- Existing `generate_recurring_invoices()` delegates invoice creation to the canonical service; recurring cursor movement remains orchestration-owned.
+- Public/manual invoice generation API remains disabled as intentionally out of scope.
+- No new invoice schema migration was introduced; the existing recurring-billing migration state remains intact.
+- Final CI #240 on the implementation commit was GREEN, and the workflow completed migration graph check, migration drift check, migration application, workspace RLS enablement, full Django test suite, and Django system checks successfully.
