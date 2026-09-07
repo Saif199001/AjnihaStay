@@ -3,7 +3,7 @@ from datetime import date
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
-from tenant.models import Charge, Occupancy
+from tenant.models import Charge
 
 from .billing_models import BillingSchedule
 
