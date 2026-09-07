@@ -239,8 +239,14 @@ class AdvanceCreditServiceTests(TestCase):
         self.assertEqual(self.invoice.paid_amount, Decimal("0.00"))
 
     def test_credit_application_cannot_exceed_invoice_outstanding(self):
-        PaymentAllocation.objects.create(payment=self.payment, invoice=self.invoice, amount=Decimal("6000.00"))
-        credit = self.create_credit("4000")
+        allocated_payment = Payment.objects.create(
+            workspace=self.workspace, invoice=None, amount=Decimal("6000.00"),
+            payment_method="bank", payment_date=date(2026, 9, 7),
+        )
+        PaymentAllocation.objects.create(
+            payment=allocated_payment, invoice=self.invoice, amount=Decimal("6000.00")
+        )
+        credit = self.create_credit("10000")
         with self.assertRaisesMessage(ValidationError, "Advance credit application exceeds invoice outstanding amount"):
             apply_advance_credit(
                 self.owner, self.workspace,
@@ -309,10 +315,30 @@ class AdvanceCreditServiceTests(TestCase):
         other_owner = User.objects.create_user("other-workspace-owner-2@example.com", "StrongPass123!")
         other_workspace = Workspace.objects.create(name="Other Workspace", slug="other-workspace-3", owner=other_owner)
         Membership.objects.create(workspace=other_workspace, user=other_owner, role="owner")
+        other_tenant = Tenant.objects.create(
+            owner=other_owner, workspace=other_workspace, full_name="Other Invoice Workspace Tenant",
+            phone="4444444444", permanent_address="Noida",
+        )
+        other_property = Property.objects.create(
+            owner=other_owner, workspace=other_workspace, name="Other Workspace Property",
+            property_type="pg", address="Other Workspace Address", city="Noida", state="Uttar Pradesh", pincode="201301",
+        )
+        other_unit = Unit.objects.create(
+            property=other_property, unit_type="room", unit_number="AC-3", rent=Decimal("10000.00"),
+        )
+        other_occupancy = Occupancy.objects.create(
+            tenant=other_tenant, unit=other_unit, allotted_by=other_owner, rent=Decimal("10000.00"),
+            check_in_date=date(2026, 1, 1), next_due_date=date(2026, 2, 1),
+            billing_type="arrears", billing_cycle="monthly",
+        )
+        other_invoice = Invoice.objects.create(
+            occupancy=other_occupancy, billing_start=date(2026, 1, 1), billing_end=date(2026, 1, 31),
+            rent_amount=Decimal("10000.00"), charges_amount=Decimal("0.00"), due_date=date(2026, 2, 5),
+        )
         with self.assertRaisesMessage(ValidationError, "Invoice not found"):
             apply_advance_credit(
-                self.owner, other_workspace,
-                {"credit": credit.id, "invoice": self.invoice.id, "amount": "1000"},
+                self.owner, self.workspace,
+                {"credit": credit.id, "invoice": other_invoice.id, "amount": "1000"},
             )
 
     def test_available_credit_is_derived_from_applications(self):
