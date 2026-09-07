@@ -1,7 +1,7 @@
 # AjnihaStay — Phase 3.8 Advance Credit / Prepaid Balance
 
 **Status:** LOCKED 🔒  
-**Version:** v1.0  
+**Version:** v1.1  
 **Date:** 2026-09-07  
 **Branch:** `phase-1/workspace-multitenancy`
 
@@ -9,137 +9,86 @@
 
 Phase 3.8 introduces an explicit, auditable **Advance Credit / Prepaid Balance** layer for money received that is not currently represented by an invoice receivable, or remains after invoice allocation.
 
-This phase is an additive extension of the existing financial lifecycle:
+This is additive to the protected lifecycle:
 
 ```text
-Occupancy
-    ↓
-Charge / Billing Event
-    ↓
-Invoice
-    ↓
-Payment
-    ↓
-PaymentAllocation
-    ↓
-Financial State
+Occupancy → Charge → Invoice → Payment → PaymentAllocation
 ```
 
-The new prepaid path becomes:
+The prepaid path is:
 
 ```text
 Payment
-    ↓
-Unallocated Amount
-    ↓
+   ↓
+Unallocated / Reserved Amount
+   ↓
 AdvanceCredit
-    ↓
+   ↓
 AdvanceCreditApplication
-    ↓
-Future Invoice
+   ↓
+Invoice settlement
 ```
 
-The phase must preserve existing partial payments, advance billing, arrears billing, invoice generation, payment allocation, settlement calculation, workspace isolation and RLS.
+The phase must preserve partial payments, advance billing, arrears billing, recurring billing, invoice generation, payment allocation, settlement calculation, workspace isolation and RLS.
 
 ---
 
-## 2. Audit Basis
+## 2. Audit Basis & Findings
 
-This architecture was audited against the locked product and financial sources of truth:
+Audited against:
 
 - `docs/BLUEPRINT.md`
 - `docs/BLUEPRINT_V2_GAP_AUDIT.md`
 - `docs/PHASE_3_FINANCIAL_ARCHITECTURE.md`
 - Existing Phase 3.3 Payment Allocation implementation
-- Existing Phase 3.4 recurring billing / charge generation / invoice generation implementation
-- Current `payments.Invoice`, `payments.Payment`, `payments.PaymentAllocation` models
-- Current payment/allocation services and APIs
-- Current `tenant.Tenant`, `tenant.Occupancy`, and `tenant.Charge` models
-- Current financial settlement calculation
-- Current PostgreSQL RLS protection for financial tables
+- Existing Phase 3.4 recurring/charge/invoice generation implementation
+- `payments.Invoice`, `Payment`, `PaymentAllocation`
+- `payments.services`, `allocation_service`, billing/invoice services and APIs
+- `tenant.Tenant`, `Occupancy`, `Charge`
+- Existing settlement calculation and PostgreSQL RLS
 
-The audit confirms that **advance billing is already supported and must not be confused with advance money received**. The missing domain capability is an explicit, auditable prepaid credit that can be consumed against a later receivable.
+Current foundation is sufficient for an additive credit layer:
 
----
+1. `Payment.invoice` is nullable, so an unlinked payment can already be represented.
+2. `PaymentAllocation` is the canonical invoice-settlement relationship.
+3. Payment has an `unallocated_amount` concept, but it currently ignores any amount explicitly reserved as prepaid credit.
+4. Canonical payment creation rejects invoice overpayment; this behavior is protected.
+5. Settlement currently reads payment allocations and must not count unapplied credit as invoice collection.
+6. Existing financial tables are workspace-scoped and RLS-protected.
 
-## 3. Current-State Audit Findings
-
-### 3.1 Payment already supports an unlinked state
-
-`Payment.invoice` is nullable. Therefore the existing schema can represent a payment that is not currently attached to an invoice.
-
-This is useful foundation and must be preserved.
-
-### 3.2 Payment allocation already provides canonical invoice settlement
-
-`PaymentAllocation` is the canonical relationship used to determine invoice-paid state. Allocation is transactional, locks payment/invoices, validates workspace ownership and prevents allocation above payment capacity or invoice outstanding balance.
-
-Phase 3.8 must extend this model rather than bypass it.
-
-### 3.3 Payment has an unallocated amount concept
-
-`Payment.unallocated_amount` currently represents payment amount minus persisted allocations.
-
-Phase 3.8 must refine this concept so an amount reserved as explicit advance credit cannot be accidentally allocated again directly from the same payment.
-
-### 3.4 Current payment creation deliberately rejects invoice overpayment
-
-The canonical payment service currently validates the payment amount against the invoice outstanding amount. This behavior is protected.
-
-Phase 3.8 must **not** weaken this validation merely to create prepaid credit.
-
-Instead, advance money should be represented by an explicitly unlinked payment or by an explicitly converted unallocated residual amount.
-
-### 3.5 Existing settlement already reads payment allocations
-
-Final settlement calculation uses `PaymentAllocation` totals. Phase 3.8 must ensure prepaid credit is not silently counted as invoice payment before it is actually applied to an invoice.
-
-### 3.6 Existing workspace isolation is strong
-
-Invoice, Payment and PaymentAllocation are workspace protected at the application layer and through PostgreSQL RLS. The new credit objects must receive the same defense-in-depth treatment.
+**Important audit correction:** an `AdvanceCreditApplication` must participate in invoice settlement calculations. Creating a separate credit-application record without extending the canonical invoice paid/outstanding calculation would leave the new money invisible to invoice state. Therefore Phase 3.8 explicitly extends the canonical financial-state calculation to include both `PaymentAllocation` and `AdvanceCreditApplication` as valid settlement components.
 
 ---
 
-## 4. Terminology — LOCKED
+## 3. Terminology — LOCKED
 
 ### Advance billing
 
-Existing `Occupancy.billing_type = "advance"` means the billing period is billed in advance/at the beginning of the service period.
-
-**It is not a credit balance.**
+`Occupancy.billing_type = "advance"` means the billing period is billed before/at the service period. It is **not** a credit balance.
 
 ### Advance payment / prepaid credit
 
-Money has been received but is not currently settling a receivable.
+Money received but not currently settling an invoice, including an unallocated residual after invoice allocation.
 
-Examples:
+Example:
 
 ```text
 Payment ₹30,000
-Invoice allocation ₹20,000
+Invoice settlement ₹20,000
 Remaining ₹10,000
         ↓
 Advance Credit ₹10,000
-```
-
-or:
-
-```text
-Payment ₹20,000
-No current invoice
-        ↓
-Advance Credit ₹20,000
 ```
 
 The credit is a real financial state and must be auditable.
 
 ---
 
-## 5. Architectural Decision
+## 4. Architectural Decisions
 
-### 5.1 New bounded financial objects
+### 4.1 New bounded financial objects
 
-Phase 3.8 introduces two explicit concepts:
+Create:
 
 ```text
 AdvanceCredit
@@ -149,44 +98,34 @@ AdvanceCreditApplication
 Invoice
 ```
 
-`AdvanceCredit` represents the original prepaid balance.  
-`AdvanceCreditApplication` represents consumption of that balance against a specific invoice.
+`AdvanceCredit` is the prepaid principal. `AdvanceCreditApplication` records consumption against an invoice.
 
-This avoids storing prepaid money inside `Invoice.paid_amount` or silently mutating historical `Payment` records.
+Do not store prepaid money inside `Invoice.paid_amount` or mutate historical Payment amounts.
 
-### 5.2 Credit ownership
+### 4.2 Credit ownership
 
-The credit is **tenant-scoped** and optionally occupancy-associated.
+Credit is **tenant-scoped** and optionally occupancy-associated.
 
-Rationale:
+- Workspace is mandatory.
+- Tenant is mandatory.
+- Occupancy is optional context and must belong to the same tenant/workspace.
+- Tenant scope allows valid prepaid money to survive an ended occupancy and be applied to a later invoice for the same tenant.
 
-- The money belongs to the tenant/customer relationship, not to a specific invoice.
-- A tenant may have a future occupancy/invoice.
-- Historical occupancy can end while valid prepaid money remains.
-- Tenant scope avoids forcing future credit to remain tied to one invoice.
-- Optional occupancy context preserves traceability when the credit originated from a specific occupancy.
+### 4.3 Source payment
 
-Workspace remains mandatory.
+Every credit must reference one source Payment uniquely.
 
-### 5.3 Source payment is mandatory
+No anonymous/manual credit is introduced in Phase 3.8. Manual financial adjustments belong to the later Credits/Debits/Adjustments phase.
 
-Every AdvanceCredit must reference the Payment from which the prepaid amount originated.
+### 4.4 Immutable financial records
 
-No anonymous/manual credit balance is created in Phase 3.8.
-
-This gives an auditable chain:
-
-```text
-Payment → AdvanceCredit → AdvanceCreditApplication → Invoice
-```
-
-Manual accounting adjustments/credits belong to the later Credits/Debits/Adjustments phase.
+After creation, source payment, tenant, occupancy, principal and application amount/references cannot be mutated. Corrections belong to explicit future refund/adjustment workflows.
 
 ---
 
-## 6. Proposed Data Model
+## 5. Data Model
 
-### 6.1 `AdvanceCredit`
+### 5.1 `AdvanceCredit`
 
 Proposed fields:
 
@@ -200,24 +139,24 @@ original_amount Decimal(10,2)
 created_at
 ```
 
-Constraints/invariants:
+Constraints:
 
 - `original_amount > 0`
-- workspace is required
-- source payment is required
-- source payment must belong to the same workspace
-- tenant must belong to the same workspace
-- optional occupancy must belong to the same tenant/workspace
-- source payment must not be reused to create multiple credit principals
-- credit principal is immutable after creation
+- all related objects belong to the same workspace
+- optional occupancy belongs to the credit tenant
+- source payment cannot create a second credit principal
+- principal is immutable
 
-The remaining/available balance is **derived**, not stored as a second mutable financial truth:
+Derived balance:
 
 ```text
-available_credit = original_amount - SUM(valid AdvanceCreditApplication.amount)
+available_credit = original_amount
+                  - SUM(AdvanceCreditApplication.amount)
 ```
 
-### 6.2 `AdvanceCreditApplication`
+No mutable `remaining_amount` column is required.
+
+### 5.2 `AdvanceCreditApplication`
 
 Proposed fields:
 
@@ -229,18 +168,16 @@ amount Decimal(10,2)
 created_at
 ```
 
-Constraints/invariants:
+Constraints:
 
 - `amount > 0`
-- credit and invoice must belong to the same workspace
-- invoice tenant must match credit tenant
-- invoice occupancy must belong to the credit tenant
-- total applications cannot exceed available credit
-- one application cannot exceed invoice outstanding amount
-- application records are immutable after creation
-- applications are created transactionally
+- credit and invoice are in the same workspace
+- invoice tenant equals credit tenant
+- application amount cannot exceed available credit
+- application amount cannot exceed invoice outstanding
+- application is immutable after creation
 
-Recommended indexes:
+Indexes:
 
 ```text
 (credit)
@@ -248,172 +185,170 @@ Recommended indexes:
 (credit, created_at)
 ```
 
-Recommended database constraint:
-
-```text
-advance_credit_application_amount_positive
-```
-
-A database constraint cannot by itself enforce aggregate credit capacity; that invariant remains under the canonical transactional service with row locks.
+Use a positive-amount database check constraint. Aggregate capacity remains a service-level invariant protected by row locks.
 
 ---
 
-## 7. Payment Integration Rules
+## 6. Payment Capacity & Double-Spend Rules
 
-### 7.1 Explicit conversion only
+This is the most important integration point.
 
-Phase 3.8 must not automatically convert every unallocated payment into credit merely because `Payment.invoice` is null.
+Once an unallocated payment amount is converted into an AdvanceCredit, that amount is **reserved** and cannot also be allocated directly through `PaymentAllocation`.
 
-Credit creation must be an explicit domain transition.
-
-This prevents ambiguous or incorrectly attributed payments from becoming prepaid balances.
-
-### 7.2 Residual conversion
-
-For a payment with existing allocations:
-
-```text
-Payment amount
-    - existing allocations
-    = unallocated amount
-```
-
-Only the unallocated amount may be converted into AdvanceCredit.
-
-The service must lock the Payment before calculating this amount.
-
-### 7.3 Full advance payment
-
-For an unlinked payment:
-
-```text
-Payment amount = available prepaid amount
-```
-
-The caller must provide/resolve the tenant and optional occupancy context for the credit.
-
-### 7.4 No double spending
-
-Once an unallocated amount is reserved as an AdvanceCredit, the same amount must not remain directly allocatable through `PaymentAllocation`.
-
-Therefore the canonical allocation capacity becomes conceptually:
+Canonical capacities become:
 
 ```text
 Payment allocatable amount
-    = payment amount
-    - existing invoice allocations
-    - amount reserved into AdvanceCredit
+  = payment amount
+  - existing PaymentAllocation total
+  - reserved AdvanceCredit principal
 ```
 
-The existing `Payment.unallocated_amount` read-side semantics must be updated accordingly during implementation.
+`Payment.unallocated_amount` must be updated to reflect this reserved amount.
 
-### 7.5 Credit application does not create another Payment
+Rules:
 
-Applying a prepaid credit to an invoice is a transfer of already-received money into invoice settlement.
+- Existing invoice payment overpayment validation remains protected.
+- Credit creation can consume only currently unallocated payment capacity.
+- Credit creation and normal payment allocation must lock the Payment before calculating capacity.
+- A source payment cannot be allocated after its full remaining amount has been reserved as credit.
+- Credit application does not create a new Payment and does not increase Payment amount.
 
-It must create an `AdvanceCreditApplication` and update invoice financial state through the canonical financial transition authority.
+---
 
-It must not create a duplicate Payment.
+## 7. Canonical Financial State Calculation
+
+The current Invoice read-side derives paid/outstanding from `PaymentAllocation`. Phase 3.8 extends this canonical calculation to include prepaid-credit applications.
+
+Define:
+
+```text
+invoice_settled_amount
+  = SUM(PaymentAllocation.amount)
+  + SUM(AdvanceCreditApplication.amount)
+```
+
+Then:
+
+```text
+Invoice outstanding
+  = Invoice receivable - invoice_settled_amount
+```
+
+Compatibility `Invoice.paid_amount/status` must continue to be maintained by the canonical financial transition service, but must reflect the combined valid settlement amount.
+
+The existing `Invoice.allocated_paid_amount` property may be retained for API compatibility only if its documented meaning is updated or a new canonical `settled_paid_amount` property is introduced. There must be one authoritative calculation internally.
+
+This prevents the critical failure mode where an applied prepaid credit exists in the database but the invoice still appears unpaid.
 
 ---
 
 ## 8. Canonical Services
 
-Phase 3.8 must use service-layer financial transitions.
-
 ### 8.1 `create_advance_credit(...)`
 
-Responsibilities:
+Transaction:
 
-1. Resolve and workspace-scope Payment.
+1. Resolve Payment within workspace.
 2. Lock Payment with `select_for_update()`.
-3. Resolve tenant and optional occupancy.
-4. Validate tenant/workspace ownership.
-5. Calculate current allocatable/unallocated payment balance.
-6. Reject zero/negative conversion.
-7. Prevent duplicate credit principal for the same source payment.
-8. Create immutable AdvanceCredit atomically.
-9. Return the credit with derived available balance.
-
-No invoice state is changed by credit creation.
+3. Resolve/validate Tenant and optional Occupancy.
+4. Calculate current unallocated payment capacity, including existing reserved credit.
+5. Reject zero/negative capacity.
+6. Reject duplicate source-payment credit principal.
+7. Create `AdvanceCredit` atomically.
+8. Do not change invoice state.
 
 ### 8.2 `apply_advance_credit(...)`
 
-Responsibilities:
+Transaction:
 
 1. Lock AdvanceCredit.
-2. Lock target Invoice deterministically.
-3. Validate same workspace.
-4. Validate same tenant.
-5. Calculate current available credit from applications.
-6. Calculate current invoice outstanding from PaymentAllocation and existing financial state.
-7. Reject application above either balance.
-8. Create immutable AdvanceCreditApplication atomically.
-9. Transition invoice state through the canonical financial service.
-10. Return the application and updated financial state.
+2. Lock target Invoice using deterministic lock ordering.
+3. Validate workspace and tenant equality.
+4. Recalculate available credit from applications.
+5. Recalculate invoice outstanding from allocations + prior credit applications.
+6. Reject over-application.
+7. Create immutable `AdvanceCreditApplication` atomically.
+8. Recalculate invoice financial state through the canonical financial transition service.
+9. Return application, remaining credit and invoice state.
 
-Concurrency rule:
+No Payment is created.
 
-```text
-Lock Credit → Lock Invoice → Recalculate → Validate → Apply
-```
+### 8.3 Allocation integration
 
-Lock ordering must be deterministic for multi-object operations.
+`allocate_payment(...)` must account for reserved credit when calculating payment capacity. Otherwise a race could spend the same money both as a credit and as an invoice allocation.
 
 ---
 
-## 9. Invoice State Rules
+## 9. Financial Examples
 
-Advance credit must not change an invoice until it is explicitly applied.
+### Full advance payment
 
-Before application:
+```text
+Payment ₹20,000
+No invoice
+↓
+AdvanceCredit ₹20,000
+↓
+Future Invoice ₹20,000
+↓
+Apply credit ₹20,000
+↓
+Invoice settled ₹20,000
+Credit available ₹0
+```
+
+### Residual prepaid balance
+
+```text
+Payment ₹30,000
+Invoice A settlement ₹20,000
+↓
+Reserved residual ₹10,000
+↓
+AdvanceCredit ₹10,000
+↓
+Invoice B ₹15,000
+↓
+Apply credit ₹10,000
+↓
+Invoice B outstanding ₹5,000
+```
+
+### Partial invoice + credit
 
 ```text
 Invoice ₹20,000
-Payment allocations ₹0
-Advance credit ₹10,000
-
-Invoice outstanding = ₹20,000
-Credit available = ₹10,000
+PaymentAllocation ₹5,000
+AdvanceCreditApplication ₹7,000
+↓
+Invoice settled ₹12,000
+Invoice outstanding ₹8,000
+Status PARTIAL
 ```
-
-After application:
-
-```text
-Invoice ₹20,000
-Credit application ₹10,000
-
-Invoice outstanding = ₹10,000
-Credit available = ₹0
-```
-
-Invoice `paid_amount/status` remains derived from valid settlement records and must not be manually mutated by the API.
-
-The existing pending/partial/paid semantics remain protected.
 
 ---
 
-## 10. Settlement Rules
+## 10. Settlement & Reporting Rules
 
-Advance credit is a customer credit, not an invoice payment until applied.
+Unapplied credit is **not** invoice collection.
 
 Therefore:
 
-- It must not reduce invoice outstanding before application.
-- It must not be counted as collected against an invoice before application.
-- It must not silently become security-deposit income.
-- It must remain visible as available tenant credit.
-- Future settlement logic must account for unapplied credit separately from invoice receivables.
+- Dashboard collections must not increase when credit is merely created.
+- Invoice outstanding must not decrease until credit is applied.
+- Applied credit must count as invoice settlement.
+- Tenant available-credit reporting may expose unapplied balance additively.
+- Current settlement totals remain backward compatible.
+- Future settlement lifecycle may explicitly consume/refund available credit.
 
-The current settlement calculation must remain backward compatible. Phase 3.8 may add explicit credit information only through an additive read-side extension; it must not reinterpret existing totals without explicit approval.
+Security deposits remain a separate financial concept and must not be silently converted into prepaid rent credit.
 
 ---
 
 ## 11. API Contract
 
-Phase 3.8 should use additive, manager-authorized endpoints.
-
-Proposed endpoints:
+Additive endpoints, manager mutation / staff read:
 
 ```text
 POST /api/advance-credits/
@@ -422,9 +357,7 @@ GET  /api/advance-credits/<credit_id>/
 POST /api/advance-credits/<credit_id>/apply/
 ```
 
-### Create request
-
-Conceptually:
+Create request:
 
 ```json
 {
@@ -434,9 +367,7 @@ Conceptually:
 }
 ```
 
-`occupancy` is optional only when business context genuinely spans future occupancy; tenant is mandatory for attribution.
-
-### Apply request
+Apply request:
 
 ```json
 {
@@ -445,136 +376,87 @@ Conceptually:
 }
 ```
 
-Responses must expose:
+Backend returns authoritative amounts: original, available, applications and updated invoice state.
 
-- credit id
-- source payment
-- tenant
-- optional occupancy
-- original amount
-- available amount
-- applications
-- timestamps
-
-Financial amounts must come from backend/domain calculations, never frontend arithmetic.
-
-Public/tenant-facing credit mutation APIs are out of scope for this phase.
+No tenant-facing mutation API or UI redesign in this phase.
 
 ---
 
-## 12. Permissions
+## 12. Permissions & Workspace Isolation
 
-Mutation endpoints require `WorkspaceManagerPermission`.
+- Mutation: `WorkspaceManagerPermission`
+- Read: `WorkspaceStaffPermission`
+- Every service independently enforces workspace scope.
+- Application-level authorization remains mandatory with RLS.
 
-Read endpoints require `WorkspaceStaffPermission`.
-
-All service calls must independently enforce workspace scope; permissions are not a substitute for domain isolation.
-
----
-
-## 13. Workspace Isolation / RLS
-
-New tables must be protected by PostgreSQL RLS.
-
-Required protections:
+New tables:
 
 ```text
 payments_advancecredit
 payments_advancecreditapplication
 ```
 
-RLS must ensure:
+Both must be ENABLED and FORCED under PostgreSQL RLS.
 
-- credit rows are visible only when the credit workspace matches `app.workspace_id`
-- application rows are visible only through a credit/invoice relationship belonging to the current workspace
-- cross-workspace inserts are rejected
-- cross-workspace updates/inserts cannot bypass application authorization
+RLS must prevent cross-workspace reads and writes through both direct and relationship-based access.
 
-The existing `enable_workspace_rls` command must include both new tables.
-
-Application-level workspace filtering remains mandatory even with RLS.
+`enable_workspace_rls` must include both tables.
 
 ---
 
-## 14. Migration Strategy
+## 13. Migration Strategy
 
-Phase 3.8 requires additive schema migration only.
+Additive migrations only.
 
-No destructive changes to historical Invoice, Payment or PaymentAllocation records are permitted.
+Create the two new tables, indexes and positive-amount constraints, then apply RLS policies.
 
-The migration must:
+Do **not** destructively modify historical Payment/Invoice/PaymentAllocation records.
 
-1. Create `AdvanceCredit`.
-2. Create `AdvanceCreditApplication`.
-3. Add required indexes and positive-amount constraints.
-4. Apply RLS policies.
-5. Update the RLS enable/force command.
-6. Preserve existing migration graph and all historical financial data.
+Do **not** automatically backfill historical payments into credits. Historical attribution may be ambiguous and must never be guessed.
 
-Historical payments must **not** be automatically backfilled into AdvanceCredit during this phase unless a separately approved deterministic backfill design is created.
+Migration verification is mandatory:
 
-Reason: historical unallocated payments may lack sufficient tenant attribution and must not be guessed.
-
----
-
-## 15. Model Mutation Rules
-
-Financial truth must remain service-owned.
-
-`AdvanceCredit.save()` and `AdvanceCreditApplication.save()` may validate structural invariants, but aggregate balances and financial transitions must not be implemented through model save side effects.
-
-Persisted financial records are immutable after creation:
-
-- source payment cannot change
-- tenant cannot change
-- occupancy cannot change
-- principal amount cannot change
-- application credit cannot change
-- application invoice cannot change
-- application amount cannot change
-
-Corrections belong to later explicit adjustment/refund flows.
+```text
+makemigrations --check --dry-run
+migration graph
+migrate
+RLS enable/force
+```
 
 ---
 
-## 16. Testing Requirements
+## 14. Testing Requirements
 
-### Domain tests
+### Domain
 
-- Positive credit amount only.
-- Same-workspace payment/tenant/occupancy.
-- Occupancy belongs to tenant.
-- Duplicate source payment credit rejected.
-- Full unlinked payment converted correctly.
-- Residual payment amount converted correctly.
+- Full unlinked payment → credit.
+- Residual payment → credit.
 - Zero residual rejected.
-- Credit balance derived from applications.
-- Application cannot exceed available credit.
-- Application cannot exceed invoice outstanding.
-- Invoice state changes correctly after credit application.
+- Duplicate source-payment credit rejected.
+- Tenant/workspace mismatch rejected.
+- Occupancy mismatch rejected.
+- Available credit derived from applications.
+- Credit application cannot exceed credit.
+- Credit application cannot exceed invoice outstanding.
+- Applied credit changes invoice paid/outstanding/status correctly.
 - Credit creation does not change invoice state.
-- Credit application does not create duplicate Payment.
+- Credit application creates no Payment.
 
-### Concurrency tests
+### Concurrency
 
-- Two concurrent credit applications cannot overspend the same credit.
-- Two concurrent allocations cannot consume a payment amount reserved as credit.
-- Credit application and payment allocation cannot over-settle an invoice.
-- Duplicate retry cannot create duplicate credit principal.
+- Concurrent credit applications cannot overspend one credit.
+- Concurrent allocation and credit reservation cannot overspend one Payment.
+- Concurrent credit application and Payment allocation cannot over-settle an Invoice.
+- Retry cannot create duplicate credit principal.
 
-### Workspace tests
+### Workspace/RLS
 
-- Cross-workspace credit creation rejected.
-- Cross-workspace credit read blocked.
-- Cross-workspace application rejected.
-- Cross-workspace invoice/tenant relationships rejected.
+- Cross-workspace create/read/apply blocked.
 - RLS blocks direct cross-workspace access.
+- Related tenant/occupancy/invoice mismatch blocked.
 
-### Regression tests
+### Regression
 
-Must remain green:
-
-- Existing payment creation.
 - Partial payments.
 - Advance billing.
 - Arrears billing.
@@ -585,133 +467,130 @@ Must remain green:
 - Dashboard financial totals.
 - Final settlement calculation.
 
-### Migration/integration tests
+### CI gate
 
-- `makemigrations --check --dry-run`
-- migration graph validation
-- migrations apply cleanly on PostgreSQL
-- workspace RLS enable/force succeeds
-- full Django test suite
-- Django system checks
-- CI GREEN
+- Full Django suite.
+- Django system checks.
+- Migration graph/check/apply.
+- PostgreSQL integration.
+- Workspace RLS tests.
+- CI GREEN on final commit.
 
 ---
 
-## 17. Explicit Non-Goals
+## 15. Explicit Non-Goals
 
-Phase 3.8 does **not** implement:
+Not in Phase 3.8:
 
 - Generic credits/debits/adjustments.
-- Credit notes/debit notes.
 - Refunds.
 - Credit expiry.
 - Promotional/store credit.
-- Interest/yield on prepaid balances.
-- Automatic credit allocation policy engine.
 - Gateway/webhook integration.
 - UPI/payment links.
 - Reconciliation.
-- Ledger/GL accounting entries.
-- Tax/GST treatment of credits.
+- Ledger/GL entries.
+- Tax/GST treatment.
+- Automatic credit-allocation policy engine.
 - Historical automatic backfill.
-- Tenant-facing credit mutation APIs.
-- UI redesign.
-
-These belong to later financial/integration phases unless explicitly pulled forward by a locked architecture change.
+- Tenant-facing mutation UI/API.
 
 ---
 
-## 18. Implementation Order
-
-Implementation must follow the project standard:
+## 16. Implementation Order
 
 ```text
-1. Final model/FK/migration audit
+Architecture audit + model/FK/migration audit
         ↓
-2. Lock architecture document
+Models + migrations
         ↓
-3. Models + migrations
+Payment capacity integration
         ↓
-4. Service/provider layer
+Canonical settlement calculation
         ↓
-5. API + serializers
+Advance-credit service
         ↓
-6. Domain + concurrency + workspace tests
+Credit-application service
         ↓
-7. Real PostgreSQL + RLS integration
+Serializers + additive API
         ↓
-8. Full regression suite
+Domain/concurrency/workspace tests
         ↓
-9. Migration/system-check verification
+PostgreSQL + RLS integration
         ↓
-10. CI GREEN
+Full regression
         ↓
-11. Final architecture/security/financial audit
+Migration/system checks
         ↓
-12. Mark this document COMPLETE
+CI GREEN
+        ↓
+Final financial/security audit
+        ↓
+Mark COMPLETE
 ```
 
-No implementation should begin until this document is accepted as the Phase 3.8 source of truth.
+No implementation should begin outside this locked scope without an explicit architecture update.
 
 ---
 
-## 19. Completion Gate
+## 17. Completion Gate
 
-Phase 3.8 may be marked **COMPLETE** only when all of the following are true:
+Phase 3.8 is complete only when:
 
-1. AdvanceCredit and AdvanceCreditApplication exist with correct workspace ownership.
-2. Advance credit is explicitly distinguishable from advance billing.
+1. AdvanceCredit and AdvanceCreditApplication exist and are workspace-safe.
+2. Advance credit is clearly distinct from advance billing.
 3. Every credit has an auditable source Payment.
-4. Unallocated/reserved payment capacity cannot be double-spent.
-5. Credit balance is derived from immutable application records.
-6. Credit application is transactional and concurrency-safe.
-7. Invoice settlement is updated through the canonical financial transition authority.
-8. Existing partial, advance and arrears workflows remain unchanged.
-9. Existing PaymentAllocation behavior remains valid.
-10. Settlement and dashboard totals do not falsely treat unapplied credit as invoice collection.
+4. Payment reserved-for-credit capacity cannot be double-spent.
+5. Credit balance is derived from immutable applications.
+6. Applied credit participates in canonical invoice paid/outstanding/status calculation.
+7. Credit application is transactional and concurrency-safe.
+8. Existing partial/advance/arrears workflows remain green.
+9. PaymentAllocation remains correct.
+10. Dashboard/settlement do not falsely treat unapplied credit as invoice collection.
 11. RLS protects both new tables.
-12. Cross-workspace access/mutation is blocked.
-13. Full regression tests are green.
+12. Cross-workspace access is blocked.
+13. Full regression is green.
 14. Migration checks are green.
 15. CI is GREEN on the final commit.
 16. Final financial integrity audit passes.
 
 ---
 
-## 20. Final Architecture Decision
+## 18. Final Architecture Decision
 
 ### KEEP 🔒
 
-- Existing Payment model and nullable invoice foundation.
-- Existing PaymentAllocation as invoice-settlement primitive.
-- Existing partial-payment behavior.
-- Existing advance billing semantics.
-- Existing arrears billing semantics.
-- Existing invoice state machine.
-- Existing workspace/RBAC/RLS architecture.
-- Existing settlement calculation foundation.
+- Payment nullable-invoice foundation.
+- PaymentAllocation as an invoice settlement primitive.
+- Partial payments.
+- Advance billing.
+- Arrears billing.
+- Existing invoice lifecycle.
+- Workspace/RBAC/RLS.
+- Existing settlement foundation.
 
 ### EXTEND ➕
 
-- Explicit AdvanceCredit.
-- Explicit AdvanceCreditApplication.
-- Payment allocatable-capacity calculation to account for reserved credit.
-- Canonical credit creation/application services.
+- `AdvanceCredit`.
+- `AdvanceCreditApplication`.
+- Payment allocatable-capacity calculation.
+- Canonical combined invoice settlement calculation.
+- Credit creation/application services.
 - Additive staff/manager APIs.
-- Financial read-side visibility for available prepaid balance.
+- Available prepaid-balance read model.
 
 ### DO NOT REWRITE ❌
 
 - Property hierarchy.
 - Tenant/Occupancy architecture.
-- Invoice architecture.
-- PaymentAllocation architecture.
-- Existing recurring billing architecture.
-- Existing validated payment workflows.
+- Existing Invoice architecture.
+- Existing PaymentAllocation architecture.
+- Recurring billing architecture.
+- Existing validated workflows.
 - UI architecture.
 
 ### Golden Rule
 
-> **Advance money received must be represented as an explicit, auditable credit and must never be silently hidden inside invoice payment state.**
+> **Advance money received must be represented as explicit, auditable prepaid credit and must never be silently hidden inside invoice payment state.**
 
 **Status: LOCKED 🔒**
