@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Sum
 
-from .models import Invoice, Payment, PaymentAllocation
+from .models import AdvanceCredit, Invoice, Payment, PaymentAllocation
 from tenant.models import Occupancy
 
 
@@ -53,6 +53,26 @@ def get_invoice_allocated_amount(invoice):
         .aggregate(total=Sum("amount"))["total"]
         or Decimal("0")
     )
+
+
+def get_payment_reserved_credit_amount(payment):
+    """Return advance-credit principal reserved from a payment's capacity."""
+    return (
+        AdvanceCredit.objects.filter(source_payment=payment)
+        .aggregate(total=Sum("original_amount"))["total"]
+        or Decimal("0")
+    )
+
+
+def get_payment_available_allocation_amount(payment):
+    """Return payment capacity remaining after allocations and reserved credit."""
+    allocated = (
+        PaymentAllocation.objects.filter(payment=payment)
+        .aggregate(total=Sum("amount"))["total"]
+        or Decimal("0")
+    )
+    reserved_credit = get_payment_reserved_credit_amount(payment)
+    return max(payment.amount - allocated - reserved_credit, Decimal("0"))
 
 
 def recalculate_invoice_state(invoice):
