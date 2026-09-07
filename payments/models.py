@@ -76,13 +76,23 @@ class Invoice(models.Model):
 
     @property
     def allocated_paid_amount(self):
-        """Return the canonical paid amount represented by persisted allocations."""
+        """Return the amount settled by PaymentAllocation records only."""
         return self.allocations.aggregate(total=Sum("amount"))["total"] or 0
 
     @property
+    def settled_paid_amount(self):
+        """Return canonical settlement from payment allocations and credit applications."""
+        allocation_total = self.allocations.aggregate(total=Sum("amount"))["total"] or 0
+        credit_total = (
+            self.advance_credit_applications.aggregate(total=Sum("amount"))["total"]
+            or 0
+        )
+        return allocation_total + credit_total
+
+    @property
     def due_amount(self):
-        """Return the outstanding amount from canonical payment allocations."""
-        return max((self.total_amount or 0) - self.allocated_paid_amount, 0)
+        """Return the outstanding amount from canonical combined settlement."""
+        return max((self.total_amount or 0) - self.settled_paid_amount, 0)
 
     class Meta:
         indexes = [
