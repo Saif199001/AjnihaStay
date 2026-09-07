@@ -63,6 +63,13 @@ class BillingScheduleSerializer(serializers.ModelSerializer):
 
 
 class AdvanceCreditApplicationSerializer(serializers.ModelSerializer):
+    amount = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        read_only=True,
+        coerce_to_string=True,
+    )
+
     class Meta:
         model = AdvanceCreditApplication
         fields = ["id", "credit", "invoice", "amount", "created_at"]
@@ -70,6 +77,12 @@ class AdvanceCreditApplicationSerializer(serializers.ModelSerializer):
 
 
 class AdvanceCreditSerializer(serializers.ModelSerializer):
+    original_amount = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        read_only=True,
+        coerce_to_string=True,
+    )
     available_amount = serializers.SerializerMethodField()
     applications = AdvanceCreditApplicationSerializer(many=True, read_only=True)
 
