@@ -1,9 +1,10 @@
 from datetime import date
+from decimal import Decimal
 
 from rest_framework import serializers
 
 from .billing_models import BillingSchedule
-from .models import Invoice, Payment, PaymentAllocation
+from .models import AdvanceCredit, AdvanceCreditApplication, Invoice, Payment, PaymentAllocation
 
 
 class InvoiceSerializer(serializers.ModelSerializer):
@@ -59,3 +60,49 @@ class BillingScheduleSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class AdvanceCreditApplicationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AdvanceCreditApplication
+        fields = ["id", "credit", "invoice", "amount", "created_at"]
+        read_only_fields = fields
+
+
+class AdvanceCreditSerializer(serializers.ModelSerializer):
+    available_amount = serializers.SerializerMethodField()
+    applications = AdvanceCreditApplicationSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = AdvanceCredit
+        fields = [
+            "id",
+            "workspace",
+            "tenant",
+            "occupancy",
+            "source_payment",
+            "original_amount",
+            "available_amount",
+            "applications",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+    def get_available_amount(self, obj):
+        applied = sum(
+            (application.amount for application in obj.applications.all()),
+            Decimal("0"),
+        )
+        return max(obj.original_amount - applied, Decimal("0"))
+
+
+class AdvanceCreditCreateSerializer(serializers.Serializer):
+    payment = serializers.IntegerField(min_value=1)
+    tenant = serializers.IntegerField(min_value=1)
+    occupancy = serializers.IntegerField(min_value=1, required=False, allow_null=True)
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=0.01)
+
+
+class AdvanceCreditApplicationCreateSerializer(serializers.Serializer):
+    invoice = serializers.IntegerField(min_value=1)
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=0.01)
