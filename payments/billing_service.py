@@ -5,7 +5,15 @@ from tenant.models import Occupancy
 from .billing_models import BillingSchedule
 
 
-def _get_occupancy(occupancy_id, workspace):
+def _get_occupancy(occupancy_value, workspace):
+    occupancy_id = getattr(occupancy_value, "id", occupancy_value)
+    try:
+        occupancy_id = int(occupancy_id)
+    except (TypeError, ValueError):
+        raise ValidationError("Occupancy not found")
+    if occupancy_id <= 0:
+        raise ValidationError("Occupancy not found")
+
     try:
         return Occupancy.objects.select_related("tenant").get(
             id=occupancy_id,
