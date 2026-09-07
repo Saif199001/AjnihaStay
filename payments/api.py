@@ -4,7 +4,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from workspaces.permissions import WorkspaceManagerPermission, WorkspaceStaffPermission
-from .serializers import InvoiceSerializer, PaymentSerializer
+from .allocation_service import allocate_payment
+from .serializers import (
+    InvoiceSerializer,
+    PaymentAllocationCreateSerializer,
+    PaymentAllocationSerializer,
+    PaymentSerializer,
+)
 from .services import (
     calculate_final_settlement,
     get_invoice,
@@ -51,6 +57,32 @@ def payment_create_api(request):
     except ValidationError as exc:
         return Response({"error": _validation_message(exc)}, status=400)
     return Response({"message": "Payment created", "data": PaymentSerializer(payment).data})
+
+
+@api_view(["POST"])
+@permission_classes([WorkspaceManagerPermission])
+def payment_allocation_create_api(request, payment_id):
+    serializer = PaymentAllocationCreateSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=400)
+
+    try:
+        allocations = allocate_payment(
+            request.user,
+            request.workspace,
+            payment_id,
+            serializer.validated_data["allocations"],
+        )
+    except ValidationError as exc:
+        return Response({"error": _validation_message(exc)}, status=400)
+
+    return Response(
+        {
+            "message": "Payment allocated",
+            "data": PaymentAllocationSerializer(allocations, many=True).data,
+        },
+        status=201,
+    )
 
 
 @api_view(["GET"])
