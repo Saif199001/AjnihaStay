@@ -196,6 +196,7 @@ class AdvanceCreditAPITests(TestCase):
             **self.headers(self.other_owner, self.other_workspace),
         )
         self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.data["detail"], "You do not have permission to perform this action.")
 
     def test_invalid_amount_is_rejected_by_serializer(self):
         response = self.client.post(
