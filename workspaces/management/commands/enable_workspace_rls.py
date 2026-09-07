@@ -14,6 +14,7 @@ TABLES = (
     "payments_invoice",
     "payments_payment",
     "payments_paymentallocation",
+    "payments_billingschedule",
 )
 
 
