@@ -122,15 +122,15 @@ class Migration(migrations.Migration):
                 "indexes": [
                     models.Index(
                         fields=["workspace", "tenant"],
-                        name="payments_ad_workspa_5cd464_idx",
+                        name="payments_ad_workspa_72d77e_idx",
                     ),
                     models.Index(
                         fields=["tenant", "created_at"],
-                        name="payments_ad_tenant_85ab7f_idx",
+                        name="payments_ad_tenant__4b8130_idx",
                     ),
                     models.Index(
                         fields=["occupancy"],
-                        name="payments_ad_occupan_17e7f8_idx",
+                        name="payments_ad_occupan_0873bf_idx",
                     ),
                 ],
                 "constraints": [
@@ -176,15 +176,15 @@ class Migration(migrations.Migration):
                 "indexes": [
                     models.Index(
                         fields=["credit"],
-                        name="payments_ad_credit_fdc584_idx",
+                        name="payments_ad_credit__8647eb_idx",
                     ),
                     models.Index(
                         fields=["invoice"],
-                        name="payments_ad_invoice_ec31dc_idx",
+                        name="payments_ad_invoice_a51ea1_idx",
                     ),
                     models.Index(
                         fields=["invoice", "created_at"],
-                        name="payments_ad_invoice_a2fe64_idx",
+                        name="payments_ad_invoice_ac527a_idx",
                     ),
                 ],
                 "constraints": [
