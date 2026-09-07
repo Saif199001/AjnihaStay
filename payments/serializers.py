@@ -2,6 +2,7 @@ from datetime import date
 
 from rest_framework import serializers
 
+from .billing_models import BillingSchedule
 from .models import Invoice, Payment, PaymentAllocation
 
 
@@ -42,3 +43,19 @@ class PaymentAllocationSerializer(serializers.ModelSerializer):
         model = PaymentAllocation
         fields = ["id", "payment", "invoice", "amount", "created_at"]
         read_only_fields = fields
+
+
+class BillingScheduleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BillingSchedule
+        fields = [
+            "id",
+            "occupancy",
+            "frequency",
+            "amount",
+            "next_run_date",
+            "active",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
