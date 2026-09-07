@@ -5,7 +5,11 @@ WORKSPACE_ID = "NULLIF(current_setting('app.workspace_id', true), '')::bigint"
 
 NEW_PAYMENT_POLICY = f"workspace_id = {WORKSPACE_ID}"
 ALLOCATION_POLICY = (
-    f"payment_id IN (SELECT id FROM payments_payment WHERE workspace_id = {WORKSPACE_ID})"
+    f"payment_id IN (SELECT p.id FROM payments_payment p "
+    f"JOIN payments_invoice i ON i.id = payments_paymentallocation.invoice_id "
+    f"JOIN tenant_occupancy o ON o.id = i.occupancy_id "
+    f"JOIN tenant_tenant t ON t.id = o.tenant_id "
+    f"WHERE p.workspace_id = {WORKSPACE_ID} AND t.workspace_id = {WORKSPACE_ID})"
 )
 LEGACY_PAYMENT_POLICY = (
     f"invoice_id IN (SELECT i.id FROM payments_invoice i "
