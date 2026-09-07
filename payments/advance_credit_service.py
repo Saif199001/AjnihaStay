@@ -108,6 +108,30 @@ def get_advance_credit_available_amount(credit):
     )
 
 
+def get_advance_credits(workspace):
+    """Return workspace-scoped advance credits with application data ready for serialization."""
+    return (
+        AdvanceCredit.objects.filter(workspace=workspace)
+        .select_related("tenant", "occupancy", "source_payment")
+        .prefetch_related("applications")
+        .order_by("-created_at", "-id")
+    )
+
+
+def get_advance_credit(credit_id, workspace):
+    """Return one workspace-scoped advance credit or raise a not-found validation error."""
+    try:
+        credit_id = _positive_id(credit_id, "advance credit")
+        return (
+            AdvanceCredit.objects.filter(workspace=workspace)
+            .select_related("tenant", "occupancy", "source_payment")
+            .prefetch_related("applications")
+            .get(id=credit_id)
+        )
+    except AdvanceCredit.DoesNotExist:
+        raise ValidationError("Advance credit not found")
+
+
 def apply_advance_credit(user, workspace, data):
     """Apply prepaid credit to an invoice through the canonical settlement service."""
     credit_id = _positive_id(data.get("credit"), "advance credit")
