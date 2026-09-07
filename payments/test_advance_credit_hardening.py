@@ -2,6 +2,7 @@ from datetime import date
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
+from django.db.models import Sum
 from django.test import TestCase
 
 from accounts.models import User
@@ -134,7 +135,7 @@ class AdvanceCreditHardeningTests(TestCase):
 
         self.invoice.refresh_from_db()
         self.assertEqual(
-            AdvanceCreditApplication.objects.filter(credit=credit).aggregate(total=__import__("django.db.models", fromlist=["Sum"]).Sum("amount"))["total"],
+            AdvanceCreditApplication.objects.filter(credit=credit).aggregate(total=Sum("amount"))["total"],
             Decimal("5000.00"),
         )
         self.assertEqual(self.invoice.paid_amount, Decimal("10000.00"))
