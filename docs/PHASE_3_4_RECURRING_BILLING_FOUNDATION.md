@@ -1,177 +1,97 @@
 # Phase 3.4 — Recurring Billing Foundation
 
-**Status: LOCKED**  
-**Branch:** `phase-1/workspace-multitenancy`  
-**Phase:** 3 — Financial Architecture  
-**Depends on:** Phase 3.3-C Payment Allocation Read-Side Canonicalization
+**Status:** LOCKED  
+**Phase:** 3.4  
+**Depends on:** Phase 3.3 Payment Allocation
 
-## 1. Objective
+## Objective
 
-Establish the domain foundation for configurable recurring billing without prematurely implementing a full automated charge/invoice generation engine.
+Establish the durable domain foundation for recurring billing without changing the canonical financial truth established in Phase 3.3.
 
-The target architecture is:
+The foundation defines recurring billing configuration and scheduling intent. It does **not** itself create charges, invoices, payments, or allocations.
 
-`Occupancy / Billing Configuration → Billing Schedule → Future Charge Generation → Future Invoice Generation → Payment Allocation`
+## Architecture
 
-Phase 3.4 owns the **billing schedule/configuration truth and execution seam**. Future charge and invoice generation milestones will consume this foundation. Payment allocation remains the canonical representation of money applied to invoices and is not redesigned here.
+The intended future flow is:
 
-## 2. Architecture Audit Findings
+`Occupancy + Billing Configuration → Billing Schedule → Charge Generation → Invoice Generation`
 
-The current financial/domain foundation already contains:
+Recurring billing is an upstream configuration/scheduling layer. Financial state transitions remain owned by the existing canonical financial services.
 
-- `Occupancy.billing_type` with `advance` and `arrears` semantics.
-- `Occupancy.billing_cycle` with `monthly` and `daily` semantics.
-- `Occupancy.rent`, `next_due_date`, `check_in_date`, and optional `check_out_date`.
-- `Charge` attached to an `Occupancy`, with typed charge, amount and charge date.
-- `Invoice` attached to an `Occupancy`, with billing period, rent, charges, due date and canonical allocation-aware paid/due reads.
-- Canonical payment allocation from Phase 3.3.
+## Current-domain audit
 
-These existing fields and relationships are protected. Phase 3.4 must extend them rather than replace them.
+- `tenant.Occupancy` already contains billing type (`advance` / `arrears`), billing cycle (`monthly` / `daily`), rent, check-in/check-out, next due date, and active state.
+- `tenant.Charge` already represents persisted charge facts with occupancy, charge type, description, amount, and charge date.
+- `payments.Invoice` already represents invoice financial state.
+- `payments.Payment` and `payments.PaymentAllocation` remain the canonical payment/allocation boundary from Phase 3.3.
+- Therefore Phase 3.4 must **not** duplicate Occupancy billing-cycle data or create a parallel Charge/Invoice/Payment lifecycle.
+- The recurring-billing model must be registered through the canonical Django `payments.models` module rather than an unregistered side module.
 
-## 3. In Scope
+## In scope
 
-### 3.1 Billing schedule domain
+1. A canonical `BillingSchedule` model owned by the payments domain.
+2. Occupancy relationship with workspace isolation inherited through the occupancy → tenant → workspace chain.
+3. Explicit recurrence frequency and next execution date.
+4. Positive billing amount validation.
+5. Active/inactive lifecycle state.
+6. Validation that an active schedule belongs to an active occupancy and does not run before occupancy check-in.
+7. Database constraints and indexes required for safe scheduling queries.
+8. PostgreSQL RLS policy for workspace isolation.
+9. Domain/API/service tests for validation, workspace isolation, and lifecycle behavior.
+10. CI migration/RLS/test verification.
 
-Introduce a dedicated recurring billing schedule/configuration concept capable of representing:
+## Out of scope
 
-- Workspace ownership/isolation.
-- Occupancy association.
-- Active/inactive lifecycle.
-- Billing frequency/cycle compatible with currently supported monthly/daily behavior.
-- Billing type compatible with advance/arrears behavior.
-- Effective start date.
-- Optional end date.
-- Next scheduled billing date.
-- Stable schedule identity and timestamps.
+- Automatic charge generation.
+- Automatic invoice generation.
+- Payment creation or payment allocation changes.
+- Ledger/accounting implementation.
+- Payment gateway integration.
+- Recurring payment collection/autopay.
+- Late fees, deposits, refunds, write-offs, reconciliation, or settlement redesign.
+- AI or automation execution beyond the durable schedule foundation.
+- Replacing existing Occupancy billing fields.
+- Replacing or duplicating `tenant.Charge`.
 
-The model must be extensible for future property-specific and tenant-specific billing rules without requiring another core billing model.
+## Financial invariants
 
-### 3.2 Billing configuration semantics
+1. A BillingSchedule is configuration/scheduling intent, not financial truth.
+2. Creating or changing a BillingSchedule must not mutate Invoice, Payment, or PaymentAllocation state.
+3. PaymentAllocation remains the canonical source for invoice-paid amounts.
+4. Recurring billing must eventually call the canonical charge/invoice financial services rather than write financial state directly.
+5. Workspace isolation is mandatory at ORM/domain and PostgreSQL RLS boundaries.
+6. Existing Phase 0–3.3 behavior must remain unchanged.
 
-The foundation must define deterministic semantics for:
+## Implementation rules
 
-- Which occupancy is billed.
-- When a recurring period becomes due for processing.
-- How the next billing date advances.
-- How active/inactive schedules behave.
-- How check-in/check-out boundaries constrain a schedule.
-- How advance versus arrears is represented without duplicating the existing occupancy concept.
+- Do not introduce a parallel model-registration mechanism.
+- Add the canonical model to `payments/models.py` unless a later architecture audit explicitly establishes a better existing domain boundary.
+- Add a forward migration and corresponding RLS policy in the same implementation slice.
+- Keep schedule execution separate from schedule persistence; no background runner is introduced in this foundation task.
+- Preserve existing API response contracts unless a new recurring-billing endpoint is explicitly required by the locked scope.
+- Follow the project implementation order: model → migration/RLS → domain service → API → focused tests → full regression → CI.
 
-### 3.3 Financial transition boundary
+## Acceptance criteria
 
-Define the service/domain seam that future automation can call to process a billing period.
+- BillingSchedule is discoverable by Django migrations and model checks.
+- Invalid amounts, dates, inactive-occupancy activation, and invalid workspace access are rejected.
+- Cross-workspace schedule reads/writes are blocked.
+- PostgreSQL RLS is fail-closed and included in the protected-table configuration.
+- Existing financial lifecycle and allocation tests remain green.
+- No charge, invoice, payment, or allocation is created as a side effect of schedule persistence.
+- Full CI is green on the final implementation commit.
 
-The seam must be designed so that future generation follows:
+## Completion gate
 
-`Billing Schedule → Canonical Billing Service → Charge/Invoice state`
+Phase 3.4 is **not COMPLETE** until the final implementation commit has:
 
-It must not allow model saves, signals, API views or scheduled jobs to become competing financial transition authorities.
+1. migration graph validation,
+2. migrations check,
+3. RLS enable/force validation,
+4. focused recurring-billing tests,
+5. full Django regression suite,
+6. Django system checks,
+7. final security/data-integrity audit,
+8. CI GREEN.
 
-### 3.4 Workspace and integrity protection
-
-- Schedule records must be workspace-isolated.
-- Occupancy and schedule must belong to the same workspace.
-- Existing RLS architecture must be extended when the new table is introduced.
-- Persisted schedule identity/ownership fields must not be freely mutable in ways that break financial history.
-- Invalid dates/frequency/state combinations must be rejected at the domain and database levels where practical.
-
-### 3.5 API/domain contract foundation
-
-If an API surface is introduced in this milestone, it must expose only the stable schedule/configuration contract needed by the product. It must preserve existing tenant/occupancy/payment contracts and enforce existing RBAC rules.
-
-### 3.6 Tests
-
-Focused tests must cover:
-
-- Schedule creation and workspace isolation.
-- Valid frequency/billing-type combinations.
-- Effective date and end-date validation.
-- Active/inactive behavior.
-- Next billing date progression semantics.
-- Occupancy workspace mismatch rejection.
-- Cross-workspace access/RLS.
-- RBAC/API behavior if exposed.
-- Existing Phase 0–3.3-C financial regression suite.
-
-## 4. Explicitly Out of Scope
-
-Phase 3.4 does **not** implement:
-
-- Automatic charge generation for recurring periods.
-- Automatic invoice generation for recurring periods.
-- A background scheduler/Celery production job.
-- Proration engine.
-- Discounts.
-- Credits/debits/adjustments.
-- Late fees/grace-period engine.
-- Deposits/refunds redesign.
-- Utility meter billing engine.
-- Commercial escalation/CAM/NNN billing rules.
-- Payment allocation redesign.
-- Ledger/accounting engine.
-- Reconciliation engine.
-- Payment gateway/UPI integrations.
-- WhatsApp/SMS/email automation.
-- AI billing decisions.
-
-Those are later milestones and must not be pulled into this implementation opportunistically.
-
-## 5. Locked Invariants
-
-1. Existing `Occupancy.billing_type` and `Occupancy.billing_cycle` semantics remain valid and supported.
-2. Existing tenant/occupancy lifecycle and date/capacity rules do not regress.
-3. A recurring billing schedule belongs to exactly one workspace and one occupancy.
-4. Cross-workspace schedule/occupancy relationships are rejected.
-5. Schedule state is configuration truth; it is not itself a financial transaction.
-6. No invoice or charge is considered generated merely because a schedule is due.
-7. Future generation must pass through a canonical billing service rather than direct model/save/signal mutation.
-8. Payment allocation remains the canonical paid-state representation established in Phase 3.3-C.
-9. Existing partial payments, advance/unallocated payments and arrears behavior remain intact.
-10. Schedule progression must be deterministic and safe against duplicate execution.
-11. Historical financial records must not be rewritten merely to introduce recurring billing configuration.
-12. Workspace isolation/RLS and existing RBAC remain non-negotiable.
-13. No supported Phase 0–3.3-C behavior may regress.
-
-## 6. Design Direction
-
-### 6.1 Schedule versus financial records
-
-A schedule describes **intent to bill periodically**. It must not be confused with a Charge or Invoice.
-
-A future execution should be traceable to a schedule/period so duplicate processing can be prevented without changing existing financial truth models.
-
-### 6.2 Existing occupancy defaults
-
-Current occupancy creation supports monthly/daily and advance/arrears billing semantics. Phase 3.4 should treat those as backward-compatible defaults and provide a dedicated schedule abstraction for recurring behavior rather than removing or silently changing the occupancy fields.
-
-### 6.3 Future extensibility
-
-The foundation should leave room for future:
-
-- recurring rent,
-- recurring fixed charges,
-- configurable billing periods,
-- property-type billing rules,
-- proration,
-- escalation,
-- utility/service charges,
-- automated invoice generation.
-
-These extensions must layer onto the schedule/configuration foundation rather than introduce parallel billing systems.
-
-## 7. Completion Criteria
-
-Phase 3.4 can be marked **COMPLETE** only after:
-
-- Locked scope is implemented without scope creep.
-- Migration(s) are valid and workspace/RLS protections are present.
-- Domain/service/API contracts are covered by focused tests where applicable.
-- Duplicate-execution and deterministic schedule progression risks are explicitly tested.
-- Full regression suite is green.
-- CI is GREEN on the final implementation commit.
-- Final blueprint-compliance and workspace-isolation audit passes.
-- Only then may the document status be changed from `LOCKED` to `COMPLETE`.
-
-## 8. Next Milestone Boundary
-
-After Phase 3.4 is complete, the next financial milestone may implement **recurring charge/invoice generation** using this schedule foundation and the canonical financial transition architecture.
+Only after all gates pass may this document be changed from `LOCKED` to `COMPLETE`.
