@@ -106,7 +106,20 @@ class AdvanceCreditSerializer(serializers.ModelSerializer):
             (application.amount for application in obj.applications.all()),
             Decimal("0"),
         )
-        return max(obj.original_amount - applied, Decimal("0"))
+        return f"{max(obj.original_amount - applied, Decimal('0')):.2f}"
+
+
+class AdvanceCreditInvoiceSerializer(InvoiceSerializer):
+    paid_amount = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        read_only=True,
+        coerce_to_string=True,
+    )
+    due_amount = serializers.SerializerMethodField()
+
+    def get_due_amount(self, obj):
+        return f"{obj.due_amount:.2f}"
 
 
 class AdvanceCreditCreateSerializer(serializers.Serializer):
