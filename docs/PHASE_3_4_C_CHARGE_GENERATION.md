@@ -1,6 +1,6 @@
 # AjnihaStay — Phase 3.4-C Charge Generation Foundation
 
-**Status:** LOCKED
+**Status:** COMPLETE
 **Phase:** 3.4 Recurring Billing Foundation
 
 ## Objective
@@ -51,3 +51,11 @@ Future orchestration may call this service, but must not duplicate charge-creati
 ## Completion Gate
 
 Implementation + focused tests + migration-state check + full regression + CI GREEN.
+
+## Final Audit
+
+- Canonical service implemented and isolated from invoice/payment creation.
+- Workspace scoping and occupancy/date validations verified.
+- Existing Charge schema reused; no Phase 3.4-C schema migration added.
+- Focused charge-generation tests are included in the full CI suite.
+- Final CI regression is GREEN on the Phase 3.4-D final commit, including migration graph, migration drift check, migration application, RLS enablement, full Django tests, and Django system checks.
