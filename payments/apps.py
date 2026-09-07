@@ -6,4 +6,5 @@ class PaymentsConfig(AppConfig):
     name = "payments"
 
     def ready(self):
+        import payments.billing_models  # noqa: F401
         import payments.signals  # noqa: F401
