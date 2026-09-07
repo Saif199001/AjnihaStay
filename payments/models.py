@@ -56,7 +56,7 @@ class Invoice(models.Model):
                     "Invoice paid amount and status are managed by the canonical financial service"
                 )
 
-            if persisted.payments.exists() and (
+            if (persisted.payments.exists() or persisted.allocations.exists()) and (
                 persisted.occupancy_id != self.occupancy_id
                 or persisted.rent_amount != self.rent_amount
                 or persisted.charges_amount != self.charges_amount
