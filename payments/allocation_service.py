@@ -103,17 +103,11 @@ def allocate_payment(user, workspace, payment, allocations):
 
         for invoice_id, amount in normalized:
             invoice = invoices_by_id[invoice_id]
-            allocated_to_invoice = (
-                PaymentAllocation.objects.filter(invoice=invoice)
-                .aggregate(total=Sum("amount"))["total"]
-                or Decimal("0")
+            settled_to_invoice = get_invoice_settled_amount(invoice)
+            outstanding = max(
+                (invoice.total_amount or Decimal("0")) - settled_to_invoice,
+                Decimal("0"),
             )
-            outstanding = (invoice.total_amount or Decimal("0")) - (
-                allocated_to_invoice
-                + invoice.advance_credit_applications.aggregate(total=Sum("amount"))["total"]
-                or Decimal("0")
-            )
-            outstanding = max(outstanding, Decimal("0"))
             if amount > outstanding:
                 raise ValidationError("Allocation exceeds invoice remaining amount")
 
