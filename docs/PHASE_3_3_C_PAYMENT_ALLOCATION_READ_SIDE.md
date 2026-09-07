@@ -1,6 +1,6 @@
 # Phase 3.3-C — Payment Allocation Read-Side Canonicalization
 
-**Status: LOCKED**  
+**Status: COMPLETE**  
 **Branch:** `phase-1/workspace-multitenancy`  
 **Phase:** 3 — Financial Architecture  
 **Depends on:** Phase 3.3-A and Phase 3.3-B
@@ -123,10 +123,15 @@ Do not broaden scope during implementation. If a discovered issue belongs to a l
 
 ## 7. Completion Gate
 
-3.3-C may only be changed from **LOCKED** to **COMPLETE** after:
+3.3-C was changed from **LOCKED** to **COMPLETE** after implementation, focused allocation/read-side coverage, full regression CI, and final blueprint-compliance audit. The final documentation commit itself must still pass CI before the milestone is considered release-green.
 
-1. implementation is committed;
-2. focused allocation/read-side tests pass;
-3. relevant full regression tests pass;
-4. CI is GREEN on the final commit;
-5. final audit confirms blueprint compliance and no regression.
+## 8. Final Audit Record
+
+- Canonical invoice paid/due reads: allocation-aware.
+- Dashboard collection, outstanding, and overdue reads: allocation-aware.
+- Final settlement collected amount: allocation-aware.
+- Payment compatibility and unallocated-payment semantics: preserved.
+- Allocation workspace integrity and immutable persisted allocation fields: preserved.
+- Allocation API/RBAC/concurrency coverage: present and part of the verified regression suite.
+- CI run #212 on the implementation commit: **GREEN**.
+- Final documentation commit: triggers the required completion-gate CI verification.
