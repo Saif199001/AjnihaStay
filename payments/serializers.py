@@ -30,7 +30,7 @@ class PaymentSerializer(serializers.ModelSerializer):
 
 class PaymentAllocationRequestSerializer(serializers.Serializer):
     invoice = serializers.IntegerField(min_value=1)
-    amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0.01)
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=0.01)
 
 
 class PaymentAllocationCreateSerializer(serializers.Serializer):
