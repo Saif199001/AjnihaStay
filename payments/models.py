@@ -231,3 +231,125 @@ class PaymentAllocation(models.Model):
                 name="payment_allocation_amount_positive",
             ),
         ]
+
+
+class AdvanceCredit(models.Model):
+    workspace = models.ForeignKey(
+        "workspaces.Workspace",
+        on_delete=models.PROTECT,
+        related_name="advance_credits",
+    )
+    tenant = models.ForeignKey(
+        "tenant.Tenant",
+        on_delete=models.PROTECT,
+        related_name="advance_credits",
+    )
+    occupancy = models.ForeignKey(
+        "tenant.Occupancy",
+        on_delete=models.PROTECT,
+        related_name="advance_credits",
+        null=True,
+        blank=True,
+    )
+    source_payment = models.OneToOneField(
+        Payment,
+        on_delete=models.PROTECT,
+        related_name="advance_credit",
+    )
+    original_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def clean(self):
+        if self.original_amount <= 0:
+            raise ValidationError("Advance credit amount must be greater than zero")
+        if self.tenant_id and self.tenant.workspace_id != self.workspace_id:
+            raise ValidationError("Advance credit tenant must belong to the same workspace")
+        if self.occupancy_id:
+            if self.occupancy.tenant_id != self.tenant_id:
+                raise ValidationError("Advance credit occupancy must belong to the selected tenant")
+            if self.occupancy.tenant.workspace_id != self.workspace_id:
+                raise ValidationError("Advance credit occupancy must belong to the same workspace")
+        if self.source_payment_id and self.source_payment.workspace_id != self.workspace_id:
+            raise ValidationError("Advance credit source payment must belong to the same workspace")
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Advance credit {self.original_amount} - {self.tenant}"
+
+    @property
+    def applied_amount(self):
+        return self.applications.aggregate(total=Sum("amount"))["total"] or 0
+
+    @property
+    def available_amount(self):
+        return max(self.original_amount - self.applied_amount, 0)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["workspace", "tenant"]),
+            models.Index(fields=["tenant", "created_at"]),
+            models.Index(fields=["occupancy"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(original_amount__gt=0),
+                name="advance_credit_amount_positive",
+            ),
+        ]
+
+
+class AdvanceCreditApplication(models.Model):
+    credit = models.ForeignKey(
+        AdvanceCredit,
+        on_delete=models.PROTECT,
+        related_name="applications",
+    )
+    invoice = models.ForeignKey(
+        Invoice,
+        on_delete=models.PROTECT,
+        related_name="advance_credit_applications",
+    )
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def clean(self):
+        if self.amount <= 0:
+            raise ValidationError("Advance credit application amount must be greater than zero")
+        if self.credit.workspace_id != self.invoice.occupancy.tenant.workspace_id:
+            raise ValidationError("Advance credit and invoice must belong to the same workspace")
+        if self.credit.tenant_id != self.invoice.occupancy.tenant_id:
+            raise ValidationError("Advance credit and invoice must belong to the same tenant")
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            persisted = type(self).objects.get(pk=self.pk)
+            if (
+                persisted.credit_id != self.credit_id
+                or persisted.invoice_id != self.invoice_id
+                or persisted.amount != self.amount
+            ):
+                raise ValidationError(
+                    "Advance credit application credit, invoice and amount cannot be changed after creation"
+                )
+        self.clean()
+        super().save(*args, **kwargs)
+
+    @property
+    def workspace_id(self):
+        return self.credit.workspace_id
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["credit"]),
+            models.Index(fields=["invoice"]),
+            models.Index(fields=["invoice", "created_at"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(amount__gt=0),
+                name="advance_credit_application_amount_positive",
+            ),
+        ]
