@@ -103,7 +103,7 @@ class AdvanceCreditPaymentCapacityTests(TestCase):
 
         with self.assertRaisesMessage(
             ValidationError,
-            "Allocation exceeds available payment capacity",
+            "Allocation exceeds payment amount",
         ):
             allocate_payment(
                 None,
