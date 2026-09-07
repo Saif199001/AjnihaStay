@@ -237,9 +237,12 @@ def advance_credit_apply_api(request, credit_id):
         )
     except ValidationError as exc:
         message = _validation_message(exc)
-        if message == "Advance credit not found":
+        if message in {"Advance credit not found", "Invoice not found"}:
             return Response({"detail": "You do not have permission to perform this action."}, status=403)
         return Response({"error": message}, status=400)
+
+    invoice_data = AdvanceCreditInvoiceSerializer(invoice).data
+    invoice_data["due_amount"] = f"{invoice.due_amount:.2f}"
 
     return Response(
         {
@@ -247,7 +250,7 @@ def advance_credit_apply_api(request, credit_id):
             "data": {
                 "application": AdvanceCreditApplicationSerializer(application).data,
                 "remaining_credit": f"{remaining_credit:.2f}",
-                "invoice": AdvanceCreditInvoiceSerializer(invoice).data,
+                "invoice": invoice_data,
             },
         },
         status=201,
