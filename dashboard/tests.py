@@ -9,7 +9,7 @@ from rest_framework.test import APIClient
 
 from dashboard.serializers import DashboardQuerySerializer
 from dashboard.services import get_dashboard_data
-from payments.models import Invoice, Payment
+from payments.models import Invoice, Payment, PaymentAllocation
 from properties.models import Property
 from tenant.models import Occupancy, Tenant
 from unit.models import SubUnit, Unit
@@ -137,13 +137,14 @@ class DashboardReadModelTests(TestCase):
             charges_amount=Decimal("0"),
             due_date=self.today,
         )
-        Payment.objects.create(
+        payment = Payment.objects.create(
             workspace=self.workspace,
             invoice=invoice,
             amount=Decimal("1000"),
             payment_method="cash",
             payment_date=self.today,
         )
+        PaymentAllocation.objects.create(payment=payment, invoice=invoice, amount=Decimal("1000"))
 
         other_property = Property.objects.create(name="Other Property", owner=other_user, workspace=other_workspace)
         other_unit = Unit.objects.create(property=other_property, unit_type="room", unit_number="201", rent=Decimal("9000"), capacity=1)
@@ -171,18 +172,64 @@ class DashboardReadModelTests(TestCase):
             charges_amount=Decimal("0"),
             due_date=self.today,
         )
-        Payment.objects.create(
+        other_payment = Payment.objects.create(
             workspace=other_workspace,
             invoice=other_invoice,
             amount=Decimal("9000"),
             payment_method="cash",
             payment_date=self.today,
         )
+        PaymentAllocation.objects.create(payment=other_payment, invoice=other_invoice, amount=Decimal("9000"))
 
         data = get_dashboard_data(self.workspace)
 
         self.assertEqual(data["financial"]["period_invoiced"], Decimal("5000"))
         self.assertEqual(data["financial"]["period_collected"], Decimal("1000"))
+
+    def test_dashboard_financial_reads_use_allocations_not_legacy_paid_amount(self):
+        tenant = Tenant.objects.create(
+            full_name="Allocation Tenant",
+            email="allocation@example.com",
+            phone="123",
+            permanent_address="Test Address",
+            workspace=self.workspace,
+            owner=self.user,
+        )
+        unit = Unit.objects.create(property=self.property, unit_type="room", unit_number="104", rent=Decimal("5000"), capacity=1)
+        occupancy = Occupancy.objects.create(
+            tenant=tenant,
+            unit=unit,
+            check_in_date=self.today - timedelta(days=10),
+            next_due_date=self.today,
+            rent=Decimal("5000"),
+            security_deposit=Decimal("0"),
+        )
+        invoice = Invoice.objects.create(
+            occupancy=occupancy,
+            billing_start=self.today.replace(day=1),
+            billing_end=self.today,
+            rent_amount=Decimal("5000"),
+            charges_amount=Decimal("0"),
+            due_date=self.today - timedelta(days=1),
+        )
+        payment = Payment.objects.create(
+            workspace=self.workspace,
+            invoice=invoice,
+            amount=Decimal("2000"),
+            payment_method="cash",
+            payment_date=self.today,
+        )
+        PaymentAllocation.objects.create(payment=payment, invoice=invoice, amount=Decimal("2000"))
+
+        Invoice.objects.filter(id=invoice.id).update(paid_amount=Decimal("5000"), status="paid")
+
+        data = get_dashboard_data(self.workspace)
+        invoice.refresh_from_db()
+
+        self.assertEqual(invoice.due_amount, Decimal("3000"))
+        self.assertEqual(data["financial"]["period_collected"], Decimal("2000"))
+        self.assertEqual(data["financial"]["outstanding"], Decimal("3000"))
+        self.assertEqual(data["financial"]["overdue"], Decimal("3000"))
 
     def test_dashboard_has_bounded_operational_lists_and_reports_totals(self):
         for index in range(3):
