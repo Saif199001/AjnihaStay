@@ -167,8 +167,17 @@ class Payment(models.Model):
         return self.allocations.aggregate(total=Sum("amount"))["total"] or 0
 
     @property
+    def reserved_credit_amount(self):
+        """Return payment principal reserved by its advance-credit record."""
+        try:
+            return self.advance_credit.original_amount
+        except AdvanceCredit.DoesNotExist:
+            return 0
+
+    @property
     def unallocated_amount(self):
-        return max(self.amount - self.allocated_amount, 0)
+        """Return capacity not consumed by allocations or reserved advance credit."""
+        return max(self.amount - self.allocated_amount - self.reserved_credit_amount, 0)
 
     class Meta:
         indexes = [
