@@ -110,7 +110,7 @@ class PaymentAllocationConcurrencyTests(TransactionTestCase):
 
     def test_concurrent_allocations_cannot_over_allocate_same_payment(self):
         payment = self._payment("10000")
-        barrier_allocations = [
+        first_allocations = [
             {"invoice": self.invoice_a.id, "amount": "6000"},
         ]
         second_allocations = [
@@ -122,7 +122,7 @@ class PaymentAllocationConcurrencyTests(TransactionTestCase):
                 executor.submit(
                     self._run_allocation,
                     payment.id,
-                    barrier_allocations,
+                    first_allocations,
                 ),
                 executor.submit(
                     self._run_allocation,
@@ -137,11 +137,17 @@ class PaymentAllocationConcurrencyTests(TransactionTestCase):
         self.assertEqual(len(successful), 1)
         self.assertEqual(len(rejected), 1)
 
+        # The database lock determines which transaction wins. The test must
+        # validate the invariant, not assume a particular thread wins.
+        successful_amount = (
+            Decimal("6000") if successful[0][1][0].amount == Decimal("6000")
+            else Decimal("5000")
+        )
         payment.refresh_from_db()
         allocated = PaymentAllocation.objects.filter(payment=payment).aggregate(
             total=Sum("amount")
         )["total"]
-        self.assertEqual(allocated, Decimal("6000"))
+        self.assertEqual(allocated, successful_amount)
         self.assertLessEqual(allocated, payment.amount)
 
     def test_concurrent_allocations_cannot_over_allocate_same_invoice(self):
