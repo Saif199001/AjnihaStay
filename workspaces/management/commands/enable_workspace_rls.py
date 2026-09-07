@@ -13,6 +13,7 @@ TABLES = (
     "tenant_charge",
     "payments_invoice",
     "payments_payment",
+    "payments_paymentallocation",
 )
 
 
