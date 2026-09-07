@@ -181,16 +181,16 @@ def billing_schedule_update_api(request, schedule_id):
     return Response({"message": "Billing schedule updated", "data": BillingScheduleSerializer(schedule).data})
 
 
-@api_view(["GET"])
+@api_view(["GET", "POST"])
 @permission_classes([WorkspaceStaffPermission])
-def advance_credit_list_api(request):
-    credits = get_advance_credits(request.workspace)
-    return Response({"data": AdvanceCreditSerializer(credits, many=True).data})
+def advance_credit_collection_api(request):
+    if request.method == "GET":
+        credits = get_advance_credits(request.workspace)
+        return Response({"data": AdvanceCreditSerializer(credits, many=True).data})
 
+    if not WorkspaceManagerPermission().has_permission(request, None):
+        return Response({"detail": "You do not have permission to perform this action."}, status=403)
 
-@api_view(["POST"])
-@permission_classes([WorkspaceManagerPermission])
-def advance_credit_create_api(request):
     serializer = AdvanceCreditCreateSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
