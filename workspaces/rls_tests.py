@@ -1,8 +1,9 @@
 from datetime import date
 from decimal import Decimal
+from unittest import skipUnless
 
 from django.db import connection, transaction
-from django.test import TestCase, skipUnless
+from django.test import TestCase
 
 from accounts.models import User
 from payments.models import Invoice, Payment, PaymentAllocation
@@ -59,114 +60,20 @@ class WorkspaceRLSTests(TestCase):
         self.workspace_b = Workspace.objects.create(name="RLS B", slug="rls-b", owner=self.owner_b)
         Membership.objects.create(workspace=self.workspace_a, user=self.owner_a, role="owner")
         Membership.objects.create(workspace=self.workspace_b, user=self.owner_b, role="owner")
-        self.property_a = Property.objects.create(
-            owner=self.owner_a,
-            workspace=self.workspace_a,
-            name="RLS Property A",
-            property_type="pg",
-            address="Delhi",
-            city="Delhi",
-            state="Delhi",
-            pincode="110001",
-        )
-        self.property_b = Property.objects.create(
-            owner=self.owner_b,
-            workspace=self.workspace_b,
-            name="RLS Property B",
-            property_type="pg",
-            address="Delhi",
-            city="Delhi",
-            state="Delhi",
-            pincode="110002",
-        )
-
-        self.tenant_a = Tenant.objects.create(
-            owner=self.owner_a,
-            workspace=self.workspace_a,
-            full_name="RLS Tenant A",
-            phone="9000000001",
-            permanent_address="Delhi",
-        )
-        self.unit_a = Unit.objects.create(
-            property=self.property_a,
-            unit_type="room",
-            unit_number="A-1",
-            rent=Decimal("5000.00"),
-        )
-        self.occupancy_a = Occupancy.objects.create(
-            tenant=self.tenant_a,
-            unit=self.unit_a,
-            allotted_by=self.owner_a,
-            rent=Decimal("5000.00"),
-            check_in_date=date(2026, 9, 1),
-            next_due_date=date(2026, 10, 1),
-            billing_type="arrears",
-            billing_cycle="monthly",
-        )
-        self.invoice_a = Invoice.objects.create(
-            occupancy=self.occupancy_a,
-            billing_start=date(2026, 9, 1),
-            billing_end=date(2026, 9, 30),
-            rent_amount=Decimal("5000.00"),
-            charges_amount=Decimal("0.00"),
-            due_date=date(2026, 10, 5),
-        )
-        self.payment_a = Payment.objects.create(
-            workspace=self.workspace_a,
-            invoice=None,
-            amount=Decimal("1000.00"),
-            payment_method="upi",
-            payment_date=date(2026, 9, 7),
-        )
-        self.allocation_a = PaymentAllocation.objects.create(
-            payment=self.payment_a,
-            invoice=self.invoice_a,
-            amount=Decimal("500.00"),
-        )
-
-        self.tenant_b = Tenant.objects.create(
-            owner=self.owner_b,
-            workspace=self.workspace_b,
-            full_name="RLS Tenant B",
-            phone="9000000002",
-            permanent_address="Delhi",
-        )
-        self.unit_b = Unit.objects.create(
-            property=self.property_b,
-            unit_type="room",
-            unit_number="B-1",
-            rent=Decimal("5000.00"),
-        )
-        self.occupancy_b = Occupancy.objects.create(
-            tenant=self.tenant_b,
-            unit=self.unit_b,
-            allotted_by=self.owner_b,
-            rent=Decimal("5000.00"),
-            check_in_date=date(2026, 9, 1),
-            next_due_date=date(2026, 10, 1),
-            billing_type="arrears",
-            billing_cycle="monthly",
-        )
-        self.invoice_b = Invoice.objects.create(
-            occupancy=self.occupancy_b,
-            billing_start=date(2026, 9, 1),
-            billing_end=date(2026, 9, 30),
-            rent_amount=Decimal("5000.00"),
-            charges_amount=Decimal("0.00"),
-            due_date=date(2026, 10, 5),
-        )
-        self.payment_b = Payment.objects.create(
-            workspace=self.workspace_b,
-            invoice=None,
-            amount=Decimal("1000.00"),
-            payment_method="upi",
-            payment_date=date(2026, 9, 7),
-        )
-        self.allocation_b = PaymentAllocation.objects.create(
-            payment=self.payment_b,
-            invoice=self.invoice_b,
-            amount=Decimal("500.00"),
-        )
+        self.property_a = Property.objects.create(owner=self.owner_a, workspace=self.workspace_a, name="RLS Property A", property_type="pg", address="Delhi", city="Delhi", state="Delhi", pincode="110001")
+        self.property_b = Property.objects.create(owner=self.owner_b, workspace=self.workspace_b, name="RLS Property B", property_type="pg", address="Delhi", city="Delhi", state="Delhi", pincode="110002")
+        self.tenant_a = Tenant.objects.create(owner=self.owner_a, workspace=self.workspace_a, full_name="RLS Tenant A", phone="9000000001", permanent_address="Delhi")
+        self.unit_a = Unit.objects.create(property=self.property_a, unit_type="room", unit_number="A-1", rent=Decimal("5000.00"))
+        self.occupancy_a = Occupancy.objects.create(tenant=self.tenant_a, unit=self.unit_a, allotted_by=self.owner_a, rent=Decimal("5000.00"), check_in_date=date(2026, 9, 1), next_due_date=date(2026, 10, 1), billing_type="arrears", billing_cycle="monthly")
+        self.invoice_a = Invoice.objects.create(occupancy=self.occupancy_a, billing_start=date(2026, 9, 1), billing_end=date(2026, 9, 30), rent_amount=Decimal("5000.00"), charges_amount=Decimal("0.00"), due_date=date(2026, 10, 5))
+        self.payment_a = Payment.objects.create(workspace=self.workspace_a, invoice=None, amount=Decimal("1000.00"), payment_method="upi", payment_date=date(2026, 9, 7))
+        self.allocation_a = PaymentAllocation.objects.create(payment=self.payment_a, invoice=self.invoice_a, amount=Decimal("500.00"))
+        self.tenant_b = Tenant.objects.create(owner=self.owner_b, workspace=self.workspace_b, full_name="RLS Tenant B", phone="9000000002", permanent_address="Delhi")
+        self.unit_b = Unit.objects.create(property=self.property_b, unit_type="room", unit_number="B-1", rent=Decimal("5000.00"))
+        self.occupancy_b = Occupancy.objects.create(tenant=self.tenant_b, unit=self.unit_b, allotted_by=self.owner_b, rent=Decimal("5000.00"), check_in_date=date(2026, 9, 1), next_due_date=date(2026, 10, 1), billing_type="arrears", billing_cycle="monthly")
+        self.invoice_b = Invoice.objects.create(occupancy=self.occupancy_b, billing_start=date(2026, 9, 1), billing_end=date(2026, 9, 30), rent_amount=Decimal("5000.00"), charges_amount=Decimal("0.00"), due_date=date(2026, 10, 5))
+        self.payment_b = Payment.objects.create(workspace=self.workspace_b, invoice=None, amount=Decimal("1000.00"), payment_method="upi", payment_date=date(2026, 9, 7))
+        self.allocation_b = PaymentAllocation.objects.create(payment=self.payment_b, invoice=self.invoice_b, amount=Decimal("500.00"))
 
     def _as_rls_role(self):
         connection.cursor().execute(f"SET LOCAL ROLE {RLS_ROLE}")
@@ -174,19 +81,11 @@ class WorkspaceRLSTests(TestCase):
     def test_all_protected_tables_are_rls_enabled_and_forced(self):
         with connection.cursor() as cursor:
             for table in PROTECTED_TABLES:
-                cursor.execute(
-                    "SELECT relrowsecurity, relforcerowsecurity "
-                    "FROM pg_class WHERE oid = %s::regclass",
-                    [table],
-                )
+                cursor.execute("SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE oid = %s::regclass", [table])
                 enabled, forced = cursor.fetchone()
                 self.assertTrue(enabled, table)
                 self.assertTrue(forced, table)
-
-                cursor.execute(
-                    "SELECT COUNT(*) FROM pg_policies WHERE schemaname = 'public' AND tablename = %s",
-                    [table.split(".")[-1]],
-                )
+                cursor.execute("SELECT COUNT(*) FROM pg_policies WHERE schemaname = 'public' AND tablename = %s", [table.split(".")[-1]])
                 self.assertGreater(cursor.fetchone()[0], 0, table)
 
     def test_rls_hides_other_workspace_without_application_filter(self):
@@ -194,7 +93,6 @@ class WorkspaceRLSTests(TestCase):
             self._as_rls_role()
             set_workspace_context(self.workspace_a.id)
             rows = list(Property.objects.order_by("id").values_list("id", "workspace_id"))
-
         self.assertEqual(rows, [(self.property_a.id, self.workspace_a.id)])
 
     def test_rls_hides_all_workspace_data_without_context(self):
@@ -204,7 +102,6 @@ class WorkspaceRLSTests(TestCase):
             rows = list(Property.objects.values_list("id", "workspace_id"))
             payments = list(Payment.objects.values_list("id", "workspace_id"))
             allocations = list(PaymentAllocation.objects.values_list("id", "payment_id"))
-
         self.assertEqual(rows, [])
         self.assertEqual(payments, [])
         self.assertEqual(allocations, [])
@@ -214,7 +111,6 @@ class WorkspaceRLSTests(TestCase):
             self._as_rls_role()
             set_workspace_context(self.workspace_a.id)
             rows = list(Payment.objects.order_by("id").values_list("id", "workspace_id"))
-
         self.assertEqual(rows, [(self.payment_a.id, self.workspace_a.id)])
 
     def test_payment_allocation_rls_hides_other_workspace(self):
@@ -222,7 +118,6 @@ class WorkspaceRLSTests(TestCase):
             self._as_rls_role()
             set_workspace_context(self.workspace_a.id)
             rows = list(PaymentAllocation.objects.order_by("id").values_list("id", "payment_id"))
-
         self.assertEqual(rows, [(self.allocation_a.id, self.payment_a.id)])
 
     def test_rls_blocks_cross_workspace_insert(self):
@@ -230,16 +125,7 @@ class WorkspaceRLSTests(TestCase):
             self._as_rls_role()
             set_workspace_context(self.workspace_a.id)
             with self.assertRaises(Exception):
-                Property.objects.create(
-                    owner=self.owner_b,
-                    workspace=self.workspace_b,
-                    name="Blocked Cross Workspace",
-                    property_type="pg",
-                    address="Delhi",
-                    city="Delhi",
-                    state="Delhi",
-                    pincode="110003",
-                )
+                Property.objects.create(owner=self.owner_b, workspace=self.workspace_b, name="Blocked Cross Workspace", property_type="pg", address="Delhi", city="Delhi", state="Delhi", pincode="110003")
 
     def test_rls_blocks_cross_workspace_payment_allocation_insert(self):
         with transaction.atomic():
@@ -247,24 +133,13 @@ class WorkspaceRLSTests(TestCase):
             set_workspace_context(self.workspace_a.id)
             with self.assertRaises(Exception):
                 with connection.cursor() as cursor:
-                    cursor.execute(
-                        "INSERT INTO payments_paymentallocation "
-                        "(id, payment_id, invoice_id, amount, created_at) "
-                        "VALUES (%s, %s, %s, %s, NOW())",
-                        [
-                            self.allocation_b.id + 1000000,
-                            self.payment_b.id,
-                            self.invoice_a.id,
-                            Decimal("100.00"),
-                        ],
-                    )
+                    cursor.execute("INSERT INTO payments_paymentallocation (id, payment_id, invoice_id, amount, created_at) VALUES (%s, %s, %s, %s, NOW())", [self.allocation_b.id + 1000000, self.payment_b.id, self.invoice_a.id, Decimal("100.00")])
 
     def test_rls_blocks_cross_workspace_update(self):
         with transaction.atomic():
             self._as_rls_role()
             set_workspace_context(self.workspace_a.id)
             updated = Property.objects.filter(id=self.property_b.id).update(name="Blocked Update")
-
         self.assertEqual(updated, 0)
         self.property_b.refresh_from_db()
         self.assertEqual(self.property_b.name, "RLS Property B")
