@@ -171,7 +171,7 @@ class AdvanceCreditAPITests(TestCase):
         )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.data["data"]["application"]["amount"], "4000.00")
-        self.assertEqual(response.data["data"]["remaining_credit"], Decimal("2000.00"))
+        self.assertEqual(response.data["data"]["remaining_credit"], "2000.00")
         self.assertEqual(response.data["data"]["invoice"]["paid_amount"], "4000.00")
         self.assertEqual(response.data["data"]["invoice"]["status"], "partial")
         self.assertEqual(response.data["data"]["invoice"]["due_amount"], "6000.00")
