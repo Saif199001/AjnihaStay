@@ -75,8 +75,14 @@ class Invoice(models.Model):
         return f"{self.invoice_number} - {self.occupancy}"
 
     @property
+    def allocated_paid_amount(self):
+        """Return the canonical paid amount represented by persisted allocations."""
+        return self.allocations.aggregate(total=Sum("amount"))["total"] or 0
+
+    @property
     def due_amount(self):
-        return max((self.total_amount or 0) - (self.paid_amount or 0), 0)
+        """Return the outstanding amount from canonical payment allocations."""
+        return max((self.total_amount or 0) - self.allocated_paid_amount, 0)
 
     class Meta:
         indexes = [
