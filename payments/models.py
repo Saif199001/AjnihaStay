@@ -446,9 +446,18 @@ class FinancialAdjustment(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=["workspace", "invoice"]),
-            models.Index(fields=["workspace", "adjustment_type", "created_at"]),
-            models.Index(fields=["invoice", "created_at"]),
+            models.Index(
+                fields=["workspace", "invoice"],
+                name="payments_fa_workspa_6e1c6d_idx",
+            ),
+            models.Index(
+                fields=["workspace", "adjustment_type", "created_at"],
+                name="payments_fa_workspa_9e9d8c_idx",
+            ),
+            models.Index(
+                fields=["invoice", "created_at"],
+                name="payments_fa_invoice_4cfd1d_idx",
+            ),
         ]
         constraints = [
             models.CheckConstraint(
