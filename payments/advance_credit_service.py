@@ -6,6 +6,7 @@ from django.db.models import Sum
 
 from tenant.models import Occupancy, Tenant
 
+from .adjustment_service import calculate_invoice_financial_position
 from .allocation_service import get_payment_available_allocation_amount
 from .models import AdvanceCredit, AdvanceCreditApplication, Invoice, Payment
 from .services import recalculate_invoice_state
@@ -164,14 +165,8 @@ def apply_advance_credit(user, workspace, data):
         if amount > available_credit:
             raise ValidationError("Advance credit application exceeds available credit")
 
-        settled_before = invoice.allocations.aggregate(total=Sum("amount"))["total"] or Decimal("0")
-        settled_before += (
-            AdvanceCreditApplication.objects.filter(invoice=invoice)
-            .aggregate(total=Sum("amount"))["total"]
-            or Decimal("0")
-        )
-        outstanding = max(invoice.total_amount - settled_before, Decimal("0"))
-        if amount > outstanding:
+        position = calculate_invoice_financial_position(invoice)
+        if amount > position["outstanding"]:
             raise ValidationError("Advance credit application exceeds invoice outstanding amount")
 
         application = AdvanceCreditApplication.objects.create(
