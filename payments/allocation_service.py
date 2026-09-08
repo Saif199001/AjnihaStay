@@ -2,10 +2,10 @@ from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Sum
 
+from .adjustment_service import calculate_invoice_financial_position
 from .models import Invoice, Payment, PaymentAllocation
-from .services import get_invoice_settled_amount, get_payment_available_allocation_amount
+from .services import get_payment_available_allocation_amount
 
 
 def _decimal_amount(value):
@@ -45,21 +45,14 @@ def _normalize_allocations(allocations):
 
 
 def _recalculate_invoice_state_from_allocations(invoice):
-    total_paid = get_invoice_settled_amount(invoice)
-    total_amount = invoice.total_amount or Decimal("0")
-    if total_paid == total_amount:
-        status = "paid"
-    elif total_paid > 0:
-        status = "partial"
-    else:
-        status = "pending"
-
+    """Reconcile compatibility invoice state from canonical financial position."""
+    position = calculate_invoice_financial_position(invoice)
     Invoice.objects.filter(id=invoice.id).update(
-        paid_amount=total_paid,
-        status=status,
+        paid_amount=position["settlement"],
+        status=position["status"],
     )
-    invoice.paid_amount = total_paid
-    invoice.status = status
+    invoice.paid_amount = position["settlement"]
+    invoice.status = position["status"]
     return invoice
 
 
@@ -103,12 +96,8 @@ def allocate_payment(user, workspace, payment, allocations):
 
         for invoice_id, amount in normalized:
             invoice = invoices_by_id[invoice_id]
-            settled_to_invoice = get_invoice_settled_amount(invoice)
-            outstanding = max(
-                (invoice.total_amount or Decimal("0")) - settled_to_invoice,
-                Decimal("0"),
-            )
-            if amount > outstanding:
+            position = calculate_invoice_financial_position(invoice)
+            if amount > position["outstanding"]:
                 raise ValidationError("Allocation exceeds invoice remaining amount")
 
         created = []
