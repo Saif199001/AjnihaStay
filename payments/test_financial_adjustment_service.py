@@ -282,7 +282,7 @@ class FinancialAdjustmentServiceTests(TestCase):
 
         with self.assertRaisesMessage(ValidationError, "Invoice not found"):
             create_financial_adjustment(
-                self.owner,
+                other_owner,
                 other_workspace,
                 {
                     "invoice": self.invoice.id,
