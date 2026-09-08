@@ -27,8 +27,12 @@ class PaymentRefundServiceTests(TestCase):
             email="refund-user@example.com", password="pass1234"
         )
 
-        self.workspace = Workspace.objects.create(name="Refund Workspace", owner=self.owner)
-        self.other_workspace = Workspace.objects.create(name="Other Workspace", owner=self.owner)
+        self.workspace = Workspace.objects.create(
+            name="Refund Workspace", slug="refund-workspace", owner=self.owner
+        )
+        self.other_workspace = Workspace.objects.create(
+            name="Other Workspace", slug="other-workspace", owner=self.owner
+        )
         self.tenant = Tenant.objects.create(workspace=self.workspace, full_name="Refund Tenant")
         self.property = Property.objects.create(workspace=self.workspace, name="Refund Property")
         self.unit = Unit.objects.create(property=self.property, unit_number="R-101", rent=Decimal("10000"))
