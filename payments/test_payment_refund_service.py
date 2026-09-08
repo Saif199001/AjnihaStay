@@ -7,8 +7,9 @@ from accounts.models import User
 from payments.models import Invoice, Payment
 from payments.refund_models import PaymentRefund
 from payments.refund_service import request_payment_refund, transition_payment_refund
-from properties.models import Property, Unit
+from properties.models import Property
 from tenant.models import Occupancy, Tenant
+from unit.models import Unit
 from workspaces.models import Workspace
 
 
@@ -30,7 +31,7 @@ class PaymentRefundServiceTests(TestCase):
         self.other_workspace = Workspace.objects.create(name="Other Workspace", owner=self.owner)
         self.tenant = Tenant.objects.create(workspace=self.workspace, full_name="Refund Tenant")
         self.property = Property.objects.create(workspace=self.workspace, name="Refund Property")
-        self.unit = Unit.objects.create(property=self.property, unit_number="R-101", rent_amount=Decimal("10000"))
+        self.unit = Unit.objects.create(property=self.property, unit_number="R-101", rent=Decimal("10000"))
         self.occupancy = Occupancy.objects.create(tenant=self.tenant, unit=self.unit)
         self.invoice = Invoice.objects.create(
             occupancy=self.occupancy,
