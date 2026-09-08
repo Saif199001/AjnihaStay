@@ -2,6 +2,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
+from django.db.models import Sum
 
 from .models import Payment
 from .refund_models import PaymentRefund
@@ -21,12 +22,7 @@ def _workspace_id(workspace):
 def _is_authorized(user):
     if user is None or not getattr(user, "is_authenticated", False):
         return False
-    if getattr(user, "is_superuser", False):
-        return True
-    role = getattr(user, "role", None)
-    if role in REFUND_AUTHORIZED_ROLES:
-        return True
-    return False
+    return getattr(user, "is_superuser", False) or getattr(user, "role", None) in REFUND_AUTHORIZED_ROLES
 
 
 def _parse_amount(value):
@@ -56,41 +52,24 @@ def _get_payment_for_workspace(payment_value, workspace):
         raise ValidationError("Payment not found")
 
 
+def _sum_refunds(payment, statuses):
+    return (
+        PaymentRefund.objects.filter(payment=payment, status__in=statuses)
+        .aggregate(total=Sum("amount"))["total"]
+        or Decimal("0")
+    )
+
+
 def _refund_capacity(payment):
-    successful = (
-        PaymentRefund.objects.filter(
-            payment=payment,
-            status=PaymentRefund.STATUS_SUCCEEDED,
-        ).aggregate_total()["total"]
-        if False
-        else None
-    )
-    successful = sum(
-        (refund.amount for refund in PaymentRefund.objects.filter(
-            payment=payment,
-            status=PaymentRefund.STATUS_SUCCEEDED,
-        )),
-        Decimal("0"),
-    )
-    reserved = sum(
-        (refund.amount for refund in PaymentRefund.objects.filter(
-            payment=payment,
-            status__in=ACTIVE_REFUND_STATUSES,
-        )),
-        Decimal("0"),
-    )
+    successful = _sum_refunds(payment, {PaymentRefund.STATUS_SUCCEEDED})
+    reserved = _sum_refunds(payment, ACTIVE_REFUND_STATUSES)
     return max(payment.amount - successful - reserved, Decimal("0"))
 
 
 def request_payment_refund(
     *, user, workspace, payment, amount, reason, reference=None, idempotency_key=None
 ):
-    """Canonical financial transition for requesting a payment refund.
-
-    The payment row is locked while refundable capacity is checked and the
-    immutable refund event is created. Payment and allocation records are not
-    mutated here.
-    """
+    """Request an immutable payment-refund event through the canonical service."""
     if not _is_authorized(user):
         raise ValidationError("User is not authorized to request refunds")
 
@@ -100,7 +79,6 @@ def request_payment_refund(
         raise ValidationError("Refund reason is required")
 
     workspace_id = _workspace_id(workspace)
-
     with transaction.atomic():
         payment_obj = _get_payment_for_workspace(payment, workspace)
 
@@ -114,8 +92,7 @@ def request_payment_refund(
                     raise ValidationError("Idempotency key conflicts with existing refund")
                 return existing
 
-        capacity = _refund_capacity(payment_obj)
-        if amount > capacity:
+        if amount > _refund_capacity(payment_obj):
             raise ValidationError("Refund amount exceeds refundable capacity")
 
         try:
@@ -141,17 +118,17 @@ def request_payment_refund(
 
 
 def transition_payment_refund(*, user, workspace, refund, status, failure_reason=None):
-    """Apply an allowed provider/state transition to an existing refund event."""
+    """Apply a provider-neutral, validated refund state transition."""
     if not _is_authorized(user):
         raise ValidationError("User is not authorized to transition refunds")
 
-    allowed = {
+    valid_statuses = {
         PaymentRefund.STATUS_REQUESTED,
         PaymentRefund.STATUS_PROCESSING,
         PaymentRefund.STATUS_SUCCEEDED,
         PaymentRefund.STATUS_FAILED,
     }
-    if status not in allowed:
+    if status not in valid_statuses:
         raise ValidationError("Invalid refund status")
 
     with transaction.atomic():
@@ -164,6 +141,8 @@ def transition_payment_refund(*, user, workspace, refund, status, failure_reason
             raise ValidationError("Refund not found")
 
         if status == refund_obj.status:
+            if status == PaymentRefund.STATUS_FAILED and failure_reason:
+                raise ValidationError("Refund failure reason cannot be changed after failure")
             return refund_obj
 
         transitions = {
