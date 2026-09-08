@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Sum
 
+from .adjustment_service import calculate_invoice_financial_position
 from .models import AdvanceCredit, Invoice, Payment, PaymentAllocation
 from tenant.models import Occupancy
 
@@ -89,23 +90,14 @@ def get_payment_available_allocation_amount(payment):
 
 
 def recalculate_invoice_state(invoice):
-    """Reconcile compatibility invoice state from canonical combined settlement."""
-    total_paid = get_invoice_settled_amount(invoice)
-    total_amount = invoice.total_amount or Decimal("0")
-
-    if total_paid == total_amount:
-        status = "paid"
-    elif total_paid > 0:
-        status = "partial"
-    else:
-        status = "pending"
-
+    """Reconcile compatibility invoice state from canonical financial position."""
+    position = calculate_invoice_financial_position(invoice)
     Invoice.objects.filter(id=invoice.id).update(
-        paid_amount=total_paid,
-        status=status,
+        paid_amount=position["settlement"],
+        status=position["status"],
     )
-    invoice.paid_amount = total_paid
-    invoice.status = status
+    invoice.paid_amount = position["settlement"]
+    invoice.status = position["status"]
     return invoice
 
 
@@ -129,9 +121,8 @@ def record_payment(user, workspace, data):
         if amount <= 0:
             raise ValidationError("Payment amount must be greater than zero")
 
-        total_paid = get_invoice_settled_amount(invoice)
-        outstanding = invoice.total_amount - total_paid
-        if amount > outstanding:
+        position = calculate_invoice_financial_position(invoice)
+        if amount > position["outstanding"]:
             raise ValidationError("Payment exceeds remaining amount")
 
         payment = Payment.objects.create(
@@ -149,12 +140,7 @@ def record_payment(user, workspace, data):
             amount=amount,
         )
 
-        invoice.paid_amount = total_paid + amount
-        invoice.status = "paid" if invoice.paid_amount == invoice.total_amount else "partial"
-        Invoice.objects.filter(id=invoice.id).update(
-            paid_amount=invoice.paid_amount,
-            status=invoice.status,
-        )
+        recalculate_invoice_state(invoice)
         return payment
 
 
@@ -209,10 +195,13 @@ def calculate_final_settlement(occupancy_id, workspace):
         total_amount = total_rent + total_charges
 
         total_paid = sum(
-            (get_invoice_settled_amount(invoice) for invoice in invoices),
+            (calculate_invoice_financial_position(invoice)["settlement"] for invoice in invoices),
             Decimal("0"),
         )
-        total_due = max(total_amount - total_paid, Decimal("0"))
+        total_due = sum(
+            (calculate_invoice_financial_position(invoice)["outstanding"] for invoice in invoices),
+            Decimal("0"),
+        )
         security_deposit = occupancy.security_deposit or Decimal("0")
 
         return {
