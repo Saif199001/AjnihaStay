@@ -16,15 +16,15 @@ from workspaces.models import Workspace
 class PaymentRefundServiceTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(
-            username="refund-owner", email="refund-owner@example.com", password="pass1234"
+            email="refund-owner@example.com", password="pass1234"
         )
         self.manager = User.objects.create_user(
-            username="refund-manager", email="refund-manager@example.com", password="pass1234"
+            email="refund-manager@example.com", password="pass1234", role="admin"
         )
         self.manager.role = "manager"
         self.manager.save(update_fields=["role"])
         self.other_user = User.objects.create_user(
-            username="refund-user", email="refund-user@example.com", password="pass1234"
+            email="refund-user@example.com", password="pass1234"
         )
 
         self.workspace = Workspace.objects.create(name="Refund Workspace", owner=self.owner)
