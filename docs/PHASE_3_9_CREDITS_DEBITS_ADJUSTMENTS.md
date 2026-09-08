@@ -1,7 +1,7 @@
 # AjnihaStay — Phase 3.9 Credits / Debits / Financial Adjustments
 
-**Status:** DRAFT — ARCHITECTURE REVIEWED 🔍  
-**Version:** v1.0-draft  
+**Status:** LOCKED 🔒  
+**Version:** v1.1  
 **Date:** 2026-09-08  
 **Branch:** `phase-3.9-architecture-draft`
 
@@ -9,19 +9,19 @@
 
 Phase 3.9 introduces explicit, immutable and auditable financial adjustments without rewriting the protected Charge → Invoice → Payment lifecycle.
 
-The phase addresses receivable-side corrections such as:
+The phase covers receivable-side corrections:
 
 - Credit adjustments
 - Debit adjustments
 - Discounts
 - Waivers
-- Controlled write-off foundation
+- Controlled write-offs
 
 Refunds, gateway settlement, reconciliation and ledger/GL remain separate future concerns.
 
 ## 2. Architecture Baseline
 
-This draft was reviewed against the locked product blueprint, the locked Phase 3 Financial Architecture, the Phase 3.8 Advance Credit architecture, and the current payment/advance-credit/allocation implementation.
+This architecture was reviewed against the locked product blueprint, locked Phase 3 Financial Architecture, Phase 3.8 Advance Credit architecture, and the current payment/advance-credit/allocation implementation.
 
 Protected foundation:
 
@@ -35,14 +35,7 @@ Occupancy → Charge → Invoice
 Payment → AdvanceCredit → AdvanceCreditApplication → Invoice settlement
 ```
 
-Current implementation already calculates invoice settlement as:
-
-```text
-SUM(PaymentAllocation.amount)
-+ SUM(AdvanceCreditApplication.amount)
-```
-
-Phase 3.9 must extend the receivable calculation without redefining money received or mutating historical payments.
+Current settlement is already derived from immutable `PaymentAllocation` and `AdvanceCreditApplication` records. Phase 3.9 adds receivable-side adjustment events; it does not redefine money received or mutate historical financial events.
 
 ## 3. Non-Negotiable Preservation
 
@@ -65,8 +58,6 @@ No UI redesign is part of this phase.
 
 ## 4. Core Financial Distinctions
 
-These concepts must never be collapsed into one generic balance mutation:
-
 ```text
 Payment
     = money received
@@ -84,19 +75,19 @@ Refund
     = money returned from a payment
 
 Write-off
-    = explicit reduction of collectible receivable because it is no longer intended to be collected
+    = explicit reduction of collectible receivable
 ```
 
-In particular:
+Therefore:
 
 **Adjustment ≠ Payment**  
 **Adjustment ≠ Refund**  
 **Advance Credit ≠ Discount**  
 **Write-off ≠ Payment**
 
-## 5. Financial Equation
+## 5. Canonical Financial Equation
 
-The canonical invoice position must evolve toward:
+Phase 3.9 establishes the operational invoice-position equation:
 
 ```text
 Gross Receivable
@@ -104,23 +95,25 @@ Gross Receivable
 - Credit Adjustments
 = Adjusted Receivable
 
-Adjusted Receivable
-- Payment Allocations
-- Advance Credit Applications
-= Outstanding
+Settlement
+= Payment Allocations
++ Advance Credit Applications
+
+Outstanding
+= max(Adjusted Receivable - Settlement, 0)
 ```
 
-Discounts and waivers are represented as explicit credit-side adjustment events, not as mutation of historical payments.
+`discount`, `waiver`, and `write_off` are credit-side receivable adjustments but remain separately typed for reporting and future accounting.
 
-Write-offs reduce collectible receivable through a separately identifiable adjustment type and must remain distinguishable for future accounting/reporting.
+### Boundary rule
 
-The exact ledger/accounting equation will be finalized when the ledger foundation is introduced.
+A credit-side adjustment may not reduce adjusted receivable below already-recorded settlement. This prevents unexplained negative outstanding and prevents an adjustment from silently creating customer credit.
+
+If a business event would require customer credit or money to be returned, that event is outside ordinary Phase 3.9 adjustment creation and must use a future explicit credit/refund mechanism.
 
 ## 6. Bounded Domain Model
 
-### 6.1 FinancialAdjustment
-
-Phase 3.9 proposes one bounded immutable adjustment record:
+Phase 3.9 introduces one immutable record:
 
 ```text
 FinancialAdjustment
@@ -131,11 +124,12 @@ FinancialAdjustment
     amount
     reason
     reference
+    idempotency_key (nullable, unique within workspace)
     created_by FK → User
     created_at
 ```
 
-Recommended adjustment types:
+Adjustment types:
 
 ```text
 credit
@@ -147,16 +141,18 @@ credit
 
 Rules:
 
-- `amount > 0` at the database level.
+- `amount > 0` at database level.
+- Direction is represented by `adjustment_type`; amount is never negative.
 - Workspace must equal invoice workspace.
-- Amount is never negative; direction is represented by `adjustment_type`.
-- Invoice/reference ownership is validated server-side.
-- Record is immutable after creation.
+- Invoice ownership is validated server-side.
+- `reason` is required for manual adjustments.
+- `reference` is optional business/support evidence.
+- `idempotency_key` is optional for backward-compatible domain usage but required for mutation API requests.
+- Adjustment records are immutable after creation.
 - Historical Payment, PaymentAllocation and AdvanceCredit records are never rewritten.
-- `created_by` identifies the operator responsible for the business event.
-- Reason is required for auditable manual corrections.
+- `created_by` identifies the operator responsible for the event.
 
-A separate table per adjustment type is not justified at this stage; these types share lifecycle, ownership, immutability and audit requirements.
+A separate table per adjustment type is not justified at this stage.
 
 ## 7. Adjustment Semantics
 
@@ -167,7 +163,7 @@ Reduces collectible receivable.
 ```text
 Invoice ₹20,000
 Credit ₹2,000
-Outstanding before payment = ₹18,000
+Adjusted receivable = ₹18,000
 ```
 
 ### Debit adjustment
@@ -177,12 +173,12 @@ Increases collectible receivable.
 ```text
 Invoice ₹20,000
 Debit ₹2,000
-Outstanding = ₹22,000
+Adjusted receivable = ₹22,000
 ```
 
 ### Discount
 
-Commercial reduction of receivable. It remains an explicit event for reporting rather than changing `Invoice.rent_amount` or historical charge records.
+Commercial reduction of receivable. It is an explicit event and does not mutate `Invoice.rent_amount`, `charges_amount`, Charge records, or historical payments.
 
 ### Waiver
 
@@ -190,15 +186,42 @@ Operator-approved reduction of an otherwise collectible amount. It remains separ
 
 ### Write-off
 
-Reduction of collectible receivable because the amount is intentionally no longer collectible. It must remain distinguishable from discount/waiver for future accounting and reporting.
+Explicit reduction of collectible receivable because the amount is intentionally no longer collectible. In Phase 3.9 it is executable only through the canonical adjustment service and only with manager-level authorization. It remains distinguishable from discount/waiver for future accounting/reporting.
 
-## 8. Invoice State and Existing Fields
+## 8. Canonical Invoice Financial Position
 
-`Invoice.paid_amount` remains a compatibility/read-side field maintained by the canonical financial service.
+Phase 3.9 establishes one canonical read-side contract:
 
-It must continue to represent **settlement**, not gross adjustment activity.
+```text
+calculate_invoice_financial_position(invoice)
+```
 
-Therefore:
+It returns authoritative values conceptually equivalent to:
+
+```text
+{
+    gross_receivable,
+    debit_adjustments,
+    credit_adjustments,
+    adjusted_receivable,
+    payment_allocations,
+    advance_credit_applications,
+    settled_amount,
+    outstanding_amount,
+    collection_closed,
+    status,
+}
+```
+
+The service must use `Decimal` values and derive them from current database records.
+
+All payment allocation, advance-credit application and adjustment validation that depends on invoice outstanding must converge on this calculation. No API or frontend calculation is authoritative.
+
+## 9. Invoice State and Existing Fields
+
+`Invoice.paid_amount` remains a compatibility/read-side settlement field.
+
+It continues to represent:
 
 ```text
 paid_amount
@@ -206,62 +229,60 @@ paid_amount
     + AdvanceCreditApplication
 ```
 
-Adjustments change the receivable/outstanding calculation, not the historical money-received amount.
+Adjustments never inflate or reduce historical paid/settled money.
 
-The existing `Invoice.save()` financial guards must not become a competing transition authority.
+The canonical financial service may update compatibility `paid_amount/status` as a derived state transition; `Model.save()`, signals and API code remain non-authoritative.
 
-The canonical service will own recalculation of invoice financial position/status.
+## 10. Paid / Partial / Pending Semantics
 
-## 9. Paid / Partial / Pending Semantics
+For backward compatibility, the existing `pending / partial / paid` states remain available.
 
-For the initial implementation, invoice status continues to be derived from settlement relative to the adjusted collectible receivable:
+For a positive adjusted receivable:
 
 ```text
-settlement == collectible receivable → PAID
-0 < settlement < collectible receivable → PARTIAL
-settlement == 0 and collectible receivable > 0 → PENDING
+settlement == adjusted receivable → PAID
+0 < settlement < adjusted receivable → PARTIAL
+settlement == 0 and adjusted receivable > 0 → PENDING
 ```
 
-A zero collectible balance caused entirely by a credit/write-off must not be misreported as customer cash collection.
+A credit/write-off may reduce adjusted receivable to zero only when it does not exceed recorded settlement. Therefore an unpaid invoice cannot be silently converted into `paid` by an adjustment.
 
-Future explicit invoice lifecycle states such as VOID/CANCELLED may be introduced separately.
+If an adjustment closes the collectible balance at zero while settlement is zero, `collection_closed=True` is the authoritative financial-position signal. Existing `status` is retained as a compatibility field until a future explicit invoice lifecycle state (for example `written_off`) is introduced.
 
-## 10. Guardrails
+If settlement already equals the adjusted receivable, the invoice may remain `paid`; the adjustment does not rewrite historical payment data.
 
-An adjustment service must reject:
+## 11. Guardrails
 
-- Zero/negative amounts
+The canonical adjustment service rejects:
+
+- Zero/negative/non-finite amounts
 - Cross-workspace invoice
 - Invalid adjustment type
-- Missing required reason for manual adjustment
+- Missing required reason
 - Mutation of an existing adjustment
-- Adjustment against an unsupported invoice state
-- Credit/write-off that exceeds the remaining collectible balance
-- Duplicate operation when an idempotency mechanism is supplied
+- Unsupported invoice state
+- Credit/discount/waiver/write-off exceeding the remaining collectible boundary
+- Debit adjustments without required authorization
+- Duplicate mutation API requests with the same idempotency key
 
-Debit adjustments may increase the receivable, subject to configured limits and authorization policy.
+Debit adjustments may increase receivable, subject to authorization and configured limits.
 
-The service must calculate all mutable balances from current database state while holding the relevant invoice lock.
+The service locks the invoice and calculates all mutable balances from current database state.
 
-## 11. Canonical Services
+## 12. Canonical Adjustment Transition
 
-Phase 3.9 should introduce a dedicated service boundary, conceptually:
-
-```text
-create_financial_adjustment(...)
-calculate_invoice_financial_position(invoice)
-```
-
-The creation workflow:
+The only authoritative mutation boundary is:
 
 ```text
 Business Event
     ↓
 Lock Invoice
     ↓
-Validate workspace/state/type/amount
+Validate workspace / authorization / state / type / amount
     ↓
-Calculate current collectible balance
+Calculate current invoice financial position
+    ↓
+Validate adjusted-receivable boundary
     ↓
 Create immutable FinancialAdjustment
     ↓
@@ -270,11 +291,11 @@ Recalculate compatibility invoice state
 Commit atomically
 ```
 
-No financial adjustment should be implemented through direct API-side mutation or model `save()` side effects.
+No financial adjustment is implemented through direct API-side balance mutation or model `save()` side effects.
 
-## 12. Interaction with Payments
+## 13. Interaction with Payments
 
-Adjustments do not alter Payment amount.
+Adjustments do not alter Payment amount or PaymentAllocation history.
 
 Example:
 
@@ -285,16 +306,15 @@ Payment ₹20,000
 PAID
 
 Credit adjustment ₹5,000
-        ↓
-Historical payment remains ₹20,000
-Financial position must remain explainable
 ```
 
-The service must define the behavior of adjustments applied after settlement before implementation. The recommended rule is to prevent ordinary credit/write-off adjustments from creating an unexplained negative outstanding balance; any resulting customer credit should be represented by an explicit future credit/refund mechanism.
+The historical payment remains ₹20,000. The adjustment is recorded independently. Because settlement already equals the post-adjustment collectible amount, no negative outstanding is created.
 
-## 13. Interaction with Advance Credit
+A new credit-side adjustment that would require the system to return money is rejected by the ordinary adjustment boundary and deferred to a future refund/credit workflow.
 
-Advance credit is money already received and must remain separate.
+## 14. Interaction with Advance Credit
+
+Advance credit remains money already received and separate from receivable adjustments.
 
 Example:
 
@@ -308,44 +328,45 @@ Settlement = ₹5,000
 Outstanding = ₹13,000
 ```
 
-An adjustment must never increase or decrease `AdvanceCredit.available_amount` directly.
+An adjustment never changes `AdvanceCredit.original_amount`, `available_amount`, or historical applications.
 
-Credit applications remain immutable.
+Advance-credit application must use the same canonical invoice financial position for outstanding validation.
 
-## 14. Interaction with Payment Allocation
+## 15. Interaction with Payment Allocation
 
-Payment allocation continues to be governed by available payment capacity and adjusted invoice outstanding.
+Payment allocation remains governed by payment capacity and invoice outstanding.
 
-Therefore allocation validation must eventually use the same canonical invoice financial-position calculation introduced by Phase 3.9.
+Phase 3.9 requires allocation validation to reuse the canonical invoice-position calculation rather than maintaining a second outstanding equation.
 
-This prevents inconsistent behavior such as:
+This prevents inconsistent results such as:
 
 ```text
-read-side says outstanding ₹8,000
-allocation service says outstanding ₹10,000
+read-side outstanding = ₹8,000
+allocation service outstanding = ₹10,000
 ```
 
-One canonical calculation must be reused by payment, advance-credit and adjustment workflows.
+Payment capacity rules remain unchanged, including reserved advance-credit capacity.
 
-## 15. Concurrency
+## 16. Concurrency
 
-All financial adjustment mutations must be transactional.
+All adjustment mutations are transactional.
 
 Required rules:
 
 1. Lock the target invoice before calculating mutable receivable state.
-2. Recalculate from current database state after the lock.
+2. Recalculate after the lock from current database state.
 3. Create the adjustment and compatibility state transition atomically.
-4. Never allow concurrent adjustments to exceed allowed collectible boundaries.
-5. Concurrent adjustment + payment allocation must not over-settle the invoice.
-6. Concurrent adjustment + advance-credit application must not over-settle the invoice.
-7. Lock ordering must remain deterministic wherever multiple financial records are involved.
+4. Concurrent credit-side adjustments cannot cross the collectible boundary.
+5. Concurrent debit adjustments cannot lose updates.
+6. Concurrent adjustment + payment allocation cannot over-settle the invoice.
+7. Concurrent adjustment + advance-credit application cannot over-settle the invoice.
+8. Multi-record lock ordering is deterministic.
 
-Dedicated adversarial PostgreSQL concurrency tests are required before phase completion.
+Dedicated PostgreSQL adversarial tests are mandatory before Phase 3.9 completion.
 
-## 16. Workspace / RBAC / RLS
+## 17. Workspace / RBAC / RLS
 
-Every adjustment is workspace-scoped through the invoice/workspace relationship.
+Every adjustment is workspace-scoped through the invoice relationship and explicit workspace field.
 
 Required protections:
 
@@ -355,12 +376,13 @@ Required protections:
 - RLS enabled and forced for the new table.
 - Cross-workspace direct access blocked.
 - Cross-workspace related-object mutation blocked.
+- `created_by` recorded for auditability.
 
-The adjustment creator must be recorded for auditability.
+Write-off uses the same manager-level mutation boundary; no separate weaker path is permitted.
 
-## 17. API Direction
+## 18. API Contract Direction
 
-Additive endpoints are preferred:
+Additive endpoints:
 
 ```text
 POST /api/financial-adjustments/
@@ -368,7 +390,7 @@ GET  /api/financial-adjustments/
 GET  /api/financial-adjustments/<id>/
 ```
 
-Possible create request:
+Create request:
 
 ```json
 {
@@ -376,29 +398,32 @@ Possible create request:
   "adjustment_type": "credit",
   "amount": "2000.00",
   "reason": "Approved service issue credit",
-  "reference": "CASE-123"
+  "reference": "CASE-123",
+  "idempotency_key": "ADJ-CASE-123"
 }
 ```
 
-Backend returns authoritative adjustment and invoice financial position.
+Contract rules:
 
-Frontend must not calculate or persist financial truth.
+- Mutation requires manager-level permission.
+- Read requires staff-level permission.
+- `idempotency_key` is required on create requests and is unique within workspace.
+- Retry with the same key and semantically identical request returns the original adjustment/result rather than creating a duplicate.
+- Reuse of a key with different business parameters is rejected.
+- Backend returns authoritative adjustment data plus canonical invoice financial position.
+- Exact public error strings will be frozen in the API implementation tests before release.
 
-Exact response fields and error strings will be locked during API implementation.
+## 19. Idempotency Decision
 
-## 18. Idempotency
+The persisted `idempotency_key` is the Phase 3.9 manual mutation idempotency boundary.
 
-Manual adjustments require protection against accidental duplicate submission.
+Database uniqueness is scoped by workspace. The service must perform the idempotency lookup inside the same transaction as the adjustment creation and invoice lock.
 
-Phase 3.9 should define an optional client/reference idempotency key before exposing mutation APIs broadly.
+Webhook/gateway idempotency remains outside this phase.
 
-The final persistence strategy must guarantee that retrying the same business operation does not create an unintended second adjustment.
+## 20. Auditability
 
-Webhook idempotency remains outside this phase and belongs to gateway integration.
-
-## 19. Auditability
-
-Each adjustment must answer:
+Every adjustment must answer:
 
 - Which workspace?
 - Which invoice?
@@ -408,38 +433,49 @@ Each adjustment must answer:
 - Who created it?
 - When?
 - What reference supports it?
+- What idempotency key identified the mutation, when supplied by API?
 
-A future generalized audit-log subsystem may record additional request/context metadata, but Phase 3.9 must not depend on that future subsystem to preserve the financial event itself.
+A future generalized audit-log subsystem may add request/context metadata, but Phase 3.9 must not depend on it for preservation of the financial event.
 
-## 20. Reporting Semantics
+## 21. Reporting Semantics
 
 Reports must distinguish:
 
 ```text
 Gross billed
-Adjustments
-Net collectible
+Debit adjustments
+Credit adjustments
+Net collectible / adjusted receivable
 Cash/payment settlement
 Advance credit applied
 Outstanding
 Written off
 ```
 
-A credit adjustment must not appear as cash collection.
+A credit adjustment is not cash collection.
 
-A write-off must not appear as payment received.
+A write-off is not payment received.
 
-An advance credit application may reduce invoice outstanding, but the original cash receipt remains attributable to the source Payment.
+An advance-credit application reduces invoice outstanding, while the original cash receipt remains attributable to its source Payment.
 
-## 21. Migration Strategy
+Discount and waiver remain separately reportable even though both reduce receivable.
+
+## 22. Migration Strategy
 
 Additive only.
 
-Create the adjustment table, indexes, positive amount constraint, workspace/RLS policies and required foreign keys.
+Create the adjustment table with:
+
+- workspace/invoice foreign keys
+- positive amount constraint
+- adjustment-type constraint/choices
+- indexes for workspace/invoice/type/created_at as justified by query patterns
+- idempotency uniqueness within workspace
+- RLS enable/force and policies
 
 No historical adjustment backfill is permitted without explicit business attribution.
 
-No historical Payment or Invoice amounts may be rewritten merely to introduce the new model.
+No historical Payment or Invoice amount is rewritten merely to introduce the new model.
 
 Required checks:
 
@@ -450,7 +486,7 @@ migrate
 RLS enable/force verification
 ```
 
-## 22. Testing Requirements
+## 23. Testing Requirements
 
 ### Domain
 
@@ -471,9 +507,17 @@ RLS enable/force verification
 - Partial payment + debit adjustment.
 - Advance credit application + adjustment.
 - Allocation + adjustment.
-- Fully settled invoice adjustment boundary.
-- Adjustment cannot create unexplained negative outstanding.
+- Fully settled invoice boundary.
+- Credit-side adjustment cannot create negative outstanding.
 - Payment records remain unchanged.
+- `paid_amount` remains settlement-only.
+- Zero collectible balance is not falsely reported as cash-paid.
+
+### Idempotency
+
+- Same API key returns original result.
+- Same key with different payload is rejected.
+- Concurrent duplicate requests create one adjustment.
 
 ### Concurrency
 
@@ -481,7 +525,7 @@ RLS enable/force verification
 - Concurrent debit + payment allocation.
 - Concurrent credit + advance-credit application.
 - Boundary over-adjustment prevention.
-- Retry/idempotency behavior.
+- Deterministic multi-record locking.
 
 ### Workspace/RLS
 
@@ -503,7 +547,7 @@ RLS enable/force verification
 - Dashboard totals.
 - Final settlement calculation.
 
-## 23. Explicit Non-Goals
+## 24. Explicit Non-Goals
 
 Not implemented in Phase 3.9:
 
@@ -518,10 +562,9 @@ Not implemented in Phase 3.9:
 - Automatic adjustment policy engine
 - Historical automatic backfill
 - UI redesign
+- Generalized audit-log subsystem
 
-These remain separate phases so the financial model stays bounded and auditable.
-
-## 24. Implementation Order
+## 25. Implementation Order
 
 ```text
 Architecture review + lock
@@ -532,7 +575,9 @@ Canonical invoice financial-position service
         ↓
 Adjustment creation service
         ↓
-API + serializer
+Refactor payment allocation + advance-credit validation to canonical position
+        ↓
+API + serializer + idempotency
         ↓
 Domain tests
         ↓
@@ -551,7 +596,55 @@ Final financial integrity audit
 Mark COMPLETE
 ```
 
-## 25. Phase 3.9 Completion Gate
+## 26. Round-2 Architecture Decisions — CLOSED
+
+### Decision 1 — Post-settlement credit behavior
+
+**LOCKED:** Ordinary Phase 3.9 credit/discount/waiver/write-off operations may not reduce adjusted receivable below already-recorded settlement.
+
+No negative outstanding is created. A business event requiring customer credit or money return is deferred to the future explicit credit/refund workflow.
+
+### Decision 2 — Manual API idempotency
+
+**LOCKED:** `FinancialAdjustment.idempotency_key` is nullable at the domain level but required by mutation APIs, with workspace-scoped uniqueness and transactional duplicate detection.
+
+### Decision 3 — Write-off scope
+
+**LOCKED:** Write-off is executable in Phase 3.9, but only through the canonical adjustment service with manager-level authorization and full immutable/auditable event semantics. It does not introduce ledger accounting entries yet.
+
+### Decision 4 — Canonical financial-position helper
+
+**LOCKED:** `calculate_invoice_financial_position(invoice)` is the canonical invoice-position read contract. Payment allocation, advance-credit application, adjustment validation and later financial workflows must reuse it rather than duplicate outstanding calculations.
+
+## 27. Review Findings Against Locked Architecture
+
+### PASS
+
+- Extends rather than rewrites Charge → Invoice → Payment.
+- Preserves partial, advance and arrears semantics.
+- Keeps Payment, PaymentAllocation and AdvanceCredit distinct from adjustments.
+- Uses immutable financial events and canonical service transitions.
+- Preserves workspace/RBAC/RLS requirements.
+- Fits the locked Phase 3 sequence after Advance Credit.
+- Keeps refunds, ledger and reconciliation outside this bounded phase.
+- Resolves all four Round-1 open architecture decisions.
+- Aligns invoice outstanding with one canonical financial-position contract.
+
+### Current-code compatibility review
+
+The current implementation already derives settlement from `PaymentAllocation + AdvanceCreditApplication`, reserves payment capacity for advance credit, locks invoice/payment records during financial transitions, and keeps adjustment-like historical records immutable. Phase 3.9 therefore extends the current architecture instead of replacing it.
+
+The key implementation change is to introduce the canonical financial-position calculation and make existing allocation/advance-credit outstanding validation converge on it before exposing adjustment mutation broadly.
+
+## 28. Architecture Lock Decision
+
+**Status: LOCKED 🔒**
+
+Round-2 architecture review is complete. All four previously open decisions are resolved and the document is now the Phase 3.9 implementation source of truth.
+
+**No Phase 3.9 model/service/API implementation may intentionally deviate from this document without an explicit architecture review.**
+
+## 29. Phase 3.9 Completion Gate
 
 Phase 3.9 is complete only when:
 
@@ -563,38 +656,11 @@ Phase 3.9 is complete only when:
 6. Payment allocation and advance-credit application use the canonical outstanding calculation.
 7. Concurrency cannot over-adjust or over-settle an invoice.
 8. Workspace/RBAC/RLS protections are proven.
-9. Existing partial/advance/arrears/allocation/prepaid workflows remain green.
-10. Regression suite is green.
+9. API idempotency is proven under retry and concurrency.
+10. Existing partial/advance/arrears/allocation/prepaid workflows remain green.
 11. PostgreSQL migration/RLS checks are green.
 12. CI is GREEN on the final implementation commit.
 13. Final financial integrity audit passes.
-
-## 26. Review Findings Against Locked Architecture
-
-### PASS
-
-- Extends rather than rewrites the Charge → Invoice → Payment lifecycle.
-- Preserves partial, advance and arrears semantics.
-- Keeps Payment, PaymentAllocation and AdvanceCredit distinct from adjustments.
-- Uses immutable financial events and canonical service transitions.
-- Preserves workspace/RBAC/RLS requirements.
-- Fits the locked Phase 3 sequence after Advance Credit.
-- Keeps refunds, ledger and reconciliation outside this bounded phase.
-
-### OPEN BEFORE IMPLEMENTATION
-
-1. Finalize exact post-settlement credit-adjustment behavior. Recommendation: do not create negative outstanding; route resulting customer-credit/refund behavior to a later explicit credit/refund workflow.
-2. Finalize idempotency key/reference persistence for manual API retries.
-3. Finalize whether write-off is fully executable in 3.9 or only a typed adjustment foundation. Recommendation: executable but tightly permissioned, with future ledger semantics preserved.
-4. Finalize canonical financial-position helper name and return contract before coding.
-
-These are architecture decisions, not implementation details, and must be resolved before the document becomes LOCKED.
-
-## 27. Architecture Lock Decision
-
-**Current status: DRAFT — REVIEWED, NOT YET LOCKED.**
-
-The draft is compatible with the locked product blueprint and Phase 3 financial architecture. No implementation should begin until the four open decisions above are resolved and this document is promoted to **Status: LOCKED**.
 
 **Golden Rule:**
 
