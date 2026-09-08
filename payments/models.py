@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import F, Q, Sum
@@ -370,5 +371,106 @@ class AdvanceCreditApplication(models.Model):
             models.CheckConstraint(
                 condition=Q(amount__gt=0),
                 name="advance_credit_application_amount_positive",
+            ),
+        ]
+
+
+class FinancialAdjustment(models.Model):
+    TYPE_CREDIT = "credit"
+    TYPE_DEBIT = "debit"
+    TYPE_DISCOUNT = "discount"
+    TYPE_WAIVER = "waiver"
+    TYPE_WRITE_OFF = "write_off"
+
+    ADJUSTMENT_TYPES = (
+        (TYPE_CREDIT, "Credit"),
+        (TYPE_DEBIT, "Debit"),
+        (TYPE_DISCOUNT, "Discount"),
+        (TYPE_WAIVER, "Waiver"),
+        (TYPE_WRITE_OFF, "Write-off"),
+    )
+
+    workspace = models.ForeignKey(
+        "workspaces.Workspace",
+        on_delete=models.PROTECT,
+        related_name="financial_adjustments",
+    )
+    invoice = models.ForeignKey(
+        Invoice,
+        on_delete=models.PROTECT,
+        related_name="financial_adjustments",
+    )
+    adjustment_type = models.CharField(max_length=20, choices=ADJUSTMENT_TYPES)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    reason = models.TextField()
+    reference = models.CharField(max_length=100, blank=True, null=True)
+    idempotency_key = models.CharField(max_length=100, blank=True, null=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="financial_adjustments_created",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def clean(self):
+        if self.amount is None or self.amount <= 0:
+            raise ValidationError("Adjustment amount must be greater than zero")
+        if self.adjustment_type not in dict(self.ADJUSTMENT_TYPES):
+            raise ValidationError("Invalid adjustment type")
+        if not self.reason or not self.reason.strip():
+            raise ValidationError("Adjustment reason is required")
+        if not self.workspace_id:
+            raise ValidationError("Workspace is required")
+        if self.invoice_id and self.invoice.occupancy.tenant.workspace_id != self.workspace_id:
+            raise ValidationError("Adjustment and invoice must belong to the same workspace")
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            persisted = type(self).objects.get(pk=self.pk)
+            if (
+                persisted.workspace_id != self.workspace_id
+                or persisted.invoice_id != self.invoice_id
+                or persisted.adjustment_type != self.adjustment_type
+                or persisted.amount != self.amount
+                or persisted.reason != self.reason
+                or persisted.reference != self.reference
+                or persisted.idempotency_key != self.idempotency_key
+                or persisted.created_by_id != self.created_by_id
+            ):
+                raise ValidationError("Financial adjustments cannot be changed after creation")
+        self.clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.adjustment_type} {self.amount} - {self.invoice}"
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["workspace", "invoice"]),
+            models.Index(fields=["workspace", "adjustment_type", "created_at"]),
+            models.Index(fields=["invoice", "created_at"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(amount__gt=0),
+                name="financial_adjustment_amount_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(adjustment_type__in=[
+                    "credit",
+                    "debit",
+                    "discount",
+                    "waiver",
+                    "write_off",
+                ]),
+                name="financial_adjustment_type_valid",
+            ),
+            models.CheckConstraint(
+                condition=~Q(reason=""),
+                name="financial_adjustment_reason_non_empty",
+            ),
+            models.UniqueConstraint(
+                fields=["workspace", "idempotency_key"],
+                name="financial_adjustment_workspace_idempotency_key_uniq",
             ),
         ]
