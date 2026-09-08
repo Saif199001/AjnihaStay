@@ -88,19 +88,43 @@ class FinancialAdjustmentModelTests(TestCase):
         self.assertEqual(adjustment.created_by_id, self.owner.id)
 
     def test_invalid_type_is_rejected_by_model_validation(self):
-        adjustment = self.make_adjustment(adjustment_type="refund", idempotency_key="ADJ-INVALID")
+        adjustment = FinancialAdjustment(
+            workspace=self.workspace,
+            invoice=self.invoice,
+            adjustment_type="refund",
+            amount=Decimal("500.00"),
+            reason="Invalid type test",
+            idempotency_key="ADJ-INVALID",
+            created_by=self.owner,
+        )
 
         with self.assertRaisesMessage(ValidationError, "Invalid adjustment type"):
             adjustment.full_clean()
 
     def test_non_positive_amount_is_rejected(self):
-        adjustment = self.make_adjustment(amount=Decimal("0.00"), idempotency_key="ADJ-ZERO")
+        adjustment = FinancialAdjustment(
+            workspace=self.workspace,
+            invoice=self.invoice,
+            adjustment_type=FinancialAdjustment.TYPE_CREDIT,
+            amount=Decimal("0.00"),
+            reason="Zero amount test",
+            idempotency_key="ADJ-ZERO",
+            created_by=self.owner,
+        )
 
         with self.assertRaisesMessage(ValidationError, "Adjustment amount must be greater than zero"):
             adjustment.full_clean()
 
     def test_blank_reason_is_rejected(self):
-        adjustment = self.make_adjustment(reason="   ", idempotency_key="ADJ-REASON")
+        adjustment = FinancialAdjustment(
+            workspace=self.workspace,
+            invoice=self.invoice,
+            adjustment_type=FinancialAdjustment.TYPE_CREDIT,
+            amount=Decimal("500.00"),
+            reason="   ",
+            idempotency_key="ADJ-REASON",
+            created_by=self.owner,
+        )
 
         with self.assertRaisesMessage(ValidationError, "Adjustment reason is required"):
             adjustment.full_clean()
@@ -112,9 +136,14 @@ class FinancialAdjustmentModelTests(TestCase):
             slug="other-adjustment-workspace",
             owner=other_owner,
         )
-        adjustment = self.make_adjustment(
+        adjustment = FinancialAdjustment(
             workspace=other_workspace,
+            invoice=self.invoice,
+            adjustment_type=FinancialAdjustment.TYPE_CREDIT,
+            amount=Decimal("500.00"),
+            reason="Cross workspace test",
             idempotency_key="ADJ-CROSS-WORKSPACE",
+            created_by=self.owner,
         )
 
         with self.assertRaisesMessage(
