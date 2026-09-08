@@ -31,6 +31,7 @@ class PaymentRefund(models.Model):
     reason = models.TextField()
     reference = models.CharField(max_length=100, blank=True, null=True)
     idempotency_key = models.CharField(max_length=100, blank=True, null=True)
+    failure_reason = models.TextField(blank=True, default="")
     requested_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -46,6 +47,10 @@ class PaymentRefund(models.Model):
             raise ValidationError("Invalid refund status")
         if not self.reason or not self.reason.strip():
             raise ValidationError("Refund reason is required")
+        if self.status == self.STATUS_FAILED and not self.failure_reason.strip():
+            raise ValidationError("Refund failure reason is required")
+        if self.status != self.STATUS_FAILED and self.failure_reason.strip():
+            raise ValidationError("Failure reason is only valid for failed refunds")
         if not self.workspace_id:
             raise ValidationError("Workspace is required")
         if self.payment_id and self.payment.workspace_id != self.workspace_id:
