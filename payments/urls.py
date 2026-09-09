@@ -42,7 +42,7 @@ urlpatterns = [
     path("api/billing-schedules/", billing_schedule_list_api),
     path("api/billing-schedules/create/", billing_schedule_create_api),
     path("api/billing-schedules/<int:schedule_id>/", billing_schedule_detail_api),
-    path("api/billing-schedules/<int/schedule_id>/update/", billing_schedule_update_api),
+    path("api/billing-schedules/<int:schedule_id>/update/", billing_schedule_update_api),
 
     path("api/advance-credits/", advance_credit_collection_api),
     path("api/advance-credits/<int:credit_id>/", advance_credit_detail_api),
