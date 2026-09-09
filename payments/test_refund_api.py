@@ -72,16 +72,13 @@ class PaymentRefundAPITests(TestCase):
 
     def test_create_refund_returns_not_found_for_cross_workspace_payment(self):
         self.authenticate()
-        other_owner = User.objects.create_user(
-            email="refund-api-other@example.com", password="pass1234"
-        )
         other_workspace = Workspace.objects.create(
             name="Other Refund API Workspace",
             slug="other-refund-api-workspace",
-            owner=other_owner,
+            owner=self.owner,
         )
         Membership.objects.create(
-            workspace=other_workspace, user=other_owner, role=Membership.ROLE_OWNER
+            workspace=other_workspace, user=self.owner, role=Membership.ROLE_OWNER
         )
         self.client.defaults["HTTP_X_WORKSPACE_ID"] = str(other_workspace.id)
         response = self.client.post(
