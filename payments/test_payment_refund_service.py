@@ -33,8 +33,12 @@ class PaymentRefundServiceTests(TestCase):
         self.other_workspace = Workspace.objects.create(
             name="Other Workspace", slug="other-workspace", owner=self.owner
         )
-        self.tenant = Tenant.objects.create(workspace=self.workspace, full_name="Refund Tenant")
-        self.property = Property.objects.create(workspace=self.workspace, name="Refund Property")
+        self.tenant = Tenant.objects.create(
+            workspace=self.workspace, owner=self.owner, full_name="Refund Tenant"
+        )
+        self.property = Property.objects.create(
+            workspace=self.workspace, owner=self.owner, name="Refund Property"
+        )
         self.unit = Unit.objects.create(property=self.property, unit_number="R-101", rent=Decimal("10000"))
         self.occupancy = Occupancy.objects.create(tenant=self.tenant, unit=self.unit)
         self.invoice = Invoice.objects.create(
@@ -55,11 +59,8 @@ class PaymentRefundServiceTests(TestCase):
 
     def test_request_creates_requested_refund(self):
         refund = request_payment_refund(
-            user=self.owner,
-            workspace=self.workspace,
-            payment=self.payment,
-            amount="2500",
-            reason="Customer overpayment",
+            user=self.owner, workspace=self.workspace, payment=self.payment,
+            amount="2500", reason="Customer overpayment",
         )
         self.assertEqual(refund.status, PaymentRefund.STATUS_REQUESTED)
         self.assertEqual(refund.amount, Decimal("2500.00"))
