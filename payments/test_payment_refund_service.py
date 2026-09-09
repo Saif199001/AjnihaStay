@@ -124,7 +124,7 @@ class PaymentRefundServiceTests(TestCase):
             amount="7000",
             reason="Refund attempt",
         )
-        transition_payment_refund(
+        failed_refund = transition_payment_refund(
             user=self.owner,
             workspace=self.workspace,
             refund=refund,
@@ -139,7 +139,7 @@ class PaymentRefundServiceTests(TestCase):
             reason="Retry refund",
         )
         self.assertEqual(replacement.status, PaymentRefund.STATUS_REQUESTED)
-        self.assertEqual(refund.status, PaymentRefund.STATUS_FAILED)
+        self.assertEqual(failed_refund.status, PaymentRefund.STATUS_FAILED)
 
     def test_idempotency_returns_existing_refund_for_same_operation(self):
         first = request_payment_refund(
