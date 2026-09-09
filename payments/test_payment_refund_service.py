@@ -10,7 +10,7 @@ from payments.refund_service import request_payment_refund, transition_payment_r
 from properties.models import Property
 from tenant.models import Occupancy, Tenant
 from unit.models import Unit
-from workspaces.models import Workspace
+from workspaces.models import Membership, Workspace
 
 
 class PaymentRefundServiceTests(TestCase):
@@ -32,6 +32,15 @@ class PaymentRefundServiceTests(TestCase):
         )
         self.other_workspace = Workspace.objects.create(
             name="Other Workspace", slug="other-workspace", owner=self.owner
+        )
+        Membership.objects.create(
+            workspace=self.workspace, user=self.owner, role=Membership.ROLE_OWNER
+        )
+        Membership.objects.create(
+            workspace=self.other_workspace, user=self.owner, role=Membership.ROLE_OWNER
+        )
+        Membership.objects.create(
+            workspace=self.workspace, user=self.manager, role=Membership.ROLE_MANAGER
         )
         self.tenant = Tenant.objects.create(
             workspace=self.workspace, owner=self.owner, full_name="Refund Tenant"
