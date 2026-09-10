@@ -1,19 +1,11 @@
 from decimal import Decimal, InvalidOperation
 
-from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Sum
 
-from workspaces.models import Membership, Workspace
-
+from .authorization import MUTATION_ROLES, require_mutation_permission
 from .models import AdvanceCreditApplication, FinancialAdjustment, Invoice, PaymentAllocation
-
-
-MUTATION_ROLES = {
-    Membership.ROLE_OWNER,
-    Membership.ROLE_ADMIN,
-    Membership.ROLE_MANAGER,
-}
 
 
 def _positive_decimal(value, field_name):
@@ -37,17 +29,8 @@ def _positive_id(value, field_name):
 
 
 def _require_mutation_permission(user, workspace):
-    if user is None:
-        raise PermissionDenied("Financial adjustment mutation requires workspace membership")
-
-    allowed = Membership.objects.filter(
-        workspace=workspace,
-        user=user,
-        is_active=True,
-        role__in=MUTATION_ROLES,
-    ).exists()
-    if not allowed:
-        raise PermissionDenied("Financial adjustment mutation requires manager-level access")
+    """Backward-compatible alias for the shared financial mutation guard."""
+    return require_mutation_permission(user, workspace)
 
 
 def _sum_adjustments(invoice):
@@ -94,7 +77,6 @@ def calculate_invoice_financial_position(invoice):
         else:
             status = "pending"
     else:
-        # A zero collectible balance created by an adjustment is not cash collection.
         status = "pending"
 
     return {
@@ -142,11 +124,8 @@ def create_financial_adjustment(user, workspace, data):
             idempotency_key = None
 
     with transaction.atomic():
-        # The invoice row lock serializes financial calculations for one invoice.
-        # A keyed request can target different invoices, so also serialize the
-        # idempotency-key claim at the workspace level. This closes the race where
-        # two concurrent requests both observe a missing key before either inserts.
         if idempotency_key:
+            from workspaces.models import Workspace
             workspace = Workspace.objects.select_for_update().get(pk=workspace.pk)
 
         try:
