@@ -15,6 +15,8 @@ def _positive_decimal(value, field_name):
         raise ValidationError(f"Invalid {field_name} amount")
     if not amount.is_finite() or amount <= 0:
         raise ValidationError(f"{field_name.capitalize()} amount must be greater than zero")
+    if amount != amount.quantize(Decimal("0.01")):
+        raise ValidationError(f"{field_name.capitalize()} amount cannot have more than two decimal places")
     return amount
 
 
