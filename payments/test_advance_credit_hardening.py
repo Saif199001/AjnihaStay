@@ -89,7 +89,7 @@ class AdvanceCreditHardeningTests(TestCase):
         credit = self.create_credit("4000")
 
         allocate_payment(
-            None,
+            self.owner,
             self.workspace,
             self.payment,
             [{"invoice": self.invoice.id, "amount": "6000"}],
@@ -97,7 +97,7 @@ class AdvanceCreditHardeningTests(TestCase):
 
         with self.assertRaisesMessage(ValidationError, "Allocation exceeds payment amount"):
             allocate_payment(
-                None,
+                self.owner,
                 self.workspace,
                 self.payment,
                 [{"invoice": self.invoice.id, "amount": "1"}],
@@ -127,7 +127,7 @@ class AdvanceCreditHardeningTests(TestCase):
             payment_date=date(2026, 9, 8),
         )
         allocate_payment(
-            None,
+            self.owner,
             self.workspace,
             second_payment,
             [{"invoice": self.invoice.id, "amount": "5000"}],
@@ -159,7 +159,7 @@ class AdvanceCreditHardeningTests(TestCase):
         )
         with self.assertRaisesMessage(ValidationError, "Allocation exceeds invoice remaining amount"):
             allocate_payment(
-                None,
+                self.owner,
                 self.workspace,
                 second_payment,
                 [{"invoice": self.invoice.id, "amount": "3000.01"}],
@@ -169,3 +169,4 @@ class AdvanceCreditHardeningTests(TestCase):
         self.assertEqual(self.invoice.paid_amount, Decimal("7000.00"))
         self.assertEqual(self.invoice.status, "partial")
         self.assertEqual(PaymentAllocation.objects.filter(payment=second_payment).count(), 0)
+
