@@ -8,6 +8,7 @@ from tenant.models import Occupancy, Tenant
 
 from .adjustment_service import calculate_invoice_financial_position
 from .allocation_service import get_payment_available_allocation_amount
+from .authorization import require_mutation_permission
 from .models import AdvanceCredit, AdvanceCreditApplication, Invoice, Payment
 from .services import recalculate_invoice_state
 
@@ -34,6 +35,7 @@ def _positive_id(value, field_name):
 
 def create_advance_credit(user, workspace, data):
     """Create an explicit prepaid credit from currently unallocated payment capacity."""
+    require_mutation_permission(user, workspace)
     payment_id = _positive_id(data.get("source_payment", data.get("payment")), "source payment")
     tenant_id = _positive_id(data.get("tenant"), "tenant")
     amount = _positive_decimal(data.get("amount"), "advance credit")
@@ -135,6 +137,7 @@ def get_advance_credit(credit_id, workspace):
 
 def apply_advance_credit(user, workspace, data):
     """Apply prepaid credit to an invoice through the canonical settlement service."""
+    require_mutation_permission(user, workspace)
     credit_id = _positive_id(data.get("credit"), "advance credit")
     invoice_id = _positive_id(data.get("invoice"), "invoice")
     amount = _positive_decimal(data.get("amount"), "advance credit application")
