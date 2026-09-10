@@ -96,6 +96,7 @@ def generate_invoice_from_schedule(user, workspace, schedule, billing_date=None,
             amount=schedule.amount,
             charge_date=billing_date,
             update_invoice=True,
+            invoice=invoice,
         )
 
         schedule.next_run_date = next_run_date
