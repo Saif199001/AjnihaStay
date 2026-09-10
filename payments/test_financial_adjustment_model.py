@@ -115,21 +115,6 @@ class FinancialAdjustmentModelTests(TestCase):
         with self.assertRaisesMessage(ValidationError, "Adjustment amount must be greater than zero"):
             adjustment.full_clean()
 
-    def test_amount_with_more_than_two_decimals_is_rejected_by_model_validation(self):
-        adjustment = FinancialAdjustment(
-            workspace=self.workspace,
-            invoice=self.invoice,
-            adjustment_type=FinancialAdjustment.TYPE_CREDIT,
-            amount=Decimal("500.001"),
-            reason="Precision test",
-            idempotency_key="ADJ-PRECISION",
-            created_by=self.owner,
-        )
-
-        # DecimalField(2) does not itself reject extra precision; the canonical
-        # adjustment boundary must reject it before persistence.
-        self.assertNotEqual(adjustment.amount, adjustment.amount.quantize(Decimal("0.01")))
-
     def test_blank_reason_is_rejected(self):
         adjustment = FinancialAdjustment(
             workspace=self.workspace,
