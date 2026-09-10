@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -23,16 +23,8 @@ class FinalSettlement(models.Model):
         (OUTCOME_FULL_RETENTION, "Full retention"),
     )
 
-    workspace = models.ForeignKey(
-        "workspaces.Workspace",
-        on_delete=models.PROTECT,
-        related_name="final_settlements",
-    )
-    occupancy = models.OneToOneField(
-        Occupancy,
-        on_delete=models.PROTECT,
-        related_name="final_settlement",
-    )
+    workspace = models.ForeignKey("workspaces.Workspace", on_delete=models.PROTECT, related_name="final_settlements")
+    occupancy = models.OneToOneField(Occupancy, on_delete=models.PROTECT, related_name="final_settlement")
     total_rent = models.DecimalField(max_digits=10, decimal_places=2)
     total_charges = models.DecimalField(max_digits=10, decimal_places=2)
     total_paid = models.DecimalField(max_digits=10, decimal_places=2)
@@ -42,17 +34,12 @@ class FinalSettlement(models.Model):
     refundable_deposit = models.DecimalField(max_digits=10, decimal_places=2)
     final_balance = models.DecimalField(max_digits=10, decimal_places=2)
     outcome = models.CharField(max_length=30, choices=OUTCOME_CHOICES)
-    settled_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT,
-        related_name="final_settlements_created",
-    )
+    settled_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="final_settlements_created")
     settled_at = models.DateTimeField(auto_now_add=True)
 
     def clean(self):
-        if self.workspace_id and self.occupancy_id:
-            if self.occupancy.tenant.workspace_id != self.workspace_id:
-                raise ValidationError("Settlement and occupancy must belong to the same workspace")
+        if self.workspace_id and self.occupancy_id and self.occupancy.tenant.workspace_id != self.workspace_id:
+            raise ValidationError("Settlement and occupancy must belong to the same workspace")
         for field in ("total_rent", "total_charges", "total_paid", "total_due", "security_deposit", "retained_deposit", "refundable_deposit"):
             if getattr(self, field) < 0:
                 raise ValidationError(f"{field} cannot be negative")
@@ -74,8 +61,8 @@ class FinalSettlement(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=["workspace", "settled_at"]),
-            models.Index(fields=["workspace", "outcome"]),
+            models.Index(fields=["workspace", "settled_at"], name="payments_fs_workspa_6c0f9d_idx"),
+            models.Index(fields=["workspace", "outcome"], name="payments_fs_workspa_8b7a22_idx"),
         ]
         constraints = [
             models.CheckConstraint(condition=Q(total_rent__gte=0), name="final_settlement_rent_non_negative"),
@@ -88,7 +75,7 @@ class FinalSettlement(models.Model):
         ]
 
 
-def finalize_final_settlement(user, workspace, occupancy_id):
+def finalize_final_settlement(user, workspace, occupancy_id, refundable_deposit=None):
     require_mutation_permission(user, workspace)
 
     with transaction.atomic():
@@ -101,9 +88,7 @@ def finalize_final_settlement(user, workspace, occupancy_id):
         if occupancy is None:
             raise ValidationError("Occupancy not found")
 
-        existing = FinalSettlement.objects.filter(
-            occupancy=occupancy, workspace=workspace
-        ).first()
+        existing = FinalSettlement.objects.filter(occupancy=occupancy, workspace=workspace).first()
         if existing:
             return existing
 
@@ -115,14 +100,24 @@ def finalize_final_settlement(user, workspace, occupancy_id):
             raise ValidationError("Final settlement requires all outstanding invoices to be settled")
 
         deposit = position["security_deposit"]
-        retained = min(max(position["total_due"], Decimal("0")), deposit)
-        refundable = deposit - retained
+        if refundable_deposit is None:
+            refundable = deposit
+        else:
+            try:
+                refundable = Decimal(refundable_deposit)
+            except (TypeError, ValueError, InvalidOperation):
+                raise ValidationError("Invalid refundable deposit amount")
+        if refundable < 0 or refundable > deposit:
+            raise ValidationError("Refundable deposit must be between zero and the security deposit")
+
+        refundable = refundable.quantize(Decimal("0.01"))
+        retained = deposit - refundable
         if deposit == 0:
             outcome = FinalSettlement.OUTCOME_NO_DEPOSIT
+        elif refundable == deposit:
+            outcome = FinalSettlement.OUTCOME_FULL_REFUND
         elif refundable == 0:
             outcome = FinalSettlement.OUTCOME_FULL_RETENTION
-        elif retained == 0:
-            outcome = FinalSettlement.OUTCOME_FULL_REFUND
         else:
             outcome = FinalSettlement.OUTCOME_PARTIAL_REFUND
 
