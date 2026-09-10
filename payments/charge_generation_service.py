@@ -56,11 +56,6 @@ def generate_charge_from_schedule(user, workspace, schedule, charge_date=None):
         if not schedule.active:
             raise ValidationError("Inactive billing schedule cannot generate a charge")
 
-        if charge_date != schedule.next_run_date:
-            raise ValidationError(
-                "Charge date must match the billing schedule next run date"
-            )
-
         occupancy = schedule.occupancy
         if not occupancy.is_active:
             raise ValidationError("Inactive occupancy cannot generate a charge")
@@ -68,6 +63,11 @@ def generate_charge_from_schedule(user, workspace, schedule, charge_date=None):
             raise ValidationError("Charge date cannot be before occupancy check-in date")
         if occupancy.check_out_date and charge_date > occupancy.check_out_date:
             raise ValidationError("Charge date cannot be after occupancy check-out date")
+
+        if charge_date != schedule.next_run_date:
+            raise ValidationError(
+                "Charge date must match the billing schedule next run date"
+            )
 
         charge = Charge(
             occupancy=occupancy,
