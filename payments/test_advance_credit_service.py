@@ -130,7 +130,7 @@ class AdvanceCreditServiceTests(TestCase):
         Membership.objects.create(workspace=other_workspace, user=other_owner, role="owner")
         with self.assertRaisesMessage(ValidationError, "Payment not found"):
             create_advance_credit(
-                self.owner,
+                other_owner,
                 other_workspace,
                 {"source_payment": self.payment.id, "tenant": self.tenant.id, "amount": "1000"},
             )
@@ -306,7 +306,7 @@ class AdvanceCreditServiceTests(TestCase):
         Membership.objects.create(workspace=other_workspace, user=other_owner, role="owner")
         with self.assertRaisesMessage(ValidationError, "Advance credit not found"):
             apply_advance_credit(
-                self.owner, other_workspace,
+                other_owner, other_workspace,
                 {"credit": credit.id, "invoice": self.invoice.id, "amount": "1000"},
             )
 
