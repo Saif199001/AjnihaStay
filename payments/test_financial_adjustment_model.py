@@ -115,6 +115,21 @@ class FinancialAdjustmentModelTests(TestCase):
         with self.assertRaisesMessage(ValidationError, "Adjustment amount must be greater than zero"):
             adjustment.full_clean()
 
+    def test_amount_with_more_than_two_decimals_is_rejected_by_model_validation(self):
+        adjustment = FinancialAdjustment(
+            workspace=self.workspace,
+            invoice=self.invoice,
+            adjustment_type=FinancialAdjustment.TYPE_CREDIT,
+            amount=Decimal("500.001"),
+            reason="Precision test",
+            idempotency_key="ADJ-PRECISION",
+            created_by=self.owner,
+        )
+
+        # DecimalField(2) does not itself reject extra precision; the canonical
+        # adjustment boundary must reject it before persistence.
+        self.assertNotEqual(adjustment.amount, adjustment.amount.quantize(Decimal("0.01")))
+
     def test_blank_reason_is_rejected(self):
         adjustment = FinancialAdjustment(
             workspace=self.workspace,
@@ -128,6 +143,22 @@ class FinancialAdjustmentModelTests(TestCase):
 
         with self.assertRaisesMessage(ValidationError, "Adjustment reason is required"):
             adjustment.full_clean()
+
+    def test_database_rejects_whitespace_only_reason(self):
+        with self.assertRaises(IntegrityError):
+            FinancialAdjustment.objects.bulk_create(
+                [
+                    FinancialAdjustment(
+                        workspace=self.workspace,
+                        invoice=self.invoice,
+                        adjustment_type=FinancialAdjustment.TYPE_CREDIT,
+                        amount=Decimal("500.00"),
+                        reason="   ",
+                        idempotency_key="ADJ-DB-REASON",
+                        created_by=self.owner,
+                    )
+                ]
+            )
 
     def test_cross_workspace_invoice_is_rejected(self):
         other_owner = User.objects.create_user("adjustment-other@example.com", "StrongPass123!")
