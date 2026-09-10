@@ -113,13 +113,21 @@ class FinancialAdjustmentIdempotencyRaceTests(TransactionTestCase):
                 except Exception as exc:
                     errors.append(exc)
 
-        self.assertEqual(errors, [])
-        self.assertEqual(FinancialAdjustment.objects.filter(
-            workspace=self.workspace,
-            idempotency_key="b4-shared-key",
-        ).count(), 1)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], ValidationError)
+        self.assertEqual(
+            str(errors[0]),
+            "['Idempotency key already used for a different adjustment']",
+        )
+        self.assertEqual(
+            FinancialAdjustment.objects.filter(
+                workspace=self.workspace,
+                idempotency_key="b4-shared-key",
+            ).count(),
+            1,
+        )
         self.assertEqual(sum(created for _, _, created in results), 1)
-        self.assertEqual(sum(not created for _, _, created in results), 1)
 
         existing = FinancialAdjustment.objects.get(
             workspace=self.workspace,
