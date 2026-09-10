@@ -7,7 +7,7 @@ from django.test import TestCase
 
 from accounts.models import User
 from properties.models import Property
-from tenant.models import Occupancy, Tenant
+from tenant.models import Charge, Occupancy, Tenant
 from unit.models import Unit
 from workspaces.models import Membership, Workspace
 
@@ -83,7 +83,7 @@ class RecurringInvoiceGenerationTests(TestCase):
         self.assertEqual(invoice.charges_amount, Decimal("1000.00"))
         self.assertEqual(invoice.total_amount, Decimal("1000.00"))
         self.assertEqual(invoice.status, "pending")
-        self.assertEqual(invoice.charges.count(), 1)
+        self.assertEqual(Charge.objects.filter(occupancy=self.occupancy).count(), 1)
 
         self.schedule.refresh_from_db()
         self.assertEqual(self.schedule.next_run_date, date(2026, 10, 1))
