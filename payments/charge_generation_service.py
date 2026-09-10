@@ -4,7 +4,7 @@ from datetime import date
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
-from tenant.models import Charge
+from tenant.charge_service import create_charge
 
 from .authorization import require_mutation_permission
 from .billing_models import BillingSchedule
@@ -65,21 +65,18 @@ def generate_charge_from_schedule(user, workspace, schedule, charge_date=None):
             raise ValidationError("Charge date cannot be before occupancy check-in date")
         if occupancy.check_out_date and charge_date > occupancy.check_out_date:
             raise ValidationError("Charge date cannot be after occupancy check-out date")
-
         if charge_date != schedule.next_run_date:
-            raise ValidationError(
-                "Charge date must match the billing schedule next run date"
-            )
+            raise ValidationError("Charge date must match the billing schedule next run date")
 
-        charge = Charge(
+        charge = create_charge(
+            user,
+            workspace,
             occupancy=occupancy,
             charge_type="custom",
             description=f"Recurring billing schedule #{schedule.id} ({schedule.frequency})",
             amount=schedule.amount,
             charge_date=charge_date,
         )
-        charge.save()
-
         schedule.next_run_date = _next_run_date(schedule.next_run_date, schedule.frequency)
         schedule.save(update_fields=["next_run_date", "updated_at"])
         return charge
