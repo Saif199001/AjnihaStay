@@ -96,7 +96,6 @@ class FinancialAdjustmentServiceTests(TestCase):
 
     def test_financial_position_starts_from_gross_receivable(self):
         position = calculate_invoice_financial_position(self.invoice)
-
         self.assertEqual(position["gross_receivable"], Decimal("10000.00"))
         self.assertEqual(position["adjusted_receivable"], Decimal("10000.00"))
         self.assertEqual(position["settlement"], Decimal("0"))
@@ -105,7 +104,6 @@ class FinancialAdjustmentServiceTests(TestCase):
 
     def test_credit_reduces_collectible_balance_without_changing_payment_settlement(self):
         adjustment, position, created = self.create_adjustment()
-
         self.assertTrue(created)
         self.assertEqual(adjustment.amount, Decimal("1000.00"))
         self.assertEqual(position["credit_adjustments"], Decimal("1000.00"))
@@ -121,7 +119,6 @@ class FinancialAdjustmentServiceTests(TestCase):
             reason="Additional utility charge",
             idempotency_key="ADJ-DEBIT-1",
         )
-
         self.assertTrue(created)
         self.assertEqual(adjustment.adjustment_type, FinancialAdjustment.TYPE_DEBIT)
         self.assertEqual(position["debit_adjustments"], Decimal("2000.00"))
@@ -142,7 +139,6 @@ class FinancialAdjustmentServiceTests(TestCase):
                 reason=f"Approved {adjustment_type}",
                 idempotency_key=f"ADJ-{adjustment_type}-{index}",
             )
-
         position = calculate_invoice_financial_position(self.invoice)
         self.assertEqual(position["credit_adjustments"], Decimal("300.00"))
         self.assertEqual(position["adjustment_totals"][FinancialAdjustment.TYPE_DISCOUNT], Decimal("100.00"))
@@ -152,12 +148,7 @@ class FinancialAdjustmentServiceTests(TestCase):
 
     def test_partial_payment_then_credit_recalculates_outstanding_and_status(self):
         self.create_payment("5000.00")
-
-        adjustment, position, created = self.create_adjustment(
-            amount="1000.00",
-            idempotency_key="ADJ-PARTIAL-CREDIT",
-        )
-
+        adjustment, position, created = self.create_adjustment(amount="1000.00", idempotency_key="ADJ-PARTIAL-CREDIT")
         self.assertTrue(created)
         self.assertEqual(position["settlement"], Decimal("5000.00"))
         self.assertEqual(position["adjusted_receivable"], Decimal("9000.00"))
@@ -167,14 +158,12 @@ class FinancialAdjustmentServiceTests(TestCase):
 
     def test_partial_payment_then_debit_increases_outstanding(self):
         self.create_payment("5000.00")
-
         _, position, _ = self.create_adjustment(
             adjustment_type=FinancialAdjustment.TYPE_DEBIT,
             amount="2000.00",
             reason="Additional utility charge",
             idempotency_key="ADJ-PARTIAL-DEBIT",
         )
-
         self.assertEqual(position["settlement"], Decimal("5000.00"))
         self.assertEqual(position["adjusted_receivable"], Decimal("12000.00"))
         self.assertEqual(position["outstanding"], Decimal("7000.00"))
@@ -182,20 +171,14 @@ class FinancialAdjustmentServiceTests(TestCase):
 
     def test_credit_cannot_exceed_remaining_collectible_balance(self):
         self.create_payment("9000.00")
-
         with self.assertRaisesMessage(ValidationError, "Adjustment exceeds remaining collectible balance"):
             self.create_adjustment(amount="2000.00", idempotency_key="ADJ-OVER")
-
         self.assertEqual(FinancialAdjustment.objects.count(), 0)
         self.assertEqual(PaymentAllocation.objects.filter(invoice=self.invoice).count(), 1)
 
     def test_credit_equal_to_remaining_balance_does_not_appear_as_cash_collection(self):
         self.create_payment("5000.00")
-        _, position, _ = self.create_adjustment(
-            amount="5000.00",
-            idempotency_key="ADJ-ZERO-COLLECTIBLE",
-        )
-
+        _, position, _ = self.create_adjustment(amount="5000.00", idempotency_key="ADJ-ZERO-COLLECTIBLE")
         self.assertEqual(position["adjusted_receivable"], Decimal("5000.00"))
         self.assertEqual(position["settlement"], Decimal("5000.00"))
         self.assertEqual(position["outstanding"], Decimal("0"))
@@ -204,7 +187,6 @@ class FinancialAdjustmentServiceTests(TestCase):
 
     def test_credit_on_fully_settled_invoice_is_rejected(self):
         self.create_payment("10000.00")
-
         with self.assertRaisesMessage(ValidationError, "Adjustment exceeds remaining collectible balance"):
             self.create_adjustment(amount="1.00", idempotency_key="ADJ-FULLY-PAID")
 
@@ -215,7 +197,6 @@ class FinancialAdjustmentServiceTests(TestCase):
             adjustment_type=FinancialAdjustment.TYPE_WRITE_OFF,
             reason="Approved full write-off",
         )
-
         position = calculate_invoice_financial_position(self.invoice)
         self.assertEqual(position["adjusted_receivable"], Decimal("0.00"))
         self.assertEqual(position["settlement"], Decimal("0"))
@@ -226,7 +207,6 @@ class FinancialAdjustmentServiceTests(TestCase):
     def test_idempotent_retry_returns_existing_adjustment(self):
         first, first_position, created = self.create_adjustment()
         second, second_position, created_again = self.create_adjustment()
-
         self.assertTrue(created)
         self.assertFalse(created_again)
         self.assertEqual(first.pk, second.pk)
@@ -235,27 +215,14 @@ class FinancialAdjustmentServiceTests(TestCase):
 
     def test_idempotency_key_cannot_be_reused_for_different_operation(self):
         self.create_adjustment()
-
-        with self.assertRaisesMessage(
-            ValidationError,
-            "Idempotency key already used for a different adjustment",
-        ):
+        with self.assertRaisesMessage(ValidationError, "Idempotency key already used for a different adjustment"):
             self.create_adjustment(amount="1100.00")
-
         self.assertEqual(FinancialAdjustment.objects.count(), 1)
 
     def test_service_requires_manager_level_membership(self):
         staff = User.objects.create_user("adjustment-staff@example.com", "StrongPass123!")
-        Membership.objects.create(
-            workspace=self.workspace,
-            user=staff,
-            role=Membership.ROLE_STAFF,
-        )
-
-        with self.assertRaisesMessage(
-            PermissionDenied,
-            "Financial adjustment mutation requires manager-level access",
-        ):
+        Membership.objects.create(workspace=self.workspace, user=staff, role=Membership.ROLE_STAFF)
+        with self.assertRaisesMessage(PermissionDenied, "Financial mutation requires manager-level access"):
             create_financial_adjustment(
                 staff,
                 self.workspace,
@@ -274,12 +241,7 @@ class FinancialAdjustmentServiceTests(TestCase):
             slug="other-adjustment-service-workspace",
             owner=other_owner,
         )
-        Membership.objects.create(
-            workspace=other_workspace,
-            user=other_owner,
-            role=Membership.ROLE_OWNER,
-        )
-
+        Membership.objects.create(workspace=other_workspace, user=other_owner, role=Membership.ROLE_OWNER)
         with self.assertRaisesMessage(ValidationError, "Invoice not found"):
             create_financial_adjustment(
                 other_owner,
