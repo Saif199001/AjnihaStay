@@ -1,3 +1,4 @@
+from calendar import monthrange
 from datetime import date
 
 from django.core.exceptions import ValidationError
@@ -17,8 +18,19 @@ def _charge_date(value):
         raise ValidationError("Invalid charge date")
 
 
+def _next_run_date(current_date, frequency):
+    if frequency == "daily":
+        return current_date.fromordinal(current_date.toordinal() + 1)
+    if frequency == "monthly":
+        year = current_date.year + (1 if current_date.month == 12 else 0)
+        month = 1 if current_date.month == 12 else current_date.month + 1
+        day = min(current_date.day, monthrange(year, month)[1])
+        return date(year, month, day)
+    raise ValidationError("Unsupported billing frequency")
+
+
 def generate_charge_from_schedule(user, workspace, schedule, charge_date=None):
-    """Generate one recurring charge from a workspace-scoped billing schedule."""
+    """Generate exactly the next recurring charge for a workspace-scoped schedule."""
     if charge_date is None:
         raise ValidationError("Charge date is required")
     charge_date = _charge_date(charge_date)
@@ -44,6 +56,11 @@ def generate_charge_from_schedule(user, workspace, schedule, charge_date=None):
         if not schedule.active:
             raise ValidationError("Inactive billing schedule cannot generate a charge")
 
+        if charge_date != schedule.next_run_date:
+            raise ValidationError(
+                "Charge date must match the billing schedule next run date"
+            )
+
         occupancy = schedule.occupancy
         if not occupancy.is_active:
             raise ValidationError("Inactive occupancy cannot generate a charge")
@@ -60,4 +77,7 @@ def generate_charge_from_schedule(user, workspace, schedule, charge_date=None):
             charge_date=charge_date,
         )
         charge.save()
+
+        schedule.next_run_date = _next_run_date(schedule.next_run_date, schedule.frequency)
+        schedule.save(update_fields=["next_run_date", "updated_at"])
         return charge
