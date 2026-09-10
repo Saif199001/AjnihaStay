@@ -1,6 +1,6 @@
 # B1 — Dashboard Canonical Financial Truth
 
-**Status:** IN PROGRESS  
+**Status:** IMPLEMENTATION READY FOR CI  
 **Date:** 2026-09-10
 
 ## Objective
@@ -18,7 +18,7 @@ Outstanding = max(Adjusted Receivable - Payment Allocations - Advance Credit App
 
 Reducing adjustments are credit, discount, waiver and write-off.
 
-Dashboard outstanding and overdue must be derived from these immutable financial components. `Invoice.paid_amount` and `Invoice.status` remain compatibility fields and are not authoritative for dashboard financial truth.
+Dashboard outstanding and overdue are derived from these immutable financial components. `Invoice.paid_amount` and `Invoice.status` remain compatibility fields and are not authoritative for dashboard financial truth.
 
 ## Refund Boundary
 
