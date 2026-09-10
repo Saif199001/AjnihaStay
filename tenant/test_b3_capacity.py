@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from decimal import Decimal
+from threading import Barrier
 
 from django.core.exceptions import ValidationError
 from django.db import close_old_connections
@@ -97,7 +98,7 @@ class OccupancyCapacityConcurrencyTests(TransactionTestCase):
         self.unit.save()
         create_occupancy(self.owner, self.workspace, self.occupancy_data(self.tenant_a))
         data = self.occupancy_data(self.tenant_b)
-        data["check_in_date"] = date(2026, 10, 1)
+        data["check_in_date"] = date(2026, 10, 2)
         data["check_out_date"] = date(2026, 10, 31)
         data["next_due_date"] = date(2026, 11, 1)
         create_occupancy(self.owner, self.workspace, data)
@@ -110,7 +111,7 @@ class OccupancyCapacityConcurrencyTests(TransactionTestCase):
         self.assertEqual(self.unit.capacity, 1)
 
     def test_concurrent_occupancy_creation_never_exceeds_capacity(self):
-        barrier = __import__("threading").Barrier(2)
+        barrier = Barrier(2)
 
         def attempt(tenant):
             close_old_connections()
