@@ -440,7 +440,8 @@ class FinancialAdjustment(models.Model):
         if self.pk:
             persisted = type(self).objects.get(pk=self.pk)
             if (
-                persisted.invoice_id != self.invoice_id
+                persisted.workspace_id != self.workspace_id
+                or persisted.invoice_id != self.invoice_id
                 or persisted.adjustment_type != self.adjustment_type
                 or persisted.amount != self.amount
                 or persisted.reason != self.reason
@@ -448,8 +449,49 @@ class FinancialAdjustment(models.Model):
                 or persisted.idempotency_key != self.idempotency_key
                 or persisted.created_by_id != self.created_by_id
             ):
-                raise ValidationError(
-                    "Financial adjustment facts cannot be changed after creation"
-                )
+                raise ValidationError("Financial adjustments cannot be changed after creation")
         self.clean()
         super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.adjustment_type} {self.amount} - {self.invoice}"
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["workspace", "invoice"],
+                name="payments_fa_workspa_6e1c6d_idx",
+            ),
+            models.Index(
+                fields=["workspace", "adjustment_type", "created_at"],
+                name="payments_fa_workspa_9e9d8c_idx",
+            ),
+            models.Index(
+                fields=["invoice", "created_at"],
+                name="payments_fa_invoice_4cfd1d_idx",
+            ),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(amount__gt=0),
+                name="financial_adjustment_amount_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(adjustment_type__in=[
+                    "credit",
+                    "debit",
+                    "discount",
+                    "waiver",
+                    "write_off",
+                ]),
+                name="financial_adjustment_type_valid",
+            ),
+            models.CheckConstraint(
+                condition=~Q(reason=""),
+                name="financial_adjustment_reason_non_empty",
+            ),
+            models.UniqueConstraint(
+                fields=["workspace", "idempotency_key"],
+                name="financial_adjustment_workspace_idempotency_key_uniq",
+            ),
+        ]
