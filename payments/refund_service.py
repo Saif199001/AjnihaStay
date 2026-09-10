@@ -4,6 +4,8 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Sum
 
+from workspaces.models import Membership
+
 from .models import Payment
 from .refund_models import PaymentRefund
 
@@ -19,10 +21,23 @@ def _workspace_id(workspace):
     return getattr(workspace, "id", workspace)
 
 
-def _is_authorized(user):
+def _is_authorized(user, workspace):
     if user is None or not getattr(user, "is_authenticated", False):
         return False
-    return getattr(user, "is_superuser", False) or getattr(user, "role", None) in REFUND_AUTHORIZED_ROLES
+    if getattr(user, "is_superuser", False):
+        return True
+    if getattr(user, "role", None) not in REFUND_AUTHORIZED_ROLES:
+        return False
+    return Membership.objects.filter(
+        workspace_id=_workspace_id(workspace),
+        user_id=user.id,
+        is_active=True,
+        role__in={
+            Membership.ROLE_OWNER,
+            Membership.ROLE_ADMIN,
+            Membership.ROLE_MANAGER,
+        },
+    ).exists()
 
 
 def _parse_amount(value):
@@ -70,7 +85,7 @@ def request_payment_refund(
     *, user, workspace, payment, amount, reason, reference=None, idempotency_key=None
 ):
     """Request an immutable payment-refund event through the canonical service."""
-    if not _is_authorized(user):
+    if not _is_authorized(user, workspace):
         raise ValidationError("User is not authorized to request refunds")
 
     amount = _parse_amount(amount)
@@ -119,7 +134,7 @@ def request_payment_refund(
 
 def transition_payment_refund(*, user, workspace, refund, status, failure_reason=None):
     """Apply a provider-neutral, validated refund state transition."""
-    if not _is_authorized(user):
+    if not _is_authorized(user, workspace):
         raise ValidationError("User is not authorized to transition refunds")
 
     valid_statuses = {
