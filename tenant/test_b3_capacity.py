@@ -96,7 +96,12 @@ class OccupancyCapacityConcurrencyTests(TransactionTestCase):
     def test_capacity_reduction_allows_non_overlapping_occupancies(self):
         self.unit.capacity = 2
         self.unit.save()
-        create_occupancy(self.owner, self.workspace, self.occupancy_data(self.tenant_a))
+
+        first = self.occupancy_data(self.tenant_a)
+        first["check_out_date"] = date(2026, 10, 1)
+        first["next_due_date"] = date(2026, 10, 1)
+        create_occupancy(self.owner, self.workspace, first)
+
         data = self.occupancy_data(self.tenant_b)
         data["check_in_date"] = date(2026, 10, 2)
         data["check_out_date"] = date(2026, 10, 31)
