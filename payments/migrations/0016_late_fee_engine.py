@@ -1,11 +1,16 @@
+from decimal import Decimal
+
+from django.conf import settings
 from django.db import migrations, models
 from django.db.models import Q
 import django.db.models.deletion
-from decimal import Decimal
 
 
 class Migration(migrations.Migration):
-    dependencies = [("payments", "0015_financial_adjustment_hardening")]
+    dependencies = [
+        ("payments", "0015_financial_adjustment_hardening"),
+        migrations.swappable_dependency(settings.AUTH_USER_MODEL),
+    ]
 
     operations = [
         migrations.CreateModel(
@@ -40,7 +45,7 @@ class Migration(migrations.Migration):
                 ("calculation_mode", models.CharField(choices=[("fixed", "Fixed"), ("percentage", "Percentage")], max_length=20)),
                 ("reason", models.CharField(max_length=255)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("created_by", models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name="late_fees_created", to="auth.user")),
+                ("created_by", models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name="late_fees_created", to=settings.AUTH_USER_MODEL)),
                 ("invoice", models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name="late_fees", to="payments.invoice")),
                 ("policy", models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name="late_fees", to="payments.latefeepolicy")),
                 ("workspace", models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name="late_fees", to="workspaces.workspace")),
@@ -52,8 +57,8 @@ class Migration(migrations.Migration):
                     models.UniqueConstraint(fields=("workspace", "invoice", "policy", "effective_date"), name="late_fee_invoice_policy_date_unique"),
                 ],
                 "indexes": [
-                    models.Index(fields=["workspace", "invoice"], name="payments_lf_workspace_invoice_idx"),
-                    models.Index(fields=["invoice", "effective_date"], name="payments_lf_invoice_effective_idx"),
+                    models.Index(fields=["workspace", "invoice"]),
+                    models.Index(fields=["invoice", "effective_date"]),
                 ],
             },
         ),
