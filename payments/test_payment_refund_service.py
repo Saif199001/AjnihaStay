@@ -22,6 +22,9 @@ class PaymentRefundServiceTests(TestCase):
         self.staff = User.objects.create_user(
             email="refund-staff@example.com", password="pass1234", role="staff"
         )
+        self.outsider = User.objects.create_user(
+            email="refund-outsider@example.com", password="pass1234"
+        )
 
         self.workspace = Workspace.objects.create(
             name="Refund Workspace", slug="refund-workspace", owner=self.owner
@@ -40,6 +43,9 @@ class PaymentRefundServiceTests(TestCase):
         )
         Membership.objects.create(
             workspace=self.other_workspace, user=self.owner, role=Membership.ROLE_OWNER
+        )
+        Membership.objects.create(
+            workspace=self.other_workspace, user=self.outsider, role=Membership.ROLE_OWNER
         )
 
         self.payment = Payment.objects.create(
@@ -140,6 +146,10 @@ class PaymentRefundServiceTests(TestCase):
         )
         self.assertEqual(replacement.status, PaymentRefund.STATUS_REQUESTED)
         self.assertEqual(failed_refund.status, PaymentRefund.STATUS_FAILED)
+        self.assertEqual(
+            PaymentRefund.objects.filter(payment=self.payment, status=PaymentRefund.STATUS_FAILED).count(),
+            1,
+        )
 
     def test_idempotency_returns_existing_refund_for_same_operation(self):
         first = request_payment_refund(
@@ -202,6 +212,16 @@ class PaymentRefundServiceTests(TestCase):
         )
         self.assertEqual(refund.requested_by_id, self.manager.id)
 
+    def test_owner_without_workspace_membership_cannot_request_refund(self):
+        with self.assertRaises(ValidationError):
+            request_payment_refund(
+                user=self.outsider,
+                workspace=self.workspace,
+                payment=self.payment,
+                amount="100",
+                reason="Outsider owner",
+            )
+
     def test_cross_workspace_payment_is_rejected(self):
         with self.assertRaises(ValidationError):
             request_payment_refund(
@@ -224,6 +244,46 @@ class PaymentRefundServiceTests(TestCase):
         self.payment.refresh_from_db()
         self.assertEqual(self.payment.amount, original_amount)
         self.assertEqual(refund.payment_id, self.payment.id)
+        self.assertEqual(
+            PaymentRefund.objects.filter(payment=self.payment).aggregate(total=None)["total"],
+            None,
+        )
+
+    def test_multiple_partial_refunds_never_exceed_payment_amount(self):
+        first = request_payment_refund(
+            user=self.owner,
+            workspace=self.workspace,
+            payment=self.payment,
+            amount="3000",
+            reason="First partial refund",
+        )
+        transition_payment_refund(
+            user=self.owner,
+            workspace=self.workspace,
+            refund=first,
+            status=PaymentRefund.STATUS_SUCCEEDED,
+        )
+        second = request_payment_refund(
+            user=self.owner,
+            workspace=self.workspace,
+            payment=self.payment,
+            amount="2000",
+            reason="Second partial refund",
+        )
+        self.assertEqual(second.status, PaymentRefund.STATUS_REQUESTED)
+        with self.assertRaises(ValidationError):
+            request_payment_refund(
+                user=self.owner,
+                workspace=self.workspace,
+                payment=self.payment,
+                amount="5001",
+                reason="Beyond remaining capacity",
+            )
+        self.assertEqual(
+            PaymentRefund.objects.filter(payment=self.payment)
+            .aggregate(total=__import__("django.db.models", fromlist=["Sum"]).Sum("amount"))["total"],
+            Decimal("5000.00"),
+        )
 
     def test_state_transitions_and_failure_reason(self):
         refund = request_payment_refund(
