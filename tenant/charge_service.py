@@ -73,8 +73,9 @@ def create_charge(
     charge_date,
     description=None,
     update_invoice=True,
+    invoice=None,
 ):
-    """Create a workspace-scoped charge, optionally updating its active invoice atomically."""
+    """Create a workspace-scoped charge, optionally updating a specific active invoice atomically."""
     from payments.authorization import require_mutation_permission
 
     require_mutation_permission(user, workspace)
@@ -90,11 +91,28 @@ def create_charge(
         if occupancy.check_out_date and charge_date > occupancy.check_out_date:
             raise ValidationError("Charge date cannot be after occupancy check-out date")
 
-        invoice = None
+        target_invoice = None
         if update_invoice:
-            invoice = occupancy.invoices.select_for_update().filter(status="pending").last()
-            if not invoice:
-                raise ValidationError("No active invoice found")
+            if invoice is not None:
+                invoice_id = getattr(invoice, "id", invoice)
+                try:
+                    invoice_id = int(invoice_id)
+                except (TypeError, ValueError):
+                    raise ValidationError("Invoice not found")
+                if invoice_id <= 0:
+                    raise ValidationError("Invoice not found")
+                target_invoice = occupancy.invoices.select_for_update().filter(
+                    id=invoice_id,
+                    status="pending",
+                ).first()
+                if not target_invoice:
+                    raise ValidationError("Invoice not found or is not pending")
+            else:
+                target_invoice = occupancy.invoices.select_for_update().filter(
+                    status="pending"
+                ).last()
+                if not target_invoice:
+                    raise ValidationError("No active invoice found")
 
         charge = Charge.objects.create(
             occupancy=occupancy,
@@ -103,10 +121,10 @@ def create_charge(
             charge_date=charge_date,
             description=description,
         )
-        if invoice is not None:
-            invoice.charges_amount += amount
-            invoice.total_amount = invoice.rent_amount + invoice.charges_amount
-            invoice.save()
+        if target_invoice is not None:
+            target_invoice.charges_amount += amount
+            target_invoice.total_amount = target_invoice.rent_amount + target_invoice.charges_amount
+            target_invoice.save()
         return charge
 
 
