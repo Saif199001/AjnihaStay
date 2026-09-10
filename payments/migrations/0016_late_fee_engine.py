@@ -57,8 +57,8 @@ class Migration(migrations.Migration):
                     models.UniqueConstraint(fields=("workspace", "invoice", "policy", "effective_date"), name="late_fee_invoice_policy_date_unique"),
                 ],
                 "indexes": [
-                    models.Index(fields=["workspace", "invoice"]),
-                    models.Index(fields=["invoice", "effective_date"]),
+                    models.Index(fields=["workspace", "invoice"], name="payments_la_workspa_e9c494_idx"),
+                    models.Index(fields=["invoice", "effective_date"], name="payments_la_invoice_64290e_idx"),
                 ],
             },
         ),
