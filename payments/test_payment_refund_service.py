@@ -2,6 +2,7 @@ from datetime import date
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
+from django.db.models import Sum
 from django.test import TestCase
 
 from accounts.models import User
@@ -147,7 +148,9 @@ class PaymentRefundServiceTests(TestCase):
         self.assertEqual(replacement.status, PaymentRefund.STATUS_REQUESTED)
         self.assertEqual(failed_refund.status, PaymentRefund.STATUS_FAILED)
         self.assertEqual(
-            PaymentRefund.objects.filter(payment=self.payment, status=PaymentRefund.STATUS_FAILED).count(),
+            PaymentRefund.objects.filter(
+                payment=self.payment, status=PaymentRefund.STATUS_FAILED
+            ).count(),
             1,
         )
 
@@ -244,10 +247,6 @@ class PaymentRefundServiceTests(TestCase):
         self.payment.refresh_from_db()
         self.assertEqual(self.payment.amount, original_amount)
         self.assertEqual(refund.payment_id, self.payment.id)
-        self.assertEqual(
-            PaymentRefund.objects.filter(payment=self.payment).aggregate(total=None)["total"],
-            None,
-        )
 
     def test_multiple_partial_refunds_never_exceed_payment_amount(self):
         first = request_payment_refund(
@@ -280,8 +279,7 @@ class PaymentRefundServiceTests(TestCase):
                 reason="Beyond remaining capacity",
             )
         self.assertEqual(
-            PaymentRefund.objects.filter(payment=self.payment)
-            .aggregate(total=__import__("django.db.models", fromlist=["Sum"]).Sum("amount"))["total"],
+            PaymentRefund.objects.filter(payment=self.payment).aggregate(total=Sum("amount"))["total"],
             Decimal("5000.00"),
         )
 
