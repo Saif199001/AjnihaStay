@@ -124,14 +124,11 @@ class RecurringChargeGenerationTests(TestCase):
         self.schedule.refresh_from_db()
         self.assertEqual(self.schedule.next_run_date, date(2026, 9, 10))
 
-    def test_monthly_schedule_advances_calendar_month_without_invalid_dates(self):
+    def test_monthly_schedule_advances_to_next_calendar_month(self):
         self.schedule.frequency = "monthly"
-        self.schedule.next_run_date = date(2026, 1, 31)
+        self.schedule.next_run_date = date(2026, 9, 30)
         self.schedule.save(update_fields=["frequency", "next_run_date", "updated_at"])
 
-        # The occupancy is September-based, so use a new schedule-compatible date.
-        self.schedule.next_run_date = date(2026, 9, 30)
-        self.schedule.save(update_fields=["next_run_date", "updated_at"])
         generate_charge_from_schedule(
             self.owner,
             self.workspace,
