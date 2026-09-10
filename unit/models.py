@@ -77,12 +77,14 @@ class Unit(models.Model):
         events = []
         for occupancy in occupancies:
             start = occupancy["check_in_date"]
-            end = occupancy["check_out_date"] or start
             events.append((start, 1))
-            events.append((end, -1))
+            if occupancy["check_out_date"] is not None:
+                events.append((occupancy["check_out_date"], -1))
 
         # Existing occupancy validation treats same-day check-in/check-out as
         # overlapping, so starts must be processed before ends on the same date.
+        # Open-ended occupancies have no end event and therefore remain active
+        # for the remainder of the timeline.
         events.sort(key=lambda event: (event[0], -event[1]))
         concurrent = 0
         max_concurrent = 0
