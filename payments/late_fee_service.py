@@ -27,7 +27,9 @@ def calculate_late_fee(invoice, policy, as_of):
         return effective_date, Decimal("0.00"), None
 
     position = calculate_invoice_financial_position(invoice)
-    outstanding = _money(position["outstanding"])
+    total_outstanding = _money(position["outstanding"])
+    prior_late_fees = _money(position.get("late_fee_total", Decimal("0.00")))
+    outstanding = max(total_outstanding - prior_late_fees, Decimal("0.00"))
     if outstanding < policy.minimum_overdue_balance or outstanding <= 0:
         return effective_date, Decimal("0.00"), outstanding
 
@@ -92,6 +94,14 @@ def generate_late_fee(user, workspace, invoice_id, as_of=None):
             reason=f"Late fee for invoice {invoice.invoice_number}",
             created_by=user,
         )
+
+        position = calculate_invoice_financial_position(invoice)
+        Invoice.objects.filter(id=invoice.id).update(
+            paid_amount=position["settlement"],
+            status=position["status"],
+        )
+        invoice.paid_amount = position["settlement"]
+        invoice.status = position["status"]
 
         return late_fee, {
             "created": True,
