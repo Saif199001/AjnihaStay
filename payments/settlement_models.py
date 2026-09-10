@@ -55,7 +55,6 @@ class OccupancySettlement(models.Model):
         if self.outcome == self.OUTCOME_PARTIAL_REFUND:
             if not (Decimal("0.00") < self.refundable_deposit < self.security_deposit):
                 raise ValidationError("Partial-refund settlement must refund part of the deposit")
-
         if self.workspace_id != self.occupancy.tenant.workspace_id:
             raise ValidationError("Settlement and occupancy must belong to the same workspace")
 
@@ -73,16 +72,12 @@ class OccupancySettlement(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=["workspace", "settled_at"]),
-            models.Index(fields=["occupancy"]),
+            models.Index(fields=["workspace", "settled_at"], name="payments_os_workspa_settled_idx"),
+            models.Index(fields=["occupancy"], name="payments_os_occupancy_idx"),
         ]
         constraints = [
             models.CheckConstraint(condition=Q(invoice_outstanding=0), name="settlement_outstanding_zero"),
             models.CheckConstraint(condition=Q(security_deposit__gte=0), name="settlement_deposit_non_negative"),
             models.CheckConstraint(condition=Q(refundable_deposit__gte=0), name="settlement_refundable_non_negative"),
             models.CheckConstraint(condition=Q(retained_deposit__gte=0), name="settlement_retained_non_negative"),
-            models.CheckConstraint(
-                condition=Q(refundable_deposit__gte=0) & Q(retained_deposit__gte=0),
-                name="settlement_deposit_parts_non_negative",
-            ),
         ]
