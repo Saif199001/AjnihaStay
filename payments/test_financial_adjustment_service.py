@@ -125,6 +125,14 @@ class FinancialAdjustmentServiceTests(TestCase):
         self.assertEqual(position["adjusted_receivable"], Decimal("12000.00"))
         self.assertEqual(position["outstanding"], Decimal("12000.00"))
 
+    def test_adjustment_amount_with_more_than_two_decimals_is_rejected(self):
+        with self.assertRaisesMessage(
+            ValidationError,
+            "Adjustment amount cannot have more than two decimal places",
+        ):
+            self.create_adjustment(amount="1000.001", idempotency_key="ADJ-PRECISION")
+        self.assertEqual(FinancialAdjustment.objects.count(), 0)
+
     def test_discount_waiver_and_write_off_are_credit_side_and_distinguishable(self):
         for index, adjustment_type in enumerate((FinancialAdjustment.TYPE_DISCOUNT, FinancialAdjustment.TYPE_WAIVER, FinancialAdjustment.TYPE_WRITE_OFF)):
             self.create_adjustment(
