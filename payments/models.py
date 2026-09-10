@@ -293,6 +293,18 @@ class AdvanceCredit(models.Model):
             raise ValidationError("Advance credit source payment must belong to the same workspace")
 
     def save(self, *args, **kwargs):
+        if self.pk:
+            persisted = type(self).objects.get(pk=self.pk)
+            if (
+                persisted.workspace_id != self.workspace_id
+                or persisted.tenant_id != self.tenant_id
+                or persisted.occupancy_id != self.occupancy_id
+                or persisted.source_payment_id != self.source_payment_id
+                or persisted.original_amount != self.original_amount
+            ):
+                raise ValidationError(
+                    "Advance credit financial facts cannot be changed after creation"
+                )
         self.clean()
         super().save(*args, **kwargs)
 

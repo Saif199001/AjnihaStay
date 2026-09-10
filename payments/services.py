@@ -5,11 +5,13 @@ from django.db import transaction
 from django.db.models import Sum
 
 from .adjustment_service import calculate_invoice_financial_position
+from .authorization import require_mutation_permission
 from .models import AdvanceCredit, Invoice, Payment, PaymentAllocation
 from tenant.models import Occupancy
 
 
 def create_invoice(user, workspace, data):
+    require_mutation_permission(user, workspace)
     try:
         occupancy = Occupancy.objects.get(id=data.get("occupancy"), tenant__workspace=workspace)
     except Occupancy.DoesNotExist:
@@ -48,7 +50,6 @@ def get_invoice(invoice_id, workspace):
 
 
 def get_invoice_allocated_amount(invoice):
-    """Return the amount settled by PaymentAllocation records only."""
     return (
         PaymentAllocation.objects.filter(invoice=invoice)
         .aggregate(total=Sum("amount"))["total"]
@@ -57,7 +58,6 @@ def get_invoice_allocated_amount(invoice):
 
 
 def get_invoice_credit_applied_amount(invoice):
-    """Return the amount settled by applied advance-credit records only."""
     return (
         invoice.advance_credit_applications.aggregate(total=Sum("amount"))["total"]
         or Decimal("0")
@@ -65,12 +65,10 @@ def get_invoice_credit_applied_amount(invoice):
 
 
 def get_invoice_settled_amount(invoice):
-    """Return the canonical invoice settlement across payments and prepaid credit."""
     return get_invoice_allocated_amount(invoice) + get_invoice_credit_applied_amount(invoice)
 
 
 def get_payment_reserved_credit_amount(payment):
-    """Return advance-credit principal reserved from a payment's capacity."""
     return (
         AdvanceCredit.objects.filter(source_payment=payment)
         .aggregate(total=Sum("original_amount"))["total"]
@@ -79,7 +77,6 @@ def get_payment_reserved_credit_amount(payment):
 
 
 def get_payment_available_allocation_amount(payment):
-    """Return payment capacity remaining after allocations and reserved credit."""
     allocated = (
         PaymentAllocation.objects.filter(payment=payment)
         .aggregate(total=Sum("amount"))["total"]
@@ -90,7 +87,6 @@ def get_payment_available_allocation_amount(payment):
 
 
 def recalculate_invoice_state(invoice):
-    """Reconcile compatibility invoice state from canonical financial position."""
     position = calculate_invoice_financial_position(invoice)
     Invoice.objects.filter(id=invoice.id).update(
         paid_amount=position["settlement"],
@@ -102,7 +98,7 @@ def recalculate_invoice_state(invoice):
 
 
 def record_payment(user, workspace, data):
-    """Canonical financial transition for accepting a payment against an invoice."""
+    require_mutation_permission(user, workspace)
     with transaction.atomic():
         invoice_value = data.get("invoice")
         invoice_id = getattr(invoice_value, "id", invoice_value)
@@ -145,7 +141,6 @@ def record_payment(user, workspace, data):
 
 
 def create_payment(user, workspace, data):
-    """Backward-compatible wrapper; all payment mutations use record_payment()."""
     return record_payment(user, workspace, data)
 
 
@@ -181,19 +176,10 @@ def calculate_final_settlement(occupancy_id, workspace):
         except Occupancy.DoesNotExist:
             raise ValidationError("Occupancy not found")
 
-        invoices = list(
-            occupancy.invoices.select_for_update().order_by("id")
-        )
-        total_rent = sum(
-            (invoice.rent_amount or Decimal("0") for invoice in invoices),
-            Decimal("0"),
-        )
-        total_charges = sum(
-            (invoice.charges_amount or Decimal("0") for invoice in invoices),
-            Decimal("0"),
-        )
+        invoices = list(occupancy.invoices.select_for_update().order_by("id"))
+        total_rent = sum((invoice.rent_amount or Decimal("0") for invoice in invoices), Decimal("0"))
+        total_charges = sum((invoice.charges_amount or Decimal("0") for invoice in invoices), Decimal("0"))
         total_amount = total_rent + total_charges
-
         total_paid = sum(
             (calculate_invoice_financial_position(invoice)["settlement"] for invoice in invoices),
             Decimal("0"),

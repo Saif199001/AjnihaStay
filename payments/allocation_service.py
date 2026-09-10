@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from .adjustment_service import calculate_invoice_financial_position
+from .authorization import require_mutation_permission
 from .models import Invoice, Payment, PaymentAllocation
 from .services import get_payment_available_allocation_amount
 
@@ -58,6 +59,7 @@ def _recalculate_invoice_state_from_allocations(invoice):
 
 def allocate_payment(user, workspace, payment, allocations):
     """Atomically allocate one payment across one or more invoices."""
+    require_mutation_permission(user, workspace)
     normalized = _normalize_allocations(allocations)
 
     with transaction.atomic():
@@ -87,9 +89,7 @@ def allocate_payment(user, workspace, payment, allocations):
                 "A legacy invoice-linked payment can only be allocated to its linked invoice"
             )
 
-        requested_total = sum(
-            (amount for _, amount in normalized), Decimal("0")
-        )
+        requested_total = sum((amount for _, amount in normalized), Decimal("0"))
         available_capacity = get_payment_available_allocation_amount(payment)
         if requested_total > available_capacity:
             raise ValidationError("Allocation exceeds payment amount")

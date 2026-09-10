@@ -2,6 +2,7 @@ from django.core.exceptions import ValidationError
 
 from tenant.models import Occupancy
 
+from .authorization import require_mutation_permission
 from .billing_models import BillingSchedule
 
 
@@ -24,6 +25,7 @@ def _get_occupancy(occupancy_value, workspace):
 
 
 def create_billing_schedule(user, workspace, data):
+    require_mutation_permission(user, workspace)
     occupancy = _get_occupancy(data.get("occupancy"), workspace)
     schedule = BillingSchedule(
         occupancy=occupancy,
@@ -53,6 +55,7 @@ def get_billing_schedule(schedule_id, workspace):
 
 
 def update_billing_schedule(user, workspace, schedule_id, data):
+    require_mutation_permission(user, workspace)
     schedule = get_billing_schedule(schedule_id, workspace)
     if "occupancy" in data:
         occupancy = _get_occupancy(data.get("occupancy"), workspace)

@@ -1,11 +1,10 @@
 from datetime import date, timedelta
 from decimal import Decimal
 
-from django.db.models import DecimalField, ExpressionWrapper, F, Prefetch, Q, Sum
-from django.db.models.functions import Coalesce
+from django.db.models import Prefetch, Q, Sum
 from django.utils import timezone
 
-from payments.models import Invoice, PaymentAllocation
+from payments.models import AdvanceCreditApplication, Invoice, PaymentAllocation
 from tenant.models import Occupancy, Tenant
 from unit.models import SubUnit, Unit
 
@@ -26,6 +25,71 @@ def _bounded_limit(value, default):
     if value is None:
         return default
     return min(value, MAX_DASHBOARD_LIST_LIMIT)
+
+
+def _canonical_workspace_financial_rows(workspace):
+    """Return invoice financial positions from the canonical immutable components."""
+    invoices = list(
+        Invoice.objects.filter(occupancy__tenant__workspace=workspace)
+        .only("id", "total_amount", "due_date")
+    )
+    if not invoices:
+        return []
+
+    invoice_ids = [invoice.id for invoice in invoices]
+    adjustments = {}
+    for row in (
+        workspace.financial_adjustments.filter(invoice_id__in=invoice_ids)
+        .values("invoice_id", "adjustment_type")
+        .annotate(total=Sum("amount"))
+    ):
+        adjustments.setdefault(row["invoice_id"], {})[row["adjustment_type"]] = row["total"] or Decimal("0")
+
+    allocations = {
+        row["invoice_id"]: row["total"] or Decimal("0")
+        for row in PaymentAllocation.objects.filter(
+            payment__workspace=workspace,
+            invoice_id__in=invoice_ids,
+        )
+        .values("invoice_id")
+        .annotate(total=Sum("amount"))
+    }
+
+    advance_applications = {
+        row["invoice_id"]: row["total"] or Decimal("0")
+        for row in AdvanceCreditApplication.objects.filter(invoice_id__in=invoice_ids)
+        .values("invoice_id")
+        .annotate(total=Sum("amount"))
+    }
+
+    reducing_types = ("credit", "discount", "waiver", "write_off")
+    rows = []
+    for invoice in invoices:
+        by_type = adjustments.get(invoice.id, {})
+        debit = by_type.get("debit", Decimal("0"))
+        reducing = sum(
+            (by_type.get(kind, Decimal("0")) for kind in reducing_types),
+            Decimal("0"),
+        )
+        gross = invoice.total_amount or Decimal("0")
+        adjusted = gross + debit - reducing
+        payment_settlement = allocations.get(invoice.id, Decimal("0"))
+        advance_settlement = advance_applications.get(invoice.id, Decimal("0"))
+        settlement = payment_settlement + advance_settlement
+        outstanding = max(adjusted - settlement, Decimal("0"))
+        rows.append(
+            {
+                "invoice_id": invoice.id,
+                "gross_receivable": gross,
+                "debit_adjustments": debit,
+                "reducing_adjustments": reducing,
+                "adjusted_receivable": adjusted,
+                "settlement": settlement,
+                "outstanding": outstanding,
+                "due_date": invoice.due_date,
+            }
+        )
+    return rows
 
 
 def get_dashboard_data(
@@ -144,33 +208,20 @@ def get_dashboard_data(
             invoice__occupancy__tenant__workspace=workspace,
             payment__payment_date__gte=period_start,
             payment__payment_date__lte=period_end,
-        ).aggregate(total=Sum("amount"))["total"]
+        )
+        .aggregate(total=Sum("amount"))["total"]
         or Decimal("0")
     )
 
-    allocation_paid = Coalesce(
-        Sum("allocations__amount"),
+    financial_rows = _canonical_workspace_financial_rows(workspace)
+    outstanding = sum((row["outstanding"] for row in financial_rows), Decimal("0"))
+    overdue = sum(
+        (
+            row["outstanding"]
+            for row in financial_rows
+            if row["due_date"] < today and row["outstanding"] > 0
+        ),
         Decimal("0"),
-        output_field=DecimalField(max_digits=12, decimal_places=2),
-    )
-    outstanding_expression = ExpressionWrapper(
-        F("total_amount") - F("allocation_paid"),
-        output_field=DecimalField(max_digits=12, decimal_places=2),
-    )
-    outstanding = Invoice.objects.filter(
-        occupancy__tenant__workspace=workspace,
-    ).annotate(
-        allocation_paid=allocation_paid,
-    ).aggregate(total=Sum(outstanding_expression))["total"] or Decimal("0")
-    overdue = (
-        Invoice.objects.filter(
-            occupancy__tenant__workspace=workspace,
-            due_date__lt=today,
-        )
-        .annotate(allocation_paid=allocation_paid)
-        .filter(allocation_paid__lt=F("total_amount"))
-        .aggregate(total=Sum(outstanding_expression))["total"]
-        or Decimal("0")
     )
 
     upcoming_end = today + timedelta(days=upcoming_days)

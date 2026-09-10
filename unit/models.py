@@ -1,5 +1,5 @@
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Q
 from django.utils import timezone
 from properties.models import Property
@@ -61,9 +61,49 @@ class Unit(models.Model):
         if self.rent is not None and self.rent < 0:
             raise ValidationError("Unit rent cannot be negative")
 
+    def _validate_capacity_against_active_occupancies(self):
+        from tenant.models import Occupancy
+
+        occupancies = list(
+            Occupancy.objects.filter(
+                unit_id=self.pk,
+                subunit_id__isnull=True,
+                is_active=True,
+            ).values("check_in_date", "check_out_date")
+        )
+        if len(occupancies) <= self.capacity:
+            return
+
+        events = []
+        for occupancy in occupancies:
+            start = occupancy["check_in_date"]
+            events.append((start, 1))
+            if occupancy["check_out_date"] is not None:
+                events.append((occupancy["check_out_date"], -1))
+
+        # Existing occupancy validation treats same-day check-in/check-out as
+        # overlapping, so starts must be processed before ends on the same date.
+        # Open-ended occupancies have no end event and therefore remain active
+        # for the remainder of the timeline.
+        events.sort(key=lambda event: (event[0], -event[1]))
+        concurrent = 0
+        max_concurrent = 0
+        for _, delta in events:
+            concurrent += delta
+            max_concurrent = max(max_concurrent, concurrent)
+
+        if max_concurrent > self.capacity:
+            raise ValidationError("Unit capacity cannot be reduced below active overlapping occupancy count")
+
     def save(self, *args, **kwargs):
         self.clean()
-        super().save(*args, **kwargs)
+        if self.pk:
+            with transaction.atomic():
+                Unit.objects.select_for_update().get(pk=self.pk)
+                self._validate_capacity_against_active_occupancies()
+                super().save(*args, **kwargs)
+        else:
+            super().save(*args, **kwargs)
 
     def is_occupied(self):
         from tenant.models import Occupancy
