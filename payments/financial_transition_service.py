@@ -19,6 +19,7 @@ class FinancialTransition(str, Enum):
     CREATE_BILLING_SCHEDULE = "create_billing_schedule"
     UPDATE_BILLING_SCHEDULE = "update_billing_schedule"
     GENERATE_CHARGE = "generate_charge"
+    GENERATE_RECURRING_INVOICE = "generate_recurring_invoice"
 
 
 def transition_name(transition):
@@ -77,6 +78,16 @@ def execute_transition(transition, *, user, workspace, **payload):
         from .charge_generation_service import generate_charge_from_schedule
         return generate_charge_from_schedule(
             user, workspace, payload["schedule"], payload["charge_date"]
+        )
+
+    if transition is FinancialTransition.GENERATE_RECURRING_INVOICE:
+        from .recurring_invoice_service import generate_invoice_from_schedule
+        return generate_invoice_from_schedule(
+            user,
+            workspace,
+            payload["schedule"],
+            payload.get("billing_date"),
+            payload.get("due_date"),
         )
 
     raise ValueError(f"Unsupported financial transition: {transition}")
