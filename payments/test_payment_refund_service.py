@@ -260,6 +260,12 @@ class PaymentRefundServiceTests(TestCase):
             user=self.owner,
             workspace=self.workspace,
             refund=first,
+            status=PaymentRefund.STATUS_PROCESSING,
+        )
+        transition_payment_refund(
+            user=self.owner,
+            workspace=self.workspace,
+            refund=first,
             status=PaymentRefund.STATUS_SUCCEEDED,
         )
         second = request_payment_refund(
