@@ -18,6 +18,7 @@ from .api import (
     final_settlement_api,
     generate_invoice_api,
 )
+from .final_settlement_api import final_settlement_finalize_api
 from .refund_api import payment_refund_create_api, payment_refund_transition_api
 
 urlpatterns = [
@@ -31,6 +32,7 @@ urlpatterns = [
     path("api/payments/", payment_list_api),
     path("api/payment-refunds/<int:refund_id>/", payment_refund_transition_api),
     path("api/final-settlement/<int:occupancy_id>/", final_settlement_api),
+    path("api/final-settlement/<int:occupancy_id>/settle/", final_settlement_finalize_api),
     path("api/generate-invoices/", generate_invoice_api),
 
     path("api/billing-schedules/", billing_schedule_list_api),
