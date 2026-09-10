@@ -6,7 +6,7 @@ from django.db import transaction
 from payments.models import Invoice
 from unit.models import SubUnit, Unit
 from .charge_service import create_charge as create_charge_engine
-from .models import Occupancy, Tenant
+from .models import Charge, Occupancy, Tenant
 
 
 DEFAULT_BILLING_TYPE = "advance"
@@ -167,7 +167,7 @@ def _optional_positive_id(value, field_name):
 
 def get_charges(occupancy_id, workspace):
     occupancy_id = _optional_positive_id(occupancy_id, "occupancy")
-    return __import__("tenant.models", fromlist=["Charge"]).Charge.objects.filter(
+    return Charge.objects.filter(
         occupancy_id=occupancy_id,
         occupancy__tenant__workspace=workspace,
     )
