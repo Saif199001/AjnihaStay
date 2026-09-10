@@ -13,3 +13,15 @@ class FinancialTransitionP04Tests(SimpleTestCase):
             transition_name("generate_recurring_invoice"),
             "generate_recurring_invoice",
         )
+
+
+class FinancialTransitionP05Tests(SimpleTestCase):
+    def test_invoice_lifecycle_transition_is_registered(self):
+        self.assertEqual(
+            transition_name(FinancialTransition.REFRESH_INVOICE_LIFECYCLE),
+            "refresh_invoice_lifecycle",
+        )
+        self.assertEqual(
+            transition_name("refresh_invoice_lifecycle"),
+            "refresh_invoice_lifecycle",
+        )
