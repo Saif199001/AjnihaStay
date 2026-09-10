@@ -8,4 +8,5 @@ class PaymentsConfig(AppConfig):
     def ready(self):
         import payments.billing_models  # noqa: F401
         import payments.refund_models  # noqa: F401
+        import payments.late_fee_models  # noqa: F401
         import payments.signals  # noqa: F401
