@@ -299,7 +299,8 @@ class DashboardReadModelTests(TestCase):
             due_date=self.today,
         )
 
-        with self.assertNumQueries(11):
+        # B1 adds canonical financial aggregation reads; lock the resulting budget at 13.
+        with self.assertNumQueries(13):
             data = get_dashboard_data(self.workspace)
 
         self.assertEqual(data["summary"]["occupied_subunits"], 1)
