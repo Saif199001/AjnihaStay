@@ -9,4 +9,5 @@ class PaymentsConfig(AppConfig):
         import payments.billing_models  # noqa: F401
         import payments.refund_models  # noqa: F401
         import payments.late_fee_models  # noqa: F401
+        import payments.final_settlement  # noqa: F401
         import payments.signals  # noqa: F401
