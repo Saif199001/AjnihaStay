@@ -4,7 +4,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import Sum
 
-from workspaces.models import Membership
+from workspaces.models import Membership, Workspace
 
 from .models import AdvanceCreditApplication, FinancialAdjustment, Invoice, PaymentAllocation
 
@@ -142,6 +142,13 @@ def create_financial_adjustment(user, workspace, data):
             idempotency_key = None
 
     with transaction.atomic():
+        # The invoice row lock serializes financial calculations for one invoice.
+        # A keyed request can target different invoices, so also serialize the
+        # idempotency-key claim at the workspace level. This closes the race where
+        # two concurrent requests both observe a missing key before either inserts.
+        if idempotency_key:
+            workspace = Workspace.objects.select_for_update().get(pk=workspace.pk)
+
         try:
             invoice = Invoice.objects.select_for_update().select_related(
                 "occupancy__tenant"
