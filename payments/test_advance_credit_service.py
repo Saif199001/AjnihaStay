@@ -347,3 +347,48 @@ class AdvanceCreditServiceTests(TestCase):
         credit.refresh_from_db()
         self.assertEqual(get_advance_credit_available_amount(credit), Decimal("7500.00"))
         self.assertEqual(credit.available_amount, Decimal("7500.00"))
+
+    def test_advance_credit_financial_facts_are_immutable(self):
+        credit = self.create_credit("4000")
+        original = {
+            "workspace_id": credit.workspace_id,
+            "tenant_id": credit.tenant_id,
+            "occupancy_id": credit.occupancy_id,
+            "source_payment_id": credit.source_payment_id,
+            "original_amount": credit.original_amount,
+        }
+
+        other_owner = User.objects.create_user("immutable-other-owner@example.com", "StrongPass123!")
+        other_workspace = Workspace.objects.create(
+            name="Immutable Other Workspace",
+            slug="immutable-other-workspace",
+            owner=other_owner,
+        )
+        Membership.objects.create(workspace=other_workspace, user=other_owner, role="owner")
+        other_tenant = Tenant.objects.create(
+            owner=other_owner,
+            workspace=other_workspace,
+            full_name="Immutable Other Tenant",
+            phone="1111111111",
+            permanent_address="Noida",
+        )
+
+        mutations = [
+            ("workspace_id", other_workspace.id),
+            ("tenant_id", other_tenant.id),
+            ("occupancy_id", None),
+            ("source_payment_id", None),
+            ("original_amount", Decimal("2000.00")),
+        ]
+        for field, value in mutations:
+            with self.subTest(field=field):
+                credit.refresh_from_db()
+                setattr(credit, field, value)
+                with self.assertRaisesMessage(
+                    ValidationError,
+                    "Advance credit financial facts cannot be changed after creation",
+                ):
+                    credit.save()
+                credit.refresh_from_db()
+                for original_field, original_value in original.items():
+                    self.assertEqual(getattr(credit, original_field), original_value)
