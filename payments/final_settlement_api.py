@@ -1,11 +1,11 @@
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import ValidationError
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
 from workspaces.permissions import WorkspaceManagerPermission
-from .final_settlement import FinalSettlement, finalize_final_settlement
+from .financial_transition_service import FinancialTransition, execute_transition
 
 
 @api_view(["POST"])
@@ -15,14 +15,15 @@ def final_settlement_finalize_api(request, occupancy_id):
     if refundable_deposit is not None:
         try:
             refundable_deposit = Decimal(refundable_deposit)
-        except Exception:
+        except (TypeError, ValueError, InvalidOperation):
             return Response({"error": "Invalid refundable deposit amount"}, status=400)
 
     try:
-        settlement = finalize_final_settlement(
-            request.user,
-            request.workspace,
-            occupancy_id,
+        settlement = execute_transition(
+            FinancialTransition.FINALIZE_FINAL_SETTLEMENT,
+            user=request.user,
+            workspace=request.workspace,
+            occupancy_id=occupancy_id,
             refundable_deposit=refundable_deposit,
         )
     except ValidationError as exc:
