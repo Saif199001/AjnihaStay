@@ -76,6 +76,7 @@ def generate_charge_from_schedule(user, workspace, schedule, charge_date=None):
             description=f"Recurring billing schedule #{schedule.id} ({schedule.frequency})",
             amount=schedule.amount,
             charge_date=charge_date,
+            update_invoice=False,
         )
         schedule.next_run_date = _next_run_date(schedule.next_run_date, schedule.frequency)
         schedule.save(update_fields=["next_run_date", "updated_at"])
