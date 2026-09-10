@@ -4,7 +4,7 @@ from decimal import Decimal
 from django.db.models import Prefetch, Q, Sum
 from django.utils import timezone
 
-from payments.models import AdvanceCreditApplication, Invoice
+from payments.models import AdvanceCreditApplication, Invoice, PaymentAllocation
 from tenant.models import Occupancy, Tenant
 from unit.models import SubUnit, Unit
 
@@ -47,9 +47,12 @@ def _canonical_workspace_financial_rows(workspace):
 
     allocations = {
         row["invoice_id"]: row["total"] or Decimal("0")
-        for row in workspace.payments.filter(invoice_id__in=invoice_ids)
+        for row in PaymentAllocation.objects.filter(
+            payment__workspace=workspace,
+            invoice_id__in=invoice_ids,
+        )
         .values("invoice_id")
-        .annotate(total=Sum("allocations__amount"))
+        .annotate(total=Sum("amount"))
     }
 
     advance_applications = {
@@ -200,12 +203,13 @@ def get_dashboard_data(
     period_rent = period_totals["rent"] or Decimal("0")
     period_charges = period_totals["charges"] or Decimal("0")
     period_collected = (
-        workspace.payments.filter(
+        PaymentAllocation.objects.filter(
+            payment__workspace=workspace,
             invoice__occupancy__tenant__workspace=workspace,
-            payment_date__gte=period_start,
-            payment_date__lte=period_end,
+            payment__payment_date__gte=period_start,
+            payment__payment_date__lte=period_end,
         )
-        .aggregate(total=Sum("allocations__amount"))["total"]
+        .aggregate(total=Sum("amount"))["total"]
         or Decimal("0")
     )
 
