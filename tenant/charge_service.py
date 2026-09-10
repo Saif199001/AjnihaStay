@@ -1,4 +1,3 @@
-from calendar import monthrange
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
@@ -36,8 +35,6 @@ def prorate_amount(amount, period_start, period_end, active_start, active_end=No
     active_end = _date_value(active_end, "active end") if active_end else period_end
     if period_end < period_start:
         raise ValidationError("Period end date cannot be before period start date")
-    if active_end < active_start:
-        raise ValidationError("Active end date cannot be before active start date")
 
     overlap_start = max(period_start, active_start)
     overlap_end = min(period_end, active_end)
@@ -66,8 +63,18 @@ def _validate_occupancy(occupancy, workspace, *, lock=False):
         raise ValidationError("Occupancy not found")
 
 
-def create_charge(user, workspace, *, occupancy, charge_type, amount, charge_date, description=None):
-    """Create a workspace-scoped charge and update its active invoice atomically."""
+def create_charge(
+    user,
+    workspace,
+    *,
+    occupancy,
+    charge_type,
+    amount,
+    charge_date,
+    description=None,
+    update_invoice=True,
+):
+    """Create a workspace-scoped charge, optionally updating its active invoice atomically."""
     from payments.authorization import require_mutation_permission
 
     require_mutation_permission(user, workspace)
@@ -83,9 +90,11 @@ def create_charge(user, workspace, *, occupancy, charge_type, amount, charge_dat
         if occupancy.check_out_date and charge_date > occupancy.check_out_date:
             raise ValidationError("Charge date cannot be after occupancy check-out date")
 
-        invoice = occupancy.invoices.select_for_update().filter(status="pending").last()
-        if not invoice:
-            raise ValidationError("No active invoice found")
+        invoice = None
+        if update_invoice:
+            invoice = occupancy.invoices.select_for_update().filter(status="pending").last()
+            if not invoice:
+                raise ValidationError("No active invoice found")
 
         charge = Charge.objects.create(
             occupancy=occupancy,
@@ -94,9 +103,10 @@ def create_charge(user, workspace, *, occupancy, charge_type, amount, charge_dat
             charge_date=charge_date,
             description=description,
         )
-        invoice.charges_amount += amount
-        invoice.total_amount = invoice.rent_amount + invoice.charges_amount
-        invoice.save()
+        if invoice is not None:
+            invoice.charges_amount += amount
+            invoice.total_amount = invoice.rent_amount + invoice.charges_amount
+            invoice.save()
         return charge
 
 
