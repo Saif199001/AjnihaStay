@@ -4,7 +4,7 @@ from decimal import Decimal
 from django.db.models import Prefetch, Q, Sum
 from django.utils import timezone
 
-from payments.models import Invoice
+from payments.models import AdvanceCreditApplication, Invoice
 from tenant.models import Occupancy, Tenant
 from unit.models import SubUnit, Unit
 
@@ -28,12 +28,7 @@ def _bounded_limit(value, default):
 
 
 def _canonical_workspace_financial_rows(workspace):
-    """Return invoice financial positions using the canonical Phase 3 equation.
-
-    This is a read-model implementation of the same immutable financial components
-    used by calculate_invoice_financial_position(). It deliberately does not read
-    Invoice.paid_amount or Invoice.status.
-    """
+    """Return invoice financial positions from the canonical immutable components."""
     invoices = list(
         Invoice.objects.filter(occupancy__tenant__workspace=workspace)
         .only("id", "total_amount", "due_date")
@@ -59,15 +54,12 @@ def _canonical_workspace_financial_rows(workspace):
 
     advance_applications = {
         row["invoice_id"]: row["total"] or Decimal("0")
-        for row in (
-            __import__("payments.models", fromlist=["AdvanceCreditApplication"])
-            .AdvanceCreditApplication.objects.filter(invoice_id__in=invoice_ids)
-            .values("invoice_id")
-            .annotate(total=Sum("amount"))
-        )
+        for row in AdvanceCreditApplication.objects.filter(invoice_id__in=invoice_ids)
+        .values("invoice_id")
+        .annotate(total=Sum("amount"))
     }
 
-    reducing_types = {"credit", "discount", "waiver", "write_off"}
+    reducing_types = ("credit", "discount", "waiver", "write_off")
     rows = []
     for invoice in invoices:
         by_type = adjustments.get(invoice.id, {})
