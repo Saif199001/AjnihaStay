@@ -30,6 +30,7 @@ Dashboard outstanding and overdue are derived from these immutable financial com
 - No financial mutation path is changed.
 - Workspace filtering remains mandatory.
 - Dashboard remains read-only.
+- Payment allocations are aggregated by allocation invoice, so multi-invoice payment allocations remain visible in the correct invoice position.
 
 ## Required Test Gate
 
