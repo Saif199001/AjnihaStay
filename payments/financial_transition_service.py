@@ -21,6 +21,7 @@ class FinancialTransition(str, Enum):
     GENERATE_CHARGE = "generate_charge"
     GENERATE_RECURRING_INVOICE = "generate_recurring_invoice"
     REFRESH_INVOICE_LIFECYCLE = "refresh_invoice_lifecycle"
+    GENERATE_LATE_FEE = "generate_late_fee"
 
 
 def transition_name(transition):
@@ -95,6 +96,15 @@ def execute_transition(transition, *, user, workspace, **payload):
         from .invoice_lifecycle_service import refresh_invoice_lifecycle
         return refresh_invoice_lifecycle(
             payload["invoice_id"], workspace, as_of=payload.get("as_of")
+        )
+
+    if transition is FinancialTransition.GENERATE_LATE_FEE:
+        from .late_fee_service import generate_late_fee
+        return generate_late_fee(
+            user,
+            workspace,
+            payload["invoice_id"],
+            as_of=payload.get("as_of"),
         )
 
     raise ValueError(f"Unsupported financial transition: {transition}")
