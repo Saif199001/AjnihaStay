@@ -6,6 +6,7 @@ from django.db import transaction
 
 from tenant.models import Charge
 
+from .authorization import require_mutation_permission
 from .billing_models import BillingSchedule
 
 
@@ -31,6 +32,7 @@ def _next_run_date(current_date, frequency):
 
 def generate_charge_from_schedule(user, workspace, schedule, charge_date=None):
     """Generate exactly the next recurring charge for a workspace-scoped schedule."""
+    require_mutation_permission(user, workspace)
     if charge_date is None:
         raise ValidationError("Charge date is required")
     charge_date = _charge_date(charge_date)
