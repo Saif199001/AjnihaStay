@@ -30,8 +30,8 @@ class LedgerReconciliationTests(TestCase):
         self.invoice = Invoice.objects.create(occupancy=self.occupancy, billing_start=date(2026, 9, 1), billing_end=date(2026, 9, 30), rent_amount=Decimal("10000.00"), charges_amount=Decimal("0.00"), due_date=date(2026, 9, 30))
         self.occurred_at = datetime(2026, 9, 30, 12, 0, tzinfo=timezone.utc)
 
-    def add_invoice_event(self, amount=Decimal("10000.00"), occupancy=None):
-        return post_ledger_event(self.owner, self.workspace, event_type="invoice_created", event_key=f"invoice:{self.invoice.pk}:created", occurred_at=self.occurred_at, amount=amount, invoice=self.invoice, occupancy=occupancy or self.occupancy)
+    def add_invoice_event(self, amount=Decimal("10000.00"), occupancy=None, event_type="invoice_created"):
+        return post_ledger_event(self.owner, self.workspace, event_type=event_type, event_key=f"invoice:{self.invoice.pk}:created", occurred_at=self.occurred_at, amount=amount, invoice=self.invoice, occupancy=occupancy or self.occupancy)
 
     def test_clean_workspace_reconciles(self):
         self.add_invoice_event()
@@ -58,6 +58,11 @@ class LedgerReconciliationTests(TestCase):
         FinancialLedgerEntry.objects.bulk_create([FinancialLedgerEntry(workspace=self.workspace, event_type="invoice_created", event_key=f"invoice:{self.invoice.pk}:created", occurred_at=self.occurred_at, amount=self.invoice.total_amount, invoice=self.invoice, occupancy=other_occupancy)])
         report = ledger_reconciliation_report(workspace=self.workspace)
         self.assertTrue(any(item["kind"] == "relationship_mismatch" for item in report["findings"]))
+
+    def test_unexpected_event_type_is_reported(self):
+        FinancialLedgerEntry.objects.bulk_create([FinancialLedgerEntry(workspace=self.workspace, event_type="invoice_created", event_key=f"invoice:{self.invoice.pk}:wrong-type", occurred_at=self.occurred_at, amount=self.invoice.total_amount, invoice=self.invoice, occupancy=self.occupancy)])
+        report = ledger_reconciliation_report(workspace=self.workspace)
+        self.assertTrue(any(item["kind"] == "orphan_event" for item in report["findings"]))
 
     def test_orphan_event_is_reported(self):
         FinancialLedgerEntry.objects.create(workspace=self.workspace, event_type="invoice_created", event_key="invoice:999999:created", occurred_at=self.occurred_at, amount=Decimal("100.00"))
