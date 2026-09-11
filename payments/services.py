@@ -6,6 +6,7 @@ from django.db.models import Sum
 
 from .adjustment_service import calculate_invoice_financial_position
 from .authorization import require_mutation_permission
+from .ledger_service import post_ledger_event
 from .models import AdvanceCredit, Invoice, Payment, PaymentAllocation
 from tenant.models import Occupancy
 
@@ -130,13 +131,38 @@ def record_payment(user, workspace, data):
             reference_id=data.get("reference_id"),
             notes=data.get("notes") or "",
         )
-        PaymentAllocation.objects.create(
+        allocation = PaymentAllocation.objects.create(
             payment=payment,
             invoice=invoice,
             amount=amount,
         )
 
         recalculate_invoice_state(invoice)
+
+        post_ledger_event(
+            user,
+            workspace,
+            event_type="payment_recorded",
+            event_key=f"payment:{payment.pk}:recorded",
+            occurred_at=payment.created_at,
+            amount=payment.amount,
+            invoice=invoice,
+            payment=payment,
+            occupancy=invoice.occupancy,
+            metadata={"payment_id": payment.pk},
+        )
+        post_ledger_event(
+            user,
+            workspace,
+            event_type="payment_allocated",
+            event_key=f"payment-allocation:{allocation.pk}:created",
+            occurred_at=payment.created_at,
+            amount=allocation.amount,
+            invoice=invoice,
+            payment=payment,
+            occupancy=invoice.occupancy,
+            metadata={"allocation_id": allocation.pk},
+        )
         return payment
 
 
