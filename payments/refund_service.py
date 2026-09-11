@@ -11,10 +11,7 @@ from .refund_models import PaymentRefund
 
 
 REFUND_AUTHORIZED_ROLES = {"owner", "admin", "manager"}
-ACTIVE_REFUND_STATUSES = {
-    PaymentRefund.STATUS_REQUESTED,
-    PaymentRefund.STATUS_PROCESSING,
-}
+ACTIVE_REFUND_STATUSES = {PaymentRefund.STATUS_REQUESTED, PaymentRefund.STATUS_PROCESSING}
 
 
 def _workspace_id(workspace):
@@ -32,11 +29,7 @@ def _is_authorized(user, workspace):
         workspace_id=_workspace_id(workspace),
         user_id=user.id,
         is_active=True,
-        role__in={
-            Membership.ROLE_OWNER,
-            Membership.ROLE_ADMIN,
-            Membership.ROLE_MANAGER,
-        },
+        role__in={Membership.ROLE_OWNER, Membership.ROLE_ADMIN, Membership.ROLE_MANAGER},
     ).exists()
 
 
@@ -59,10 +52,7 @@ def _get_payment_for_workspace(payment_value, workspace):
     if payment_id <= 0:
         raise ValidationError("Invalid payment ID")
     try:
-        return Payment.objects.select_for_update().get(
-            id=payment_id,
-            workspace_id=_workspace_id(workspace),
-        )
+        return Payment.objects.select_for_update().get(id=payment_id, workspace_id=_workspace_id(workspace))
     except Payment.DoesNotExist:
         raise ValidationError("Payment not found")
 
@@ -81,13 +71,10 @@ def _refund_capacity(payment):
     return max(payment.amount - successful - reserved, Decimal("0"))
 
 
-def request_payment_refund(
-    *, user, workspace, payment, amount, reason, reference=None, idempotency_key=None
-):
+def request_payment_refund(*, user, workspace, payment, amount, reason, reference=None, idempotency_key=None):
     """Request an immutable payment-refund event through the canonical service."""
     if not _is_authorized(user, workspace):
         raise ValidationError("User is not authorized to request refunds")
-
     amount = _parse_amount(amount)
     reason = (reason or "").strip()
     if not reason:
@@ -96,22 +83,16 @@ def request_payment_refund(
     workspace_id = _workspace_id(workspace)
     with transaction.atomic():
         payment_obj = _get_payment_for_workspace(payment, workspace)
-
         if idempotency_key:
-            existing = PaymentRefund.objects.filter(
-                workspace_id=workspace_id,
-                idempotency_key=idempotency_key,
-            ).first()
+            existing = PaymentRefund.objects.filter(workspace_id=workspace_id, idempotency_key=idempotency_key).first()
             if existing:
                 if existing.payment_id != payment_obj.id or existing.amount != amount:
                     raise ValidationError("Idempotency key conflicts with existing refund")
                 return existing
-
         if amount > _refund_capacity(payment_obj):
             raise ValidationError("Refund amount exceeds refundable capacity")
-
         try:
-            return PaymentRefund.objects.create(
+            refund = PaymentRefund.objects.create(
                 workspace=workspace,
                 payment=payment_obj,
                 amount=amount,
@@ -123,20 +104,29 @@ def request_payment_refund(
             )
         except IntegrityError:
             if idempotency_key:
-                existing = PaymentRefund.objects.filter(
-                    workspace_id=workspace_id,
-                    idempotency_key=idempotency_key,
-                ).first()
+                existing = PaymentRefund.objects.filter(workspace_id=workspace_id, idempotency_key=idempotency_key).first()
                 if existing and existing.payment_id == payment_obj.id and existing.amount == amount:
                     return existing
             raise
+
+        from .ledger_service import post_ledger_event
+        post_ledger_event(
+            user,
+            workspace,
+            event_type="refund_requested",
+            event_key=f"refund:{refund.pk}:requested",
+            occurred_at=refund.requested_at,
+            amount=refund.amount,
+            payment=payment_obj,
+            metadata={"refund_id": refund.pk},
+        )
+        return refund
 
 
 def transition_payment_refund(*, user, workspace, refund, status, failure_reason=None):
     """Apply a provider-neutral, validated refund state transition."""
     if not _is_authorized(user, workspace):
         raise ValidationError("User is not authorized to transition refunds")
-
     valid_statuses = {
         PaymentRefund.STATUS_REQUESTED,
         PaymentRefund.STATUS_PROCESSING,
@@ -149,32 +139,23 @@ def transition_payment_refund(*, user, workspace, refund, status, failure_reason
     with transaction.atomic():
         try:
             refund_obj = PaymentRefund.objects.select_for_update().get(
-                id=getattr(refund, "id", refund),
-                workspace_id=_workspace_id(workspace),
+                id=getattr(refund, "id", refund), workspace_id=_workspace_id(workspace)
             )
         except PaymentRefund.DoesNotExist:
             raise ValidationError("Refund not found")
-
         if status == refund_obj.status:
             if status == PaymentRefund.STATUS_FAILED and failure_reason:
                 raise ValidationError("Refund failure reason cannot be changed after failure")
             return refund_obj
 
         transitions = {
-            PaymentRefund.STATUS_REQUESTED: {
-                PaymentRefund.STATUS_PROCESSING,
-                PaymentRefund.STATUS_FAILED,
-            },
-            PaymentRefund.STATUS_PROCESSING: {
-                PaymentRefund.STATUS_SUCCEEDED,
-                PaymentRefund.STATUS_FAILED,
-            },
+            PaymentRefund.STATUS_REQUESTED: {PaymentRefund.STATUS_PROCESSING, PaymentRefund.STATUS_FAILED},
+            PaymentRefund.STATUS_PROCESSING: {PaymentRefund.STATUS_SUCCEEDED, PaymentRefund.STATUS_FAILED},
             PaymentRefund.STATUS_SUCCEEDED: set(),
             PaymentRefund.STATUS_FAILED: set(),
         }
         if status not in transitions[refund_obj.status]:
             raise ValidationError("Invalid refund state transition")
-
         refund_obj.status = status
         if status == PaymentRefund.STATUS_FAILED:
             refund_obj.failure_reason = (failure_reason or "").strip()
@@ -182,6 +163,22 @@ def transition_payment_refund(*, user, workspace, refund, status, failure_reason
                 raise ValidationError("Refund failure reason is required")
         elif failure_reason is not None:
             raise ValidationError("Failure reason is only valid for failed refunds")
-
         refund_obj.save()
+
+        from .ledger_service import post_ledger_event
+        event_type_by_status = {
+            PaymentRefund.STATUS_PROCESSING: "refund_processing",
+            PaymentRefund.STATUS_SUCCEEDED: "refund_succeeded",
+            PaymentRefund.STATUS_FAILED: "refund_failed",
+        }
+        post_ledger_event(
+            user,
+            workspace,
+            event_type=event_type_by_status[status],
+            event_key=f"refund:{refund_obj.pk}:{status}",
+            occurred_at=refund_obj.updated_at,
+            amount=refund_obj.amount,
+            payment=refund_obj.payment,
+            metadata={"refund_id": refund_obj.pk, "status": status},
+        )
         return refund_obj
