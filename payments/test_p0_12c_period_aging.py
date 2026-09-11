@@ -49,7 +49,7 @@ class P012CPeriodAgingRegressionTests(TestCase):
     def test_aging_exact_boundaries_and_future_due_are_classified(self):
         cases = {
             "current": date(2026, 10, 1),
-            "1_30": date(2026, 9, 30),
+            "1_30": date(2026, 9, 29),
             "31_60": date(2026, 8, 30),
             "61_90": date(2026, 7, 2),
             "90_plus": date(2026, 7, 1),
@@ -62,7 +62,7 @@ class P012CPeriodAgingRegressionTests(TestCase):
             self.assertEqual(report["buckets"][bucket]["invoices"][0]["invoice_id"], invoice.pk)
             self.assertEqual(report["buckets"][bucket]["invoices"][0]["outstanding"], Decimal("100.00"))
         self.assertEqual(report["buckets"]["current"]["invoices"][0]["days_overdue"], 0)
-        self.assertEqual(report["buckets"]["1_30"]["invoices"][0]["days_overdue"], 0)
+        self.assertEqual(report["buckets"]["1_30"]["invoices"][0]["days_overdue"], 1)
         self.assertEqual(report["buckets"]["31_60"]["invoices"][0]["days_overdue"], 31)
         self.assertEqual(report["buckets"]["61_90"]["invoices"][0]["days_overdue"], 90)
         self.assertEqual(report["buckets"]["90_plus"]["invoices"][0]["days_overdue"], 91)
@@ -107,7 +107,7 @@ class P012CPeriodAgingRegressionTests(TestCase):
         Payment.objects.create(workspace=self.workspace, amount=Decimal("200.00"), payment_method="upi", payment_date=date(2026, 9, 30))
         Payment.objects.create(workspace=self.workspace, amount=Decimal("900.00"), payment_method="bank", payment_date=date(2026, 10, 1))
         post_ledger_event(
-            self.owner, self.workspace, event_type="refund_succeeded", event_key="p012c-refund-in", 
+            self.owner, self.workspace, event_type="refund_succeeded", event_key="p012c-refund-in",
             occurred_at=datetime(2026, 9, 30, 23, 59, tzinfo=timezone.utc), amount=Decimal("50.00"), metadata={},
         )
         post_ledger_event(
