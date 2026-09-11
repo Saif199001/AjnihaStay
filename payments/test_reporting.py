@@ -78,11 +78,7 @@ class FinancialReportingRegressionTests(TestCase):
         self.occurred_at = datetime(2026, 9, 30, 12, 0, tzinfo=timezone.utc)
 
     def test_invoice_report_matches_canonical_position(self):
-        report = invoice_financial_report(
-            workspace=self.workspace,
-            invoice_id=self.invoice.pk,
-        )
-
+        report = invoice_financial_report(workspace=self.workspace, invoice_id=self.invoice.pk)
         self.assertEqual(report["gross_receivable"], Decimal("12500.00"))
         self.assertEqual(report["debit_adjustments"], Decimal("0.00"))
         self.assertEqual(report["reducing_adjustments"], Decimal("0.00"))
@@ -93,59 +89,30 @@ class FinancialReportingRegressionTests(TestCase):
 
     def test_invoice_report_is_workspace_scoped(self):
         with self.assertRaisesMessage(ValidationError, "Invoice not found in workspace."):
-            invoice_financial_report(
-                workspace=self.other_workspace,
-                invoice_id=self.invoice.pk,
-            )
+            invoice_financial_report(workspace=self.other_workspace, invoice_id=self.invoice.pk)
 
     def test_reporting_does_not_mutate_invoice(self):
-        before = (
-            self.invoice.paid_amount,
-            self.invoice.status,
-            self.invoice.total_amount,
-        )
+        before = (self.invoice.paid_amount, self.invoice.status, self.invoice.total_amount)
         invoice_financial_report(workspace=self.workspace, invoice_id=self.invoice.pk)
         self.invoice.refresh_from_db()
-        after = (
-            self.invoice.paid_amount,
-            self.invoice.status,
-            self.invoice.total_amount,
-        )
+        after = (self.invoice.paid_amount, self.invoice.status, self.invoice.total_amount)
         self.assertEqual(before, after)
 
     def test_collection_summary_counts_recorded_cash_and_successful_refunds(self):
         Payment.objects.create(
-            workspace=self.workspace,
-            amount=Decimal("7000.00"),
-            payment_method="upi",
-            payment_date=date(2026, 9, 10),
+            workspace=self.workspace, amount=Decimal("7000.00"), payment_method="upi", payment_date=date(2026, 9, 10)
         )
         Payment.objects.create(
-            workspace=self.workspace,
-            amount=Decimal("3000.00"),
-            payment_method="cash",
-            payment_date=date(2026, 9, 15),
+            workspace=self.workspace, amount=Decimal("3000.00"), payment_method="cash", payment_date=date(2026, 9, 15)
         )
         post_ledger_event(
-            self.owner,
-            self.workspace,
-            event_type=FinancialLedgerEntry.REFUND_SUCCEEDED,
-            event_key="refund:reporting:success",
-            occurred_at=self.occurred_at,
-            amount=Decimal("1000.00"),
-            payment=None,
-            metadata={"test": True},
+            self.owner, self.workspace, event_type="refund_succeeded", event_key="refund:reporting:success",
+            occurred_at=self.occurred_at, amount=Decimal("1000.00"), payment=None, metadata={"test": True}
         )
         post_ledger_event(
-            self.owner,
-            self.workspace,
-            event_type=FinancialLedgerEntry.REFUND_FAILED,
-            event_key="refund:reporting:failed",
-            occurred_at=self.occurred_at,
-            amount=Decimal("500.00"),
-            metadata={"test": True},
+            self.owner, self.workspace, event_type="refund_failed", event_key="refund:reporting:failed",
+            occurred_at=self.occurred_at, amount=Decimal("500.00"), metadata={"test": True}
         )
-
         summary = workspace_collection_summary(workspace=self.workspace)
         self.assertEqual(summary["payments_recorded"], Decimal("10000.00"))
         self.assertEqual(summary["refunds_succeeded"], Decimal("1000.00"))
@@ -153,10 +120,7 @@ class FinancialReportingRegressionTests(TestCase):
 
     def test_collection_summary_is_workspace_scoped(self):
         Payment.objects.create(
-            workspace=self.other_workspace,
-            amount=Decimal("9000.00"),
-            payment_method="bank",
-            payment_date=date(2026, 9, 12),
+            workspace=self.other_workspace, amount=Decimal("9000.00"), payment_method="bank", payment_date=date(2026, 9, 12)
         )
         summary = workspace_collection_summary(workspace=self.workspace)
         self.assertEqual(summary["payments_recorded"], Decimal("0.00"))
@@ -164,35 +128,17 @@ class FinancialReportingRegressionTests(TestCase):
         self.assertEqual(summary["net_collections"], Decimal("0.00"))
 
     def test_ledger_activity_is_workspace_scoped_and_period_filtered(self):
-        post_ledger_event(
-            self.owner,
-            self.workspace,
-            event_type=FinancialLedgerEntry.INVOICE_CREATED,
-            event_key="ledger:reporting:inside",
-            occurred_at=datetime(2026, 9, 10, 12, 0, tzinfo=timezone.utc),
-            amount=Decimal("12000.00"),
-            invoice=self.invoice,
-            occupancy=self.occupancy,
-        )
-        post_ledger_event(
-            self.owner,
-            self.workspace,
-            event_type=FinancialLedgerEntry.INVOICE_CREATED,
-            event_key="ledger:reporting:outside",
-            occurred_at=datetime(2026, 10, 10, 12, 0, tzinfo=timezone.utc),
-            amount=Decimal("500.00"),
-            invoice=self.invoice,
-            occupancy=self.occupancy,
-        )
-        post_ledger_event(
-            self.other_owner,
-            self.other_workspace,
-            event_type=FinancialLedgerEntry.INVOICE_CREATED,
-            event_key="ledger:reporting:other",
-            occurred_at=datetime(2026, 9, 10, 12, 0, tzinfo=timezone.utc),
-            amount=Decimal("999.00"),
-        )
-
+        for key, occurred_at, amount, workspace, user in [
+            ("ledger:reporting:inside", datetime(2026, 9, 10, 12, 0, tzinfo=timezone.utc), "12000.00", self.workspace, self.owner),
+            ("ledger:reporting:outside", datetime(2026, 10, 10, 12, 0, tzinfo=timezone.utc), "500.00", self.workspace, self.owner),
+            ("ledger:reporting:other", datetime(2026, 9, 10, 12, 0, tzinfo=timezone.utc), "999.00", self.other_workspace, self.other_owner),
+        ]:
+            post_ledger_event(
+                user, workspace, event_type="invoice_created", event_key=key,
+                occurred_at=occurred_at, amount=Decimal(amount),
+                invoice=self.invoice if workspace == self.workspace else None,
+                occupancy=self.occupancy if workspace == self.workspace else None,
+            )
         entries = workspace_ledger_activity(
             workspace=self.workspace,
             start=datetime(2026, 9, 1, tzinfo=timezone.utc),
@@ -202,14 +148,8 @@ class FinancialReportingRegressionTests(TestCase):
 
     def test_ledger_activity_is_read_only(self):
         entry = post_ledger_event(
-            self.owner,
-            self.workspace,
-            event_type=FinancialLedgerEntry.INVOICE_CREATED,
-            event_key="ledger:reporting:readonly",
-            occurred_at=self.occurred_at,
-            amount=Decimal("12000.00"),
-            invoice=self.invoice,
-            occupancy=self.occupancy,
+            self.owner, self.workspace, event_type="invoice_created", event_key="ledger:reporting:readonly",
+            occurred_at=self.occurred_at, amount=Decimal("12000.00"), invoice=self.invoice, occupancy=self.occupancy,
         )
         before = FinancialLedgerEntry.objects.get(pk=entry.pk).amount
         list(workspace_ledger_activity(workspace=self.workspace))
