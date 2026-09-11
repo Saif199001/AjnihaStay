@@ -1,7 +1,6 @@
 from datetime import date
 from decimal import Decimal
 
-from django.core.exceptions import ValidationError
 from django.test import TestCase
 
 from accounts.models import User
@@ -18,7 +17,7 @@ from .final_settlement import FinalSettlement, finalize_final_settlement
 from .late_fee_models import LateFee, LateFeePolicy
 from .late_fee_service import generate_late_fee
 from .ledger_models import FinancialLedgerEntry
-from .models import Invoice, Payment, PaymentAllocation
+from .models import Invoice, Payment
 from .recurring_invoice_service import generate_invoice_from_schedule
 from .refund_models import PaymentRefund
 from .refund_service import request_payment_refund, transition_payment_refund
@@ -83,13 +82,11 @@ class P011CLedgerIntegrationTests(TestCase):
         charge = create_charge(
             self.owner,
             self.workspace,
-            {
-                "occupancy": self.occupancy.id,
-                "charge_type": "maintenance",
-                "description": "Ledger integration charge",
-                "amount": Decimal("250.00"),
-                "charge_date": date(2026, 9, 5),
-            },
+            occupancy=self.occupancy,
+            charge_type="maintenance",
+            description="Ledger integration charge",
+            amount=Decimal("250.00"),
+            charge_date=date(2026, 9, 5),
         )
         entry = self.ledger(f"charge:{charge.pk}:generated")
         self.assertEqual(entry.event_type, "charge_generated")
@@ -281,13 +278,10 @@ class P011CLedgerIntegrationTests(TestCase):
         allocation = allocate_payment(
             self.owner,
             self.workspace,
-            {
-                "payment": source_payment.id,
-                "invoice": target_invoice.id,
-                "amount": "1500.00",
-            },
+            source_payment,
+            [{"invoice": target_invoice.id, "amount": "1500.00"}],
         )
-        entry = self.ledger(f"payment-allocation:{allocation.pk}:created")
+        entry = self.ledger(f"payment-allocation:{allocation[0].pk}:created")
         self.assertEqual(entry.event_type, "payment_allocated")
         self.assertEqual(entry.amount, Decimal("1500.00"))
         self.assertEqual(entry.payment_id, source_payment.id)
