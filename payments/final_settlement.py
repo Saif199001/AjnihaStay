@@ -87,18 +87,15 @@ def finalize_final_settlement(user, workspace, occupancy_id, refundable_deposit=
         )
         if occupancy is None:
             raise ValidationError("Occupancy not found")
-
         existing = FinalSettlement.objects.filter(occupancy=occupancy, workspace=workspace).first()
         if existing:
             return existing
-
         if occupancy.check_out_date is None:
             raise ValidationError("Occupancy must have a check-out date before final settlement")
 
         position = calculate_final_settlement(occupancy.id, workspace)
         if position["total_due"] > Decimal("0"):
             raise ValidationError("Final settlement requires all outstanding invoices to be settled")
-
         deposit = position["security_deposit"]
         if refundable_deposit is None:
             refundable = deposit
@@ -121,7 +118,7 @@ def finalize_final_settlement(user, workspace, occupancy_id, refundable_deposit=
         else:
             outcome = FinalSettlement.OUTCOME_PARTIAL_REFUND
 
-        return FinalSettlement.objects.create(
+        settlement = FinalSettlement.objects.create(
             workspace=workspace,
             occupancy=occupancy,
             total_rent=position["total_rent"],
@@ -135,3 +132,22 @@ def finalize_final_settlement(user, workspace, occupancy_id, refundable_deposit=
             outcome=outcome,
             settled_by=user,
         )
+
+        from .ledger_service import post_ledger_event
+        post_ledger_event(
+            user,
+            workspace,
+            event_type="final_settlement_finalized",
+            event_key=f"final-settlement:{settlement.pk}:finalized",
+            occurred_at=settlement.settled_at,
+            amount=settlement.final_balance if settlement.final_balance > 0 else None,
+            occupancy=occupancy,
+            metadata={
+                "final_settlement_id": settlement.pk,
+                "outcome": settlement.outcome,
+                "security_deposit": str(settlement.security_deposit),
+                "retained_deposit": str(settlement.retained_deposit),
+                "refundable_deposit": str(settlement.refundable_deposit),
+            },
+        )
+        return settlement
