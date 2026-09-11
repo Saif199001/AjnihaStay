@@ -47,17 +47,12 @@ def generate_invoice_from_schedule(user, workspace, schedule, billing_date=None,
             raise ValidationError("Billing schedule not found")
         if schedule_id <= 0:
             raise ValidationError("Billing schedule not found")
-
         try:
-            schedule = BillingSchedule.objects.select_for_update().select_related(
-                "occupancy__tenant"
-            ).get(
-                id=schedule_id,
-                occupancy__tenant__workspace=workspace,
+            schedule = BillingSchedule.objects.select_for_update().select_related("occupancy__tenant").get(
+                id=schedule_id, occupancy__tenant__workspace=workspace
             )
         except BillingSchedule.DoesNotExist:
             raise ValidationError("Billing schedule not found")
-
         if not schedule.active:
             raise ValidationError("Inactive billing schedule cannot generate an invoice")
 
@@ -86,7 +81,6 @@ def generate_invoice_from_schedule(user, workspace, schedule, billing_date=None,
             charges_amount=0,
             due_date=due_date or billing_end,
         )
-
         create_charge(
             user,
             workspace,
@@ -98,8 +92,20 @@ def generate_invoice_from_schedule(user, workspace, schedule, billing_date=None,
             update_invoice=True,
             invoice=invoice,
         )
-
         schedule.next_run_date = next_run_date
         schedule.save(update_fields=["next_run_date", "updated_at"])
         invoice.refresh_from_db()
+
+        from .ledger_service import post_ledger_event
+        post_ledger_event(
+            user,
+            workspace,
+            event_type="recurring_invoice_generated",
+            event_key=f"recurring-invoice:{invoice.pk}:generated",
+            occurred_at=invoice.created_at,
+            amount=invoice.total_amount,
+            invoice=invoice,
+            occupancy=occupancy,
+            metadata={"billing_schedule_id": schedule.pk, "billing_date": str(billing_date)},
+        )
         return invoice
