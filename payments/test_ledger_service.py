@@ -18,9 +18,9 @@ from .models import Invoice
 
 class FinancialLedgerPostingTests(TestCase):
     def setUp(self):
-        self.owner = User.objects.create_user("ledger-owner@example.com", "StrongPass123!")
-        self.other_owner = User.objects.create_user("ledger-other@example.com", "StrongPass123!")
-        self.staff = User.objects.create_user("ledger-staff@example.com", "StrongPass123!")
+        self.owner = User.objects.create_user("ledger-owner@example.com", "ledger-test-password")
+        self.other_owner = User.objects.create_user("ledger-other@example.com", "ledger-test-password")
+        self.staff = User.objects.create_user("ledger-staff@example.com", "ledger-test-password")
 
         self.workspace = Workspace.objects.create(
             name="Ledger Workspace", slug="ledger-workspace", owner=self.owner
@@ -117,7 +117,8 @@ class FinancialLedgerPostingTests(TestCase):
         )
         other_occupancy = Occupancy.objects.create(
             tenant=other_tenant, unit=other_unit, allotted_by=self.other_owner, rent=Decimal("8000.00"),
-            check_in_date=date(2026, 9, 1), security_deposit=Decimal("0.00"), deposit_paid=False,
+            check_in_date=date(2026, 9, 1), check_out_date=date(2026, 9, 30),
+            next_due_date=date(2026, 10, 1), security_deposit=Decimal("0.00"), deposit_paid=False,
         )
         with self.assertRaisesMessage(ValidationError, "Ledger references must belong to the same workspace"):
             self.post(occupancy=other_occupancy)
