@@ -115,7 +115,7 @@ def request_payment_refund(*, user, workspace, payment, amount, reason, referenc
             workspace,
             event_type="refund_requested",
             event_key=f"refund:{refund.pk}:requested",
-            occurred_at=refund.requested_at,
+            occurred_at=refund.created_at,
             amount=refund.amount,
             payment=payment_obj,
             metadata={"refund_id": refund.pk},
