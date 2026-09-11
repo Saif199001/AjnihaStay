@@ -42,10 +42,10 @@ def _expected_for_workspace(workspace):
         expected.append(("payment_allocated", f"payment-allocation:{allocation.pk}:created", allocation.amount, allocation.invoice_id, allocation.payment_id, allocation.invoice.occupancy_id))
 
     for credit in AdvanceCredit.objects.filter(workspace=workspace):
-        expected.append(("advance_credit_created", f"advance-credit:{credit.pk}:created", credit.original_amount, _UNSET, credit.payment_id, getattr(credit, "occupancy_id", _UNSET)))
+        expected.append(("advance_credit_created", f"advance-credit:{credit.pk}:created", credit.original_amount, _UNSET, credit.source_payment_id, credit.occupancy_id if credit.occupancy_id else _UNSET))
 
-    for application in AdvanceCreditApplication.objects.filter(credit__workspace=workspace).select_related("credit__payment", "invoice__occupancy"):
-        expected.append(("advance_credit_applied", f"advance-credit-application:{application.pk}:created", application.amount, application.invoice_id, application.credit.payment_id, application.invoice.occupancy_id))
+    for application in AdvanceCreditApplication.objects.filter(credit__workspace=workspace).select_related("credit__source_payment", "invoice__occupancy"):
+        expected.append(("advance_credit_applied", f"advance-credit-application:{application.pk}:created", application.amount, application.invoice_id, application.credit.source_payment_id, application.invoice.occupancy_id))
 
     for adjustment in FinancialAdjustment.objects.filter(workspace=workspace).select_related("invoice__occupancy"):
         expected.append(("adjustment_created", f"adjustment:{adjustment.pk}:created", adjustment.amount, adjustment.invoice_id, _UNSET, adjustment.invoice.occupancy_id))
