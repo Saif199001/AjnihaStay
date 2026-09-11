@@ -26,6 +26,7 @@ def _workspace_invoice_queryset(workspace):
 
 def _invoice_projection(invoice):
     position = calculate_invoice_financial_position(invoice)
+    reducing_adjustments = position["credit_adjustments"]
     return {
         "invoice_id": invoice.pk,
         "invoice_number": invoice.invoice_number,
@@ -36,7 +37,7 @@ def _invoice_projection(invoice):
         "status": invoice.status,
         "gross_receivable": position["gross_receivable"],
         "debit_adjustments": position["debit_adjustments"],
-        "reducing_adjustments": position["reducing_adjustments"],
+        "reducing_adjustments": reducing_adjustments,
         "late_fee_total": position["late_fee_total"],
         "adjusted_receivable": position["adjusted_receivable"],
         "settlement": position["settlement"],
@@ -93,7 +94,7 @@ def workspace_collection_summary(*, workspace):
     refund_total = (
         FinancialLedgerEntry.objects.filter(
             workspace=workspace,
-            event_type=FinancialLedgerEntry.REFUND_SUCCEEDED,
+            event_type="refund_succeeded",
         ).aggregate(total=Sum("amount"))["total"]
         or ZERO
     )
