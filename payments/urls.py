@@ -20,6 +20,18 @@ from .api import (
 )
 from .final_settlement_api import final_settlement_finalize_api
 from .refund_api import payment_refund_create_api, payment_refund_transition_api
+from .reporting_api import (
+    financial_advance_credit_report_api,
+    financial_adjustment_report_api,
+    financial_aging_report_api,
+    financial_collection_period_report_api,
+    financial_invoice_report_api,
+    financial_invoice_status_report_api,
+    financial_late_fee_report_api,
+    financial_ledger_activity_api,
+    financial_receivables_report_api,
+    financial_reconciliation_report_api,
+)
 
 urlpatterns = [
     path("api/invoices/create/", invoice_create_api),
@@ -45,4 +57,16 @@ urlpatterns = [
     path("api/advance-credits/<int:credit_id>/apply/", advance_credit_apply_api),
 
     path("api/financial-adjustments/create/", financial_adjustment_create_api),
+
+    # P0.12-E: read-only financial reporting boundary.
+    path("api/reports/receivables/", financial_receivables_report_api),
+    path("api/reports/invoice/", financial_invoice_report_api),
+    path("api/reports/invoice-status/", financial_invoice_status_report_api),
+    path("api/reports/collections/period/", financial_collection_period_report_api),
+    path("api/reports/aging/", financial_aging_report_api),
+    path("api/reports/advance-credits/", financial_advance_credit_report_api),
+    path("api/reports/adjustments/", financial_adjustment_report_api),
+    path("api/reports/late-fees/", financial_late_fee_report_api),
+    path("api/reports/ledger/", financial_ledger_activity_api),
+    path("api/reports/reconciliation/", financial_reconciliation_report_api),
 ]
