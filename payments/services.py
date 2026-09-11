@@ -27,14 +27,27 @@ def create_invoice(user, workspace, data):
     if rent_amount < 0 or charges_amount < 0:
         raise ValidationError("Invoice amounts cannot be negative")
 
-    return Invoice.objects.create(
-        occupancy=occupancy,
-        billing_start=data.get("billing_start"),
-        billing_end=data.get("billing_end"),
-        rent_amount=rent_amount,
-        charges_amount=charges_amount,
-        due_date=data.get("due_date"),
-    )
+    with transaction.atomic():
+        invoice = Invoice.objects.create(
+            occupancy=occupancy,
+            billing_start=data.get("billing_start"),
+            billing_end=data.get("billing_end"),
+            rent_amount=rent_amount,
+            charges_amount=charges_amount,
+            due_date=data.get("due_date"),
+        )
+        post_ledger_event(
+            user,
+            workspace,
+            event_type="invoice_created",
+            event_key=f"invoice:{invoice.pk}:created",
+            occurred_at=invoice.created_at,
+            amount=invoice.total_amount,
+            invoice=invoice,
+            occupancy=occupancy,
+            metadata={"invoice_number": invoice.invoice_number},
+        )
+        return invoice
 
 
 def get_invoices(workspace):
