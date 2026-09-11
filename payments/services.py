@@ -160,6 +160,7 @@ def record_payment(user, workspace, data):
             occurred_at=payment.created_at,
             amount=payment.amount,
             invoice=invoice,
+            payment=payment,
             metadata={"payment_id": payment.pk},
         )
         post_ledger_event(
