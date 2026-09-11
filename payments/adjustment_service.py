@@ -53,12 +53,10 @@ def calculate_invoice_financial_position(invoice):
     debit_adjustments, credit_adjustments, adjustment_totals = _sum_adjustments(invoice)
     late_fee_total = _sum_late_fees(invoice)
     adjusted_receivable = gross_receivable + debit_adjustments + late_fee_total - credit_adjustments
-
     payment_settlement = PaymentAllocation.objects.filter(invoice=invoice).aggregate(total=Sum("amount"))["total"] or Decimal("0")
     advance_credit_settlement = AdvanceCreditApplication.objects.filter(invoice=invoice).aggregate(total=Sum("amount"))["total"] or Decimal("0")
     settlement = payment_settlement + advance_credit_settlement
     outstanding = max(adjusted_receivable - settlement, Decimal("0"))
-
     if adjusted_receivable > 0:
         if settlement == adjusted_receivable:
             status = "paid"
@@ -68,7 +66,6 @@ def calculate_invoice_financial_position(invoice):
             status = "pending"
     else:
         status = "pending"
-
     return {
         "gross_receivable": gross_receivable,
         "debit_adjustments": debit_adjustments,
@@ -129,4 +126,16 @@ def create_financial_adjustment(user, workspace, data):
         Invoice.objects.filter(id=invoice.id).update(paid_amount=position["settlement"], status=position["status"])
         invoice.paid_amount = position["settlement"]
         invoice.status = position["status"]
+        from .ledger_service import post_ledger_event
+        post_ledger_event(
+            user,
+            workspace,
+            event_type="adjustment_created",
+            event_key=f"adjustment:{adjustment.pk}:created",
+            occurred_at=adjustment.created_at,
+            amount=adjustment.amount,
+            invoice=invoice,
+            occupancy=invoice.occupancy,
+            metadata={"adjustment_id": adjustment.pk, "adjustment_type": adjustment.adjustment_type},
+        )
         return adjustment, position, True
