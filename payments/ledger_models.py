@@ -104,7 +104,7 @@ class FinancialLedgerEntry(models.Model):
     class Meta:
         indexes = [
             models.Index(fields=["workspace", "occurred_at"], name="payments_fl_workspa_4d4f8a_idx"),
-            models.Index(fields=["workspace", "event_type"], name="payments_fl_evt_type_3e6a91_idx"),
+            models.Index(fields=["workspace", "event_type"], name="payments_fl_evt_type_idx"),
             models.Index(fields=["invoice", "occurred_at"], name="payments_fl_invoice_8b2c17_idx"),
             models.Index(fields=["payment", "occurred_at"], name="payments_fl_payment_6f0a42_idx"),
         ]
