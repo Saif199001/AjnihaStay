@@ -2,8 +2,8 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
-from django.db import DatabaseError, connection
-from django.test import TestCase, skipUnlessDBFeature
+from django.db import DatabaseError, connection, transaction
+from django.test import TestCase
 
 from accounts.models import User
 from properties.models import Property
@@ -97,13 +97,14 @@ class LedgerHardeningTests(TestCase):
         with self.assertRaisesMessage(ValidationError, "Unsupported ledger event type"):
             self.post(event_type="invoice_lifecycle_refreshed")
 
-    @skipUnlessDBFeature("supports_transactions")
     def test_queryset_update_and_delete_are_blocked_on_postgresql(self):
         if connection.vendor != "postgresql":
             self.skipTest("Database trigger enforcement is PostgreSQL-specific")
         entry = self.post()
         with self.assertRaises(DatabaseError):
-            FinancialLedgerEntry.objects.filter(pk=entry.pk).update(amount=Decimal("90.00"))
+            with transaction.atomic():
+                FinancialLedgerEntry.objects.filter(pk=entry.pk).update(amount=Decimal("90.00"))
         with self.assertRaises(DatabaseError):
-            FinancialLedgerEntry.objects.filter(pk=entry.pk).delete()
+            with transaction.atomic():
+                FinancialLedgerEntry.objects.filter(pk=entry.pk).delete()
         self.assertTrue(FinancialLedgerEntry.objects.filter(pk=entry.pk).exists())
