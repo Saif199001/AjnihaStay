@@ -106,9 +106,6 @@ def post_ledger_event(
         created_by=user,
         metadata=metadata,
     )
-
-    # Model-level workspace/reference validation happens before insertion. The
-    # source objects are intentionally not mutated here.
     candidate.clean()
 
     with transaction.atomic():
@@ -119,23 +116,23 @@ def post_ledger_event(
             )
         except FinancialLedgerEntry.DoesNotExist:
             try:
-                return FinancialLedgerEntry.objects.create(
-                    workspace=workspace,
-                    event_type=event_type,
-                    event_key=event_key,
-                    occurred_at=occurred_at,
-                    amount=amount,
-                    currency=currency,
-                    invoice=invoice,
-                    payment=payment,
-                    occupancy=occupancy,
-                    created_by=user,
-                    metadata=metadata,
-                )
+                # The nested atomic block is a savepoint so a concurrent unique
+                # constraint collision does not poison the outer transaction.
+                with transaction.atomic():
+                    return FinancialLedgerEntry.objects.create(
+                        workspace=workspace,
+                        event_type=event_type,
+                        event_key=event_key,
+                        occurred_at=occurred_at,
+                        amount=amount,
+                        currency=currency,
+                        invoice=invoice,
+                        payment=payment,
+                        occupancy=occupancy,
+                        created_by=user,
+                        metadata=metadata,
+                    )
             except IntegrityError:
-                # A concurrent writer may have inserted the same key after the
-                # initial lookup. Retry inside a savepoint, then apply replay or
-                # conflict semantics against the committed winner.
                 try:
                     existing = (
                         FinancialLedgerEntry.objects.select_for_update()
