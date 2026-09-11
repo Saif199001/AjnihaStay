@@ -77,6 +77,7 @@ def create_charge(
 ):
     """Create a workspace-scoped charge, optionally updating a specific active invoice atomically."""
     from payments.authorization import require_mutation_permission
+    from payments.ledger_service import post_ledger_event
 
     require_mutation_permission(user, workspace)
     charge_date = _date_value(charge_date, "charge date")
@@ -125,6 +126,18 @@ def create_charge(
             target_invoice.charges_amount += amount
             target_invoice.total_amount = target_invoice.rent_amount + target_invoice.charges_amount
             target_invoice.save()
+
+        post_ledger_event(
+            user,
+            workspace,
+            event_type="charge_generated",
+            event_key=f"charge:{charge.pk}:generated",
+            occurred_at=charge.created_at,
+            amount=charge.amount,
+            invoice=target_invoice,
+            occupancy=occupancy,
+            metadata={"charge_id": charge.pk, "charge_type": charge.charge_type},
+        )
         return charge
 
 
