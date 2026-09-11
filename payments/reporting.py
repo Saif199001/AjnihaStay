@@ -19,7 +19,9 @@ REDUCING_ADJUSTMENT_TYPES = {"credit", "discount", "waiver", "write_off"}
 
 
 def _workspace_invoice_queryset(workspace):
-    return Invoice.objects.filter(workspace=workspace).select_related("occupancy")
+    return Invoice.objects.filter(occupancy__tenant__workspace=workspace).select_related(
+        "occupancy"
+    )
 
 
 def _invoice_projection(invoice):
@@ -104,9 +106,7 @@ def workspace_collection_summary(*, workspace):
 
 def advance_credit_report(*, workspace):
     """Return prepaid/advance-credit balances without changing credits."""
-    credits = AdvanceCredit.objects.filter(workspace=workspace).prefetch_related(
-        "applications"
-    )
+    credits = AdvanceCredit.objects.filter(workspace=workspace).prefetch_related("applications")
     rows = []
     for credit in credits:
         applied = credit.applications.aggregate(total=Sum("amount"))["total"] or ZERO
@@ -130,17 +130,11 @@ def advance_credit_report(*, workspace):
 
 def adjustment_report(*, workspace):
     """Return immutable adjustment totals by type."""
-    rows = (
-        FinancialAdjustment.objects.filter(workspace=workspace)
-        .values("adjustment_type")
-        .annotate(total=Sum("amount"), count=Sum("id") * 0 + 1)
-        .order_by("adjustment_type")
-    )
-    # Count is intentionally computed separately to keep the amount aggregate
-    # Decimal-safe and avoid exposing implementation-specific annotations.
     result = {}
-    for row in FinancialAdjustment.objects.filter(workspace=workspace).values("adjustment_type").distinct():
-        adjustment_type = row["adjustment_type"]
+    types = FinancialAdjustment.objects.filter(workspace=workspace).values_list(
+        "adjustment_type", flat=True
+    ).distinct()
+    for adjustment_type in types:
         qs = FinancialAdjustment.objects.filter(
             workspace=workspace, adjustment_type=adjustment_type
         )
