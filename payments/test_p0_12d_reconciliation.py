@@ -51,8 +51,10 @@ class LedgerReconciliationTests(TestCase):
         self.assertTrue(any(item["kind"] == "amount_mismatch" for item in report["findings"]))
 
     def test_relationship_mismatch_is_reported(self):
+        other_property = Property.objects.create(owner=self.owner, workspace=self.workspace, name="Recon Property 2", property_type="pg", address="Delhi 2", city="Delhi", state="Delhi", pincode="110002")
+        other_unit = Unit.objects.create(property=other_property, unit_type="room", unit_number="502", rent=Decimal("10000.00"))
         other_tenant = Tenant.objects.create(owner=self.owner, workspace=self.workspace, full_name="Other Tenant", phone="8888888888", permanent_address="Delhi")
-        other_occupancy = Occupancy.objects.create(tenant=other_tenant, unit=self.occupancy.unit, allotted_by=self.owner, rent=Decimal("10000.00"), check_in_date=date(2026, 9, 1), check_out_date=date(2026, 9, 30), next_due_date=date(2026, 10, 1), security_deposit=Decimal("0.00"), deposit_paid=False)
+        other_occupancy = Occupancy.objects.create(tenant=other_tenant, unit=other_unit, allotted_by=self.owner, rent=Decimal("10000.00"), check_in_date=date(2026, 9, 1), check_out_date=date(2026, 9, 30), next_due_date=date(2026, 10, 1), security_deposit=Decimal("0.00"), deposit_paid=False)
         self.add_invoice_event(occupancy=other_occupancy)
         report = ledger_reconciliation_report(workspace=self.workspace)
         self.assertTrue(any(item["kind"] == "relationship_mismatch" for item in report["findings"]))
