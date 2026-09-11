@@ -44,8 +44,8 @@ def _expected_for_workspace(workspace):
     for credit in AdvanceCredit.objects.filter(workspace=workspace):
         expected.append(("advance_credit_created", f"advance-credit:{credit.pk}:created", credit.original_amount, _UNSET, credit.payment_id, getattr(credit, "occupancy_id", _UNSET)))
 
-    for application in AdvanceCreditApplication.objects.filter(advance_credit__workspace=workspace).select_related("advance_credit__payment", "invoice__occupancy"):
-        expected.append(("advance_credit_applied", f"advance-credit-application:{application.pk}:created", application.amount, application.invoice_id, application.advance_credit.payment_id, application.invoice.occupancy_id))
+    for application in AdvanceCreditApplication.objects.filter(credit__workspace=workspace).select_related("credit__payment", "invoice__occupancy"):
+        expected.append(("advance_credit_applied", f"advance-credit-application:{application.pk}:created", application.amount, application.invoice_id, application.credit.payment_id, application.invoice.occupancy_id))
 
     for adjustment in FinancialAdjustment.objects.filter(workspace=workspace).select_related("invoice__occupancy"):
         expected.append(("adjustment_created", f"adjustment:{adjustment.pk}:created", adjustment.amount, adjustment.invoice_id, _UNSET, adjustment.invoice.occupancy_id))
@@ -84,7 +84,7 @@ def _source_exists(event):
         mappings = {
             "payment_allocated": (PaymentAllocation, "payment__workspace", "payment-allocation:"),
             "advance_credit_created": (AdvanceCredit, "workspace", "advance-credit:"),
-            "advance_credit_applied": (AdvanceCreditApplication, "advance_credit__workspace", "advance-credit-application:"),
+            "advance_credit_applied": (AdvanceCreditApplication, "credit__workspace", "advance-credit-application:"),
             "adjustment_created": (FinancialAdjustment, "workspace", "adjustment:"),
             "charge_generated": (Charge, "occupancy__tenant__workspace", "charge:"),
             "late_fee_generated": (LateFee, "workspace", "late-fee:"),
