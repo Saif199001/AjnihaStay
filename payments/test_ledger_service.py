@@ -13,7 +13,8 @@ from workspaces.models import Membership, Workspace
 
 from .ledger_models import FinancialLedgerEntry
 from .ledger_service import post_ledger_event
-from .models import Invoice
+from .models import Invoice, Payment, PaymentAllocation
+from .services import create_invoice, record_payment
 
 
 class FinancialLedgerPostingTests(TestCase):
@@ -157,3 +158,80 @@ class FinancialLedgerPostingTests(TestCase):
         except RuntimeError:
             pass
         self.assertFalse(FinancialLedgerEntry.objects.filter(event_key="invoice:created:rollback").exists())
+
+    def test_create_invoice_posts_ledger_event(self):
+        invoice = create_invoice(
+            self.owner,
+            self.workspace,
+            {
+                "occupancy": self.occupancy.id,
+                "billing_start": date(2026, 10, 1),
+                "billing_end": date(2026, 10, 31),
+                "rent_amount": "10000.00",
+                "charges_amount": "500.00",
+                "due_date": date(2026, 10, 31),
+            },
+        )
+        entry = FinancialLedgerEntry.objects.get(event_key=f"invoice:{invoice.pk}:created")
+        self.assertEqual(entry.event_type, "invoice_created")
+        self.assertEqual(entry.amount, Decimal("10500.00"))
+        self.assertEqual(entry.invoice_id, invoice.pk)
+        self.assertEqual(entry.occupancy_id, self.occupancy.pk)
+
+    def test_record_payment_posts_payment_and_allocation_events(self):
+        payment = record_payment(
+            self.owner,
+            self.workspace,
+            {
+                "invoice": self.invoice.id,
+                "amount": "10000.00",
+                "payment_method": "upi",
+                "payment_date": date(2026, 9, 30),
+                "reference_id": "LEDGER-PAY-1",
+            },
+        )
+        allocation = PaymentAllocation.objects.get(payment=payment)
+        payment_entry = FinancialLedgerEntry.objects.get(event_key=f"payment:{payment.pk}:recorded")
+        allocation_entry = FinancialLedgerEntry.objects.get(
+            event_key=f"payment-allocation:{allocation.pk}:created"
+        )
+        self.assertEqual(payment_entry.event_type, "payment_recorded")
+        self.assertEqual(payment_entry.amount, Decimal("10000.00"))
+        self.assertEqual(payment_entry.payment_id, payment.pk)
+        self.assertEqual(allocation_entry.event_type, "payment_allocated")
+        self.assertEqual(allocation_entry.amount, Decimal("10000.00"))
+        self.assertEqual(allocation_entry.payment_id, payment.pk)
+        self.assertEqual(allocation_entry.invoice_id, self.invoice.pk)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, "paid")
+        self.assertEqual(Payment.objects.count(), 1)
+
+    def test_payment_and_ledger_rollback_together(self):
+        original_post = post_ledger_event
+
+        def failing_post(*args, **kwargs):
+            if kwargs.get("event_type") == "payment_recorded":
+                raise RuntimeError("forced ledger failure")
+            return original_post(*args, **kwargs)
+
+        import payments.services as services_module
+        services_module.post_ledger_event = failing_post
+        try:
+            with self.assertRaises(RuntimeError):
+                record_payment(
+                    self.owner,
+                    self.workspace,
+                    {
+                        "invoice": self.invoice.id,
+                        "amount": "1000.00",
+                        "payment_method": "cash",
+                        "payment_date": date(2026, 9, 30),
+                    },
+                )
+        finally:
+            services_module.post_ledger_event = original_post
+
+        self.assertFalse(Payment.objects.exists())
+        self.assertFalse(FinancialLedgerEntry.objects.exists())
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, "pending")
