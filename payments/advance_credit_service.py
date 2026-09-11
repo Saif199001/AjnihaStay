@@ -39,19 +39,14 @@ def create_advance_credit(user, workspace, data):
     payment_id = _positive_id(data.get("source_payment", data.get("payment")), "source payment")
     tenant_id = _positive_id(data.get("tenant"), "tenant")
     amount = _positive_decimal(data.get("amount"), "advance credit")
-
     occupancy_value = data.get("occupancy")
     occupancy_id = None if occupancy_value in (None, "") else _positive_id(occupancy_value, "occupancy")
 
     with transaction.atomic():
         try:
-            payment = Payment.objects.select_for_update().get(
-                id=payment_id,
-                workspace=workspace,
-            )
+            payment = Payment.objects.select_for_update().get(id=payment_id, workspace=workspace)
         except Payment.DoesNotExist:
             raise ValidationError("Payment not found")
-
         try:
             tenant = Tenant.objects.get(id=tenant_id, workspace=workspace)
         except Tenant.DoesNotExist:
@@ -61,8 +56,7 @@ def create_advance_credit(user, workspace, data):
         if occupancy_id:
             try:
                 occupancy = Occupancy.objects.select_related("tenant").get(
-                    id=occupancy_id,
-                    tenant__workspace=workspace,
+                    id=occupancy_id, tenant__workspace=workspace
                 )
             except Occupancy.DoesNotExist:
                 raise ValidationError("Occupancy not found")
@@ -85,13 +79,26 @@ def create_advance_credit(user, workspace, data):
         if amount > available_capacity:
             raise ValidationError("Advance credit exceeds available payment capacity")
 
-        return AdvanceCredit.objects.create(
+        credit = AdvanceCredit.objects.create(
             workspace=workspace,
             tenant=tenant,
             occupancy=occupancy,
             source_payment=payment,
             original_amount=amount,
         )
+        from .ledger_service import post_ledger_event
+        post_ledger_event(
+            user,
+            workspace,
+            event_type="advance_credit_created",
+            event_key=f"advance-credit:{credit.pk}:created",
+            occurred_at=credit.created_at,
+            amount=credit.original_amount,
+            payment=payment,
+            occupancy=occupancy,
+            metadata={"advance_credit_id": credit.pk},
+        )
+        return credit
 
 
 def get_advance_credit_applied_amount(credit):
@@ -144,39 +151,38 @@ def apply_advance_credit(user, workspace, data):
 
     with transaction.atomic():
         try:
-            credit = AdvanceCredit.objects.select_for_update().get(
-                id=credit_id,
-                workspace=workspace,
-            )
+            credit = AdvanceCredit.objects.select_for_update().get(id=credit_id, workspace=workspace)
         except AdvanceCredit.DoesNotExist:
             raise ValidationError("Advance credit not found")
-
         try:
-            invoice = Invoice.objects.select_for_update().select_related(
-                "occupancy__tenant"
-            ).get(
-                id=invoice_id,
-                occupancy__tenant__workspace=workspace,
+            invoice = Invoice.objects.select_for_update().select_related("occupancy__tenant").get(
+                id=invoice_id, occupancy__tenant__workspace=workspace
             )
         except Invoice.DoesNotExist:
             raise ValidationError("Invoice not found")
 
         if credit.tenant_id != invoice.occupancy.tenant_id:
             raise ValidationError("Advance credit and invoice must belong to the same tenant")
-
         available_credit = get_advance_credit_available_amount(credit)
         if amount > available_credit:
             raise ValidationError("Advance credit application exceeds available credit")
-
         position = calculate_invoice_financial_position(invoice)
         if amount > position["outstanding"]:
             raise ValidationError("Advance credit application exceeds invoice outstanding amount")
 
-        application = AdvanceCreditApplication.objects.create(
-            credit=credit,
-            invoice=invoice,
-            amount=amount,
-        )
+        application = AdvanceCreditApplication.objects.create(credit=credit, invoice=invoice, amount=amount)
         invoice = recalculate_invoice_state(invoice)
-
+        from .ledger_service import post_ledger_event
+        post_ledger_event(
+            user,
+            workspace,
+            event_type="advance_credit_applied",
+            event_key=f"advance-credit-application:{application.pk}:created",
+            occurred_at=application.created_at,
+            amount=application.amount,
+            invoice=invoice,
+            payment=credit.source_payment,
+            occupancy=invoice.occupancy,
+            metadata={"advance_credit_id": credit.pk, "application_id": application.pk},
+        )
         return application, get_advance_credit_available_amount(credit), invoice
