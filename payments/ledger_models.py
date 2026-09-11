@@ -29,32 +29,16 @@ class FinancialLedgerEntry(models.Model):
         ("refund_failed", "Refund failed"),
     )
 
-    workspace = models.ForeignKey(
-        "workspaces.Workspace",
-        on_delete=models.PROTECT,
-        related_name="financial_ledger_entries",
-    )
+    workspace = models.ForeignKey("workspaces.Workspace", on_delete=models.PROTECT, related_name="financial_ledger_entries")
     event_type = models.CharField(max_length=40, choices=EVENT_TYPES)
     event_key = models.CharField(max_length=160)
     occurred_at = models.DateTimeField()
     amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     currency = models.CharField(max_length=3, default="INR")
-    invoice = models.ForeignKey(
-        "payments.Invoice", on_delete=models.PROTECT,
-        related_name="financial_ledger_entries", null=True, blank=True,
-    )
-    payment = models.ForeignKey(
-        "payments.Payment", on_delete=models.PROTECT,
-        related_name="financial_ledger_entries", null=True, blank=True,
-    )
-    occupancy = models.ForeignKey(
-        "tenant.Occupancy", on_delete=models.PROTECT,
-        related_name="financial_ledger_entries", null=True, blank=True,
-    )
-    created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
-        related_name="financial_ledger_entries_created", null=True, blank=True,
-    )
+    invoice = models.ForeignKey("payments.Invoice", on_delete=models.PROTECT, related_name="financial_ledger_entries", null=True, blank=True)
+    payment = models.ForeignKey("payments.Payment", on_delete=models.PROTECT, related_name="financial_ledger_entries", null=True, blank=True)
+    occupancy = models.ForeignKey("tenant.Occupancy", on_delete=models.PROTECT, related_name="financial_ledger_entries", null=True, blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="financial_ledger_entries_created", null=True, blank=True)
     metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -81,9 +65,6 @@ class FinancialLedgerEntry(models.Model):
         if self.payment_id and self.occupancy_id and self.payment.invoice_id:
             if self.payment.invoice.occupancy_id != self.occupancy_id:
                 raise ValidationError("Ledger payment and occupancy must match")
-        if self.payment_id and self.invoice_id and not self.payment.invoice_id:
-            if self.payment.invoice.occupancy_id != self.invoice.occupancy_id:
-                raise ValidationError("Ledger payment and invoice occupancy must match")
 
     def save(self, *args, **kwargs):
         if self.pk:
