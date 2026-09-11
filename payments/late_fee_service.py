@@ -25,19 +25,16 @@ def calculate_late_fee(invoice, policy, as_of):
     effective_date = _effective_date(invoice, policy)
     if not policy.enabled or as_of < effective_date:
         return effective_date, Decimal("0.00"), None
-
     position = calculate_invoice_financial_position(invoice)
     total_outstanding = _money(position["outstanding"])
     prior_late_fees = _money(position.get("late_fee_total", Decimal("0.00")))
     outstanding = max(total_outstanding - prior_late_fees, Decimal("0.00"))
     if outstanding < policy.minimum_overdue_balance or outstanding <= 0:
         return effective_date, Decimal("0.00"), outstanding
-
     if policy.calculation_mode == LateFeePolicy.MODE_FIXED:
         fee = _money(policy.rate)
     else:
         fee = _money(outstanding * policy.rate / Decimal("100"))
-
     if policy.maximum_late_fee is not None:
         fee = min(fee, _money(policy.maximum_late_fee))
     return effective_date, max(fee, Decimal("0.00")), outstanding
@@ -53,12 +50,11 @@ def generate_late_fee(user, workspace, invoice_id, as_of=None):
         from workspaces.models import Workspace
         workspace = Workspace.objects.select_for_update().get(pk=workspace.pk)
         try:
-            invoice = Invoice.objects.select_for_update().select_related(
-                "occupancy__tenant"
-            ).get(id=invoice_id, occupancy__tenant__workspace=workspace)
+            invoice = Invoice.objects.select_for_update().select_related("occupancy__tenant").get(
+                id=invoice_id, occupancy__tenant__workspace=workspace
+            )
         except Invoice.DoesNotExist:
             raise ValidationError("Invoice not found")
-
         try:
             policy = LateFeePolicy.objects.select_for_update().get(workspace=workspace)
         except LateFeePolicy.DoesNotExist:
@@ -66,19 +62,9 @@ def generate_late_fee(user, workspace, invoice_id, as_of=None):
 
         effective_date, fee, outstanding = calculate_late_fee(invoice, policy, as_of)
         if fee <= 0:
-            return None, {
-                "created": False,
-                "eligible": False,
-                "effective_date": effective_date,
-                "amount": Decimal("0.00"),
-                "outstanding": outstanding,
-            }
-
+            return None, {"created": False, "eligible": False, "effective_date": effective_date, "amount": Decimal("0.00"), "outstanding": outstanding}
         existing = LateFee.objects.filter(
-            workspace=workspace,
-            invoice=invoice,
-            policy=policy,
-            effective_date=effective_date,
+            workspace=workspace, invoice=invoice, policy=policy, effective_date=effective_date
         ).first()
         if existing:
             return existing, {"created": False, "eligible": True, "effective_date": effective_date, "amount": existing.amount, "outstanding": existing.outstanding_balance}
@@ -94,19 +80,21 @@ def generate_late_fee(user, workspace, invoice_id, as_of=None):
             reason=f"Late fee for invoice {invoice.invoice_number}",
             created_by=user,
         )
-
         position = calculate_invoice_financial_position(invoice)
-        Invoice.objects.filter(id=invoice.id).update(
-            paid_amount=position["settlement"],
-            status=position["status"],
-        )
+        Invoice.objects.filter(id=invoice.id).update(paid_amount=position["settlement"], status=position["status"])
         invoice.paid_amount = position["settlement"]
         invoice.status = position["status"]
 
-        return late_fee, {
-            "created": True,
-            "eligible": True,
-            "effective_date": effective_date,
-            "amount": fee,
-            "outstanding": outstanding,
-        }
+        from .ledger_service import post_ledger_event
+        post_ledger_event(
+            user,
+            workspace,
+            event_type="late_fee_generated",
+            event_key=f"late-fee:{late_fee.pk}:generated",
+            occurred_at=late_fee.created_at,
+            amount=late_fee.amount,
+            invoice=invoice,
+            occupancy=invoice.occupancy,
+            metadata={"late_fee_id": late_fee.pk, "effective_date": str(effective_date)},
+        )
+        return late_fee, {"created": True, "eligible": True, "effective_date": effective_date, "amount": fee, "outstanding": outstanding}
