@@ -53,7 +53,7 @@ class FinancialReportingAPITests(TestCase):
 
     def test_invoice_endpoint_is_workspace_scoped(self):
         response = self.client.get("/api/reports/invoice/", {"invoice_id": self.invoice.pk}, HTTP_X_WORKSPACE_ID=str(self.other_workspace.pk))
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 403)
 
     def test_reporting_endpoints_require_workspace_membership(self):
         outsider = User.objects.create_user("reporting-api-outsider@example.com", "password")
