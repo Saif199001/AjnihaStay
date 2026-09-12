@@ -37,9 +37,9 @@ class Migration(migrations.Migration):
             ],
             options={
                 "indexes": [
-                    models.Index(fields=["workspace", "status"], name="leasing_leas_workspa_9a1c2b_idx"),
-                    models.Index(fields=["workspace", "start_date"], name="leasing_leas_workspa_4f7d8e_idx"),
-                    models.Index(fields=["workspace", "end_date"], name="leasing_leas_workspa_6b2e5a_idx"),
+                    models.Index(fields=["workspace", "status"], name="lease_ws_status_idx"),
+                    models.Index(fields=["workspace", "start_date"], name="lease_ws_start_idx"),
+                    models.Index(fields=["workspace", "end_date"], name="lease_ws_end_idx"),
                 ],
                 "constraints": [
                     models.CheckConstraint(condition=Q(end_date__gte=F("start_date")), name="lease_end_gte_start"),
