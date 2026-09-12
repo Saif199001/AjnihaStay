@@ -25,26 +25,12 @@ class LeaseLifecycleEvent(models.Model):
         (EVENT_CANCELLED, "Cancelled"),
     )
 
-    workspace = models.ForeignKey(
-        "workspaces.Workspace",
-        on_delete=models.PROTECT,
-        related_name="lease_lifecycle_events",
-    )
-    lease = models.ForeignKey(
-        "leasing.Lease",
-        on_delete=models.PROTECT,
-        related_name="lifecycle_events",
-    )
+    workspace = models.ForeignKey("workspaces.Workspace", on_delete=models.PROTECT, related_name="lease_lifecycle_events")
+    lease = models.ForeignKey("leasing.Lease", on_delete=models.PROTECT, related_name="lifecycle_events")
     event_type = models.CharField(max_length=24, choices=EVENT_CHOICES)
     occurred_at = models.DateTimeField()
     effective_date = models.DateField(null=True, blank=True)
-    actor = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT,
-        related_name="lease_lifecycle_events",
-        null=True,
-        blank=True,
-    )
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="lease_lifecycle_events", null=True, blank=True)
     metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -55,33 +41,15 @@ class LeaseLifecycleEvent(models.Model):
             models.Index(fields=["lease", "occurred_at"], name="lease_evt_lease_time_idx"),
         ]
         constraints = [
-            models.CheckConstraint(
-                condition=Q(event_type__in=[
-                    "created",
-                    "pending_signature",
-                    "activated",
-                    "renewed",
-                    "notice",
-                    "expired",
-                    "terminated",
-                    "cancelled",
-                ]),
-                name="lease_evt_type_valid",
-            ),
+            models.CheckConstraint(condition=Q(event_type__in=["created", "pending_signature", "activated", "renewed", "notice", "expired", "terminated", "cancelled"]), name="lease_evt_type_valid"),
         ]
 
     def clean(self):
-        if self.lease_id and self.workspace_id:
-            if self.lease.workspace_id != self.workspace_id:
-                raise ValidationError("Lifecycle event must belong to the same workspace as the lease")
+        if self.lease_id and self.workspace_id and self.lease.workspace_id != self.workspace_id:
+            raise ValidationError("Lifecycle event must belong to the same workspace as the lease")
         if self.actor_id and self.workspace_id:
             from workspaces.models import Membership
-
-            if not Membership.objects.filter(
-                workspace_id=self.workspace_id,
-                user_id=self.actor_id,
-                is_active=True,
-            ).exists():
+            if not Membership.objects.filter(workspace_id=self.workspace_id, user_id=self.actor_id, is_active=True).exists():
                 raise ValidationError("Lifecycle event actor must be an active workspace member")
 
     def save(self, *args, **kwargs):
@@ -97,7 +65,6 @@ class LeaseNotice(models.Model):
     STATUS_WITHDRAWN = "withdrawn"
     STATUS_EFFECTIVE = "effective"
     STATUS_COMPLETED = "completed"
-
     STATUS_CHOICES = (
         (STATUS_DRAFT, "Draft"),
         (STATUS_ISSUED, "Issued"),
@@ -105,7 +72,6 @@ class LeaseNotice(models.Model):
         (STATUS_EFFECTIVE, "Effective"),
         (STATUS_COMPLETED, "Completed"),
     )
-
     TYPE_TERMINATION = "termination"
     TYPE_NON_RENEWAL = "non_renewal"
     TYPE_OTHER = "other"
@@ -114,27 +80,14 @@ class LeaseNotice(models.Model):
         (TYPE_NON_RENEWAL, "Non Renewal"),
         (TYPE_OTHER, "Other"),
     )
-
-    workspace = models.ForeignKey(
-        "workspaces.Workspace",
-        on_delete=models.PROTECT,
-        related_name="lease_notices",
-    )
-    lease = models.ForeignKey(
-        "leasing.Lease",
-        on_delete=models.PROTECT,
-        related_name="notices",
-    )
+    workspace = models.ForeignKey("workspaces.Workspace", on_delete=models.PROTECT, related_name="lease_notices")
+    lease = models.ForeignKey("leasing.Lease", on_delete=models.PROTECT, related_name="notices")
     notice_date = models.DateField()
     effective_date = models.DateField()
     notice_type = models.CharField(max_length=20, choices=TYPE_CHOICES)
     reason = models.CharField(max_length=500)
     status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_DRAFT)
-    created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT,
-        related_name="lease_notices_created",
-    )
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="lease_notices_created")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -145,36 +98,77 @@ class LeaseNotice(models.Model):
             models.Index(fields=["workspace", "status"], name="lease_note_ws_status_idx"),
         ]
         constraints = [
-            models.CheckConstraint(
-                condition=Q(effective_date__gte=models.F("notice_date")),
-                name="lease_note_eff_gte_notice",
-            ),
-            models.CheckConstraint(
-                condition=Q(status__in=["draft", "issued", "withdrawn", "effective", "completed"]),
-                name="lease_note_status_valid",
-            ),
-            models.CheckConstraint(
-                condition=Q(notice_type__in=["termination", "non_renewal", "other"]),
-                name="lease_note_type_valid",
-            ),
+            models.CheckConstraint(condition=Q(effective_date__gte=models.F("notice_date")), name="lease_note_eff_gte_notice"),
+            models.CheckConstraint(condition=Q(status__in=["draft", "issued", "withdrawn", "effective", "completed"]), name="lease_note_status_valid"),
+            models.CheckConstraint(condition=Q(notice_type__in=["termination", "non_renewal", "other"]), name="lease_note_type_valid"),
         ]
 
     def clean(self):
         if not self.reason or not self.reason.strip():
             raise ValidationError("Notice reason is required")
-        if self.lease_id and self.workspace_id:
-            if self.lease.workspace_id != self.workspace_id:
-                raise ValidationError("Notice must belong to the same workspace as the lease")
+        if self.lease_id and self.workspace_id and self.lease.workspace_id != self.workspace_id:
+            raise ValidationError("Notice must belong to the same workspace as the lease")
         if self.created_by_id and self.workspace_id:
             from workspaces.models import Membership
-
-            if not Membership.objects.filter(
-                workspace_id=self.workspace_id,
-                user_id=self.created_by_id,
-                is_active=True,
-            ).exists():
+            if not Membership.objects.filter(workspace_id=self.workspace_id, user_id=self.created_by_id, is_active=True).exists():
                 raise ValidationError("Notice creator must be an active workspace member")
 
     def save(self, *args, **kwargs):
         self.clean()
+        super().save(*args, **kwargs)
+
+
+class LeaseRenewal(models.Model):
+    STATUS_DRAFT = "draft"
+    STATUS_CONFIRMED = "confirmed"
+    STATUS_CANCELLED = "cancelled"
+    STATUS_CHOICES = (
+        (STATUS_DRAFT, "Draft"),
+        (STATUS_CONFIRMED, "Confirmed"),
+        (STATUS_CANCELLED, "Cancelled"),
+    )
+
+    workspace = models.ForeignKey("workspaces.Workspace", on_delete=models.PROTECT, related_name="lease_renewals")
+    source_lease = models.ForeignKey("leasing.Lease", on_delete=models.PROTECT, related_name="renewals")
+    renewal_number = models.PositiveIntegerField()
+    start_date = models.DateField()
+    end_date = models.DateField()
+    rent_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    security_deposit = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    notice_period_days = models.PositiveIntegerField(default=0)
+    terms = models.JSONField(default=dict, blank=True)
+    agreement_reference = models.CharField(max_length=500, blank=True)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_DRAFT)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="lease_renewals_created")
+    created_at = models.DateTimeField(auto_now_add=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["workspace", "source_lease"], name="lease_renew_ws_src_idx"),
+            models.Index(fields=["workspace", "start_date"], name="lease_renew_ws_start_idx"),
+            models.Index(fields=["workspace", "status"], name="lease_renew_ws_status_idx"),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["source_lease", "renewal_number"], name="lease_renew_src_num_uniq"),
+            models.CheckConstraint(condition=Q(renewal_number__gte=1), name="lease_renew_num_positive"),
+            models.CheckConstraint(condition=Q(end_date__gte=models.F("start_date")), name="lease_renew_end_gte_start"),
+            models.CheckConstraint(condition=Q(rent_amount__gte=0), name="lease_renew_rent_non_negative"),
+            models.CheckConstraint(condition=Q(security_deposit__gte=0), name="lease_renew_dep_non_negative"),
+            models.CheckConstraint(condition=Q(status__in=["draft", "confirmed", "cancelled"]), name="lease_renew_status_valid"),
+        ]
+
+    def clean(self):
+        if self.source_lease_id and self.workspace_id and self.source_lease.workspace_id != self.workspace_id:
+            raise ValidationError("Renewal must belong to the same workspace as the source lease")
+        if self.created_by_id and self.workspace_id:
+            from workspaces.models import Membership
+            if not Membership.objects.filter(workspace_id=self.workspace_id, user_id=self.created_by_id, is_active=True).exists():
+                raise ValidationError("Renewal creator must be an active workspace member")
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        if self.pk and self.status == self.STATUS_CONFIRMED:
+            raise ValidationError("Confirmed renewals are immutable")
         super().save(*args, **kwargs)
