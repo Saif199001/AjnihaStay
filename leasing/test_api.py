@@ -63,10 +63,11 @@ class LeaseApiTests(TestCase):
         self.assertEqual(other_list.data["data"], [])
 
     def test_write_endpoints_require_manager_permission(self):
+        lease_id = self.create_lease()
+
         create_request = self.auth(self.factory.post("/api/leases/create/", self.payload(), format="json"), self.member)
         self.assertEqual(lease_create_api(create_request).status_code, 403)
 
-        lease_id = self.create_lease()
         update_request = self.auth(self.factory.post(f"/api/leases/{lease_id}/update/", {"agreement_number": "P14-001"}, format="json"), self.member)
         self.assertEqual(lease_update_api(update_request, lease_id).status_code, 403)
 
@@ -81,7 +82,7 @@ class LeaseApiTests(TestCase):
             (lease_update_api, self.factory.post("/api/leases/1/update/", {}, format="json"), (1,)),
             (lease_transition_api, self.factory.post("/api/leases/1/transition/", {"status": Lease.STATUS_PENDING_SIGNATURE}, format="json"), (1,)),
         ):
-            self.assertEqual(view(self.unauth(request), *args).status_code, 403)
+            self.assertEqual(view(self.unauth(request), *args).status_code, 401)
 
     def test_detail_returns_404_for_wrong_workspace(self):
         lease_id = self.create_lease()
