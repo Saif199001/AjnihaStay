@@ -143,6 +143,12 @@ class LeaseModelTests(TestCase):
         with self.assertRaises(ValidationError):
             Lease.objects.create(**self._lease_kwargs(status="not_a_status"))
 
+    def test_lease_status_has_database_constraint(self):
+        lease = Lease(**self._lease_kwargs(status="not_a_status"))
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Lease.objects.bulk_create([lease])
+
     def test_lease_rejects_negative_financial_values(self):
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
