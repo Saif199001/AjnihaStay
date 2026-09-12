@@ -15,7 +15,10 @@ from workspaces.models import Membership, Workspace
 
 class LeaseModelTests(TestCase):
     def setUp(self):
-        self.owner = User.objects.create_user(username="lease-owner", password="pass")
+        self.owner = User.objects.create_user(
+            email="lease-owner@example.com",
+            password="pass",
+        )
         self.workspace = Workspace.objects.create(name="Lease Workspace", owner=self.owner)
         Membership.objects.create(
             workspace=self.workspace,
@@ -81,7 +84,10 @@ class LeaseModelTests(TestCase):
             )
 
     def test_lease_rejects_cross_workspace_occupancy(self):
-        other_owner = User.objects.create_user(username="other-owner", password="pass")
+        other_owner = User.objects.create_user(
+            email="other-owner@example.com",
+            password="pass",
+        )
         other_workspace = Workspace.objects.create(name="Other Workspace", owner=other_owner)
         Membership.objects.create(
             workspace=other_workspace,
@@ -104,12 +110,12 @@ class LeaseModelTests(TestCase):
         self.assertEqual(
             indexes,
             {
-                "leasing_leas_workspa_9a1c2b_idx",
-                "leasing_leas_workspa_4f7d8e_idx",
-                "leasing_leas_workspa_6b2e5a_idx",
+                "lease_ws_status_idx",
+                "lease_ws_start_idx",
+                "lease_ws_end_idx",
             },
         )
-        self.assertTrue(all(len(name) <= 63 for name in indexes))
+        self.assertTrue(all(len(name) <= 30 for name in indexes))
 
     def test_postgres_rls_policy_exists_when_available(self):
         if connection.vendor != "postgresql":
