@@ -20,6 +20,7 @@ class Lease(models.Model):
         (STATUS_TERMINATED, "Terminated"),
         (STATUS_CANCELLED, "Cancelled"),
     )
+    VALID_STATUSES = {choice[0] for choice in STATUS_CHOICES}
 
     workspace = models.ForeignKey(
         "workspaces.Workspace",
@@ -77,9 +78,15 @@ class Lease(models.Model):
                 condition=Q(security_deposit__gte=0),
                 name="lease_deposit_non_negative",
             ),
+            models.CheckConstraint(
+                condition=Q(status__in=[choice[0] for choice in STATUS_CHOICES]),
+                name="lease_status_valid",
+            ),
         ]
 
     def clean(self):
+        if self.status not in self.VALID_STATUSES:
+            raise ValidationError("Invalid lease status")
         if self.start_date and self.end_date and self.end_date < self.start_date:
             raise ValidationError("Lease end date cannot be before start date")
         if self.occupancy_id and self.workspace_id:
