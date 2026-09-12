@@ -20,7 +20,7 @@ class LeaseApiTests(TestCase):
         self.manager = User.objects.create_user(email="p14-manager@example.com", password="pass")
         self.member = User.objects.create_user(email="p14-member@example.com", password="pass")
         self.workspace = Workspace.objects.create(name="P14 Workspace", slug="p14-workspace", owner=self.owner)
-        for user, role in ((self.owner, "owner"), (self.manager, "manager"), (self.member, "member")):
+        for user, role in ((self.owner, "owner"), (self.manager, "manager"), (self.member, "staff")):
             Membership.objects.create(workspace=self.workspace, user=user, role=role, is_active=True)
         prop = Property.objects.create(owner=self.owner, workspace=self.workspace, name="P14 Property", property_type="flat", address="Address", city="Lucknow", state="UP", pincode="226001")
         unit = Unit.objects.create(property=prop, unit_type="flat", unit_number="101", rent=Decimal("12000.00"))
