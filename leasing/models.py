@@ -66,29 +66,10 @@ class Lease(models.Model):
             models.Index(fields=["workspace", "end_date"], name="lease_ws_end_idx"),
         ]
         constraints = [
-            models.CheckConstraint(
-                condition=Q(end_date__gte=models.F("start_date")),
-                name="lease_end_gte_start",
-            ),
-            models.CheckConstraint(
-                condition=Q(rent_amount__gte=0),
-                name="lease_rent_non_negative",
-            ),
-            models.CheckConstraint(
-                condition=Q(security_deposit__gte=0),
-                name="lease_deposit_non_negative",
-            ),
-            models.CheckConstraint(
-                condition=Q(status__in=[
-                    "draft",
-                    "pending_signature",
-                    "active",
-                    "expired",
-                    "terminated",
-                    "cancelled",
-                ]),
-                name="lease_status_valid",
-            ),
+            models.CheckConstraint(condition=Q(end_date__gte=models.F("start_date")), name="lease_end_gte_start"),
+            models.CheckConstraint(condition=Q(rent_amount__gte=0), name="lease_rent_non_negative"),
+            models.CheckConstraint(condition=Q(security_deposit__gte=0), name="lease_deposit_non_negative"),
+            models.CheckConstraint(condition=Q(status__in=["draft", "pending_signature", "active", "expired", "terminated", "cancelled"]), name="lease_status_valid"),
         ]
 
     def clean(self):
@@ -101,12 +82,7 @@ class Lease(models.Model):
                 raise ValidationError("Lease occupancy must belong to the same workspace")
         if self.created_by_id and self.workspace_id:
             from workspaces.models import Membership
-
-            if not Membership.objects.filter(
-                workspace_id=self.workspace_id,
-                user_id=self.created_by_id,
-                is_active=True,
-            ).exists():
+            if not Membership.objects.filter(workspace_id=self.workspace_id, user_id=self.created_by_id, is_active=True).exists():
                 raise ValidationError("Lease creator must be an active workspace member")
 
     def save(self, *args, **kwargs):
@@ -115,3 +91,6 @@ class Lease(models.Model):
 
     def __str__(self):
         return self.agreement_number or f"Lease #{self.pk}"
+
+
+from .lifecycle_models import LeaseLifecycleEvent, LeaseNotice  # noqa: E402,F401
