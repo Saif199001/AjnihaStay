@@ -8,6 +8,7 @@ urlpatterns = [
     path("", include("properties.urls")),
     path("", include("unit.urls")),
     path("", include("tenant.urls")),
+    path("", include("leasing.urls")),
     path("", include("payments.urls")),
     path("", include("dashboard.urls")),
 ]
