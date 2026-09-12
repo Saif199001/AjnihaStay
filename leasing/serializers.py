@@ -6,7 +6,27 @@ from .models import Lease
 class LeaseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Lease
-        fields = "__all__"
+        fields = [
+            "id",
+            "workspace",
+            "occupancy",
+            "agreement_number",
+            "start_date",
+            "end_date",
+            "rent_amount",
+            "security_deposit",
+            "notice_period_days",
+            "status",
+            "terms",
+            "agreement_reference",
+            "created_by",
+            "updated_by",
+            "created_at",
+            "updated_at",
+            "activated_at",
+            "terminated_at",
+            "cancelled_at",
+        ]
         read_only_fields = [
             "id",
             "workspace",
@@ -17,6 +37,7 @@ class LeaseSerializer(serializers.ModelSerializer):
             "activated_at",
             "terminated_at",
             "cancelled_at",
+            "status",
         ]
 
     def validate_rent_amount(self, value):
@@ -34,8 +55,6 @@ class LeaseSerializer(serializers.ModelSerializer):
         end_date = data.get("end_date")
         if start_date and end_date and end_date < start_date:
             raise serializers.ValidationError("Lease end date cannot be before start date")
-        if data.get("status") not in (None, Lease.STATUS_DRAFT):
-            raise serializers.ValidationError("New leases must start in draft status")
         return data
 
 
