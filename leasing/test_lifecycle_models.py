@@ -2,6 +2,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 
 from accounts.models import User
@@ -143,16 +144,17 @@ class LeaseLifecycleModelTests(TestCase):
             created_by=self.owner,
         )
         self.assertEqual(notice.status, LeaseNotice.STATUS_DRAFT)
-        with self.assertRaises(ValidationError):
-            LeaseNotice.objects.create(
-                workspace=self.workspace,
-                lease=self.lease,
-                notice_date=date(2026, 6, 2),
-                effective_date=date(2026, 6, 1),
-                notice_type=LeaseNotice.TYPE_TERMINATION,
-                reason="Invalid date",
-                created_by=self.owner,
-            )
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                LeaseNotice.objects.create(
+                    workspace=self.workspace,
+                    lease=self.lease,
+                    notice_date=date(2026, 6, 2),
+                    effective_date=date(2026, 6, 1),
+                    notice_type=LeaseNotice.TYPE_TERMINATION,
+                    reason="Invalid date",
+                    created_by=self.owner,
+                )
         with self.assertRaises(ValidationError):
             LeaseNotice.objects.create(
                 workspace=self.workspace,
