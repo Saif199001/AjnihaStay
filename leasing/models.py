@@ -79,7 +79,14 @@ class Lease(models.Model):
                 name="lease_deposit_non_negative",
             ),
             models.CheckConstraint(
-                condition=Q(status__in=[choice[0] for choice in STATUS_CHOICES]),
+                condition=Q(status__in=[
+                    "draft",
+                    "pending_signature",
+                    "active",
+                    "expired",
+                    "terminated",
+                    "cancelled",
+                ]),
                 name="lease_status_valid",
             ),
         ]
