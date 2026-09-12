@@ -45,8 +45,10 @@ class LeaseModelTests(TestCase):
         self.tenant = Tenant.objects.create(
             owner=self.owner,
             workspace=self.workspace,
-            name="Tenant One",
+            full_name="Tenant One",
+            phone="9999999999",
             email="tenant@example.com",
+            permanent_address="Lucknow, Uttar Pradesh",
         )
         self.occupancy = Occupancy.objects.create(
             tenant=self.tenant,
