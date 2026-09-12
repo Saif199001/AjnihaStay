@@ -139,6 +139,10 @@ class LeaseModelTests(TestCase):
         with self.assertRaises(ValidationError):
             Lease.objects.create(**self._lease_kwargs(created_by=inactive_user))
 
+    def test_lease_rejects_invalid_status(self):
+        with self.assertRaises(ValidationError):
+            Lease.objects.create(**self._lease_kwargs(status="not_a_status"))
+
     def test_lease_rejects_negative_financial_values(self):
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
