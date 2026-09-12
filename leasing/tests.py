@@ -2,7 +2,7 @@ from datetime import date
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
-from django.db import connection, IntegrityError
+from django.db import connection, IntegrityError, transaction
 from django.test import TestCase
 
 from accounts.models import User
@@ -86,7 +86,8 @@ class LeaseModelTests(TestCase):
     def test_lease_occupancy_is_one_to_one(self):
         Lease.objects.create(**self._lease_kwargs())
         with self.assertRaises(IntegrityError):
-            Lease.objects.create(**self._lease_kwargs(agreement_number="LEASE-2"))
+            with transaction.atomic():
+                Lease.objects.create(**self._lease_kwargs(agreement_number="LEASE-2"))
 
     def test_lease_related_names_are_contractual(self):
         self.assertEqual(Lease._meta.get_field("workspace").remote_field.related_name, "leases")
@@ -140,9 +141,11 @@ class LeaseModelTests(TestCase):
 
     def test_lease_rejects_negative_financial_values(self):
         with self.assertRaises(IntegrityError):
-            Lease.objects.create(**self._lease_kwargs(rent_amount=Decimal("-1.00")))
+            with transaction.atomic():
+                Lease.objects.create(**self._lease_kwargs(rent_amount=Decimal("-1.00")))
         with self.assertRaises(IntegrityError):
-            Lease.objects.create(**self._lease_kwargs(security_deposit=Decimal("-1.00")))
+            with transaction.atomic():
+                Lease.objects.create(**self._lease_kwargs(security_deposit=Decimal("-1.00")))
 
     def test_lease_index_names_are_explicit_and_short(self):
         indexes = {index.name for index in Lease._meta.indexes}
