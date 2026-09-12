@@ -19,7 +19,11 @@ class LeaseModelTests(TestCase):
             email="lease-owner@example.com",
             password="pass",
         )
-        self.workspace = Workspace.objects.create(name="Lease Workspace", owner=self.owner)
+        self.workspace = Workspace.objects.create(
+            name="Lease Workspace",
+            slug="lease-workspace",
+            owner=self.owner,
+        )
         Membership.objects.create(
             workspace=self.workspace,
             user=self.owner,
@@ -72,7 +76,7 @@ class LeaseModelTests(TestCase):
             created_by=self.owner,
         )
         self.assertEqual(lease.occupancy.tenant_id, self.tenant.id)
-        self.assertEqual(self.occupancy.lease_id, lease.id)
+        self.assertEqual(self.occupancy.lease.id, lease.id)
 
     def test_lease_rejects_invalid_dates(self):
         with self.assertRaises(ValidationError):
@@ -90,7 +94,11 @@ class LeaseModelTests(TestCase):
             email="other-owner@example.com",
             password="pass",
         )
-        other_workspace = Workspace.objects.create(name="Other Workspace", owner=other_owner)
+        other_workspace = Workspace.objects.create(
+            name="Other Workspace",
+            slug="other-workspace",
+            owner=other_owner,
+        )
         Membership.objects.create(
             workspace=other_workspace,
             user=other_owner,
