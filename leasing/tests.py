@@ -139,9 +139,9 @@ class LeaseModelTests(TestCase):
             Lease.objects.create(**self._lease_kwargs(created_by=inactive_user))
 
     def test_lease_rejects_negative_financial_values(self):
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(IntegrityError):
             Lease.objects.create(**self._lease_kwargs(rent_amount=Decimal("-1.00")))
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(IntegrityError):
             Lease.objects.create(**self._lease_kwargs(security_deposit=Decimal("-1.00")))
 
     def test_lease_index_names_are_explicit_and_short(self):
