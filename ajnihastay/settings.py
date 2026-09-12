@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     "properties",
     "unit",
     "tenant",
+    "leasing",
     "payments",
     "cloudinary",
     "cloudinary_storage",
