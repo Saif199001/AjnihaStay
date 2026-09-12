@@ -169,6 +169,8 @@ class LeaseRenewal(models.Model):
 
     def save(self, *args, **kwargs):
         self.clean()
-        if self.pk and self.status == self.STATUS_CONFIRMED:
-            raise ValidationError("Confirmed renewals are immutable")
+        if self.pk:
+            previous_status = type(self).objects.filter(pk=self.pk).values_list("status", flat=True).first()
+            if previous_status == self.STATUS_CONFIRMED:
+                raise ValidationError("Confirmed renewals are immutable")
         super().save(*args, **kwargs)
