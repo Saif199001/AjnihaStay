@@ -115,16 +115,13 @@ class TerminationServiceTests(TestCase):
         with self.assertRaises(ValidationError):
             terminate_lease(self.manager, self.workspace, draft.id, reason="Not active")
 
-        # Lease.occupancy is intentionally OneToOne, so reuse the same occupancy
-        # only after the draft fixture has been removed. This keeps the test
-        # aligned with the existing domain constraint instead of manufacturing
-        # an invalid second lease/occupancy pair.
-        draft.delete()
-        active = self._active_lease()
-        active.status = Lease.STATUS_EXPIRED
-        active.save()
+        # Keep the same lease fixture and move it directly to a terminal state.
+        # Deleting the draft is intentionally avoided because lifecycle history
+        # is protected and Lease.occupancy is intentionally OneToOne.
+        draft.status = Lease.STATUS_EXPIRED
+        draft.save()
         with self.assertRaises(ValidationError):
-            terminate_lease(self.manager, self.workspace, active.id, reason="Already expired")
+            terminate_lease(self.manager, self.workspace, draft.id, reason="Already expired")
 
     def test_repeated_identical_termination_is_idempotent(self):
         lease = self._active_lease()
