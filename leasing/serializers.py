@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from .lifecycle_models import LeaseNotice
 from .models import Lease
 
 
@@ -7,37 +8,14 @@ class LeaseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Lease
         fields = [
-            "id",
-            "workspace",
-            "occupancy",
-            "agreement_number",
-            "start_date",
-            "end_date",
-            "rent_amount",
-            "security_deposit",
-            "notice_period_days",
-            "status",
-            "terms",
-            "agreement_reference",
-            "created_by",
-            "updated_by",
-            "created_at",
-            "updated_at",
-            "activated_at",
-            "terminated_at",
-            "cancelled_at",
+            "id", "workspace", "occupancy", "agreement_number", "start_date", "end_date",
+            "rent_amount", "security_deposit", "notice_period_days", "status", "terms",
+            "agreement_reference", "created_by", "updated_by", "created_at", "updated_at",
+            "activated_at", "terminated_at", "cancelled_at",
         ]
         read_only_fields = [
-            "id",
-            "workspace",
-            "created_by",
-            "updated_by",
-            "created_at",
-            "updated_at",
-            "activated_at",
-            "terminated_at",
-            "cancelled_at",
-            "status",
+            "id", "workspace", "created_by", "updated_by", "created_at", "updated_at",
+            "activated_at", "terminated_at", "cancelled_at", "status",
         ]
 
     def validate_rent_amount(self, value):
@@ -60,3 +38,22 @@ class LeaseSerializer(serializers.ModelSerializer):
 
 class LeaseTransitionSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=Lease.STATUS_CHOICES)
+
+
+class LeaseNoticeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LeaseNotice
+        fields = [
+            "id", "workspace", "lease", "notice_date", "effective_date", "notice_type",
+            "reason", "status", "created_by", "created_at", "updated_at",
+        ]
+        read_only_fields = ["id", "workspace", "status", "created_by", "created_at", "updated_at"]
+
+    def validate(self, data):
+        if data.get("effective_date") and data.get("notice_date") and data["effective_date"] < data["notice_date"]:
+            raise serializers.ValidationError("Notice effective date cannot be before notice date")
+        return data
+
+
+class LeaseNoticeTransitionSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=LeaseNotice.STATUS_CHOICES)
