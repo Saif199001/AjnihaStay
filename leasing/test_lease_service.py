@@ -9,6 +9,7 @@ from leasing.cancellation_service import cancel_lease
 from leasing.lease_service import create_lease, transition_lease, update_lease
 from leasing.lifecycle_models import LeaseContractVersion, LeaseLifecycleEvent
 from leasing.models import Lease
+from leasing.termination_service import terminate_lease
 from properties.models import Property
 from tenant.models import Occupancy, Tenant
 from unit.models import Unit
@@ -216,7 +217,12 @@ class LeaseServiceTests(TestCase):
         lease = create_lease(self.manager, self.workspace, self._data())
         transition_lease(self.manager, self.workspace, lease.id, Lease.STATUS_PENDING_SIGNATURE)
         transition_lease(self.manager, self.workspace, lease.id, Lease.STATUS_ACTIVE)
-        transition_lease(self.manager, self.workspace, lease.id, Lease.STATUS_TERMINATED)
+        lease = terminate_lease(
+            self.manager,
+            self.workspace,
+            lease.id,
+            reason="End of tenancy",
+        )
 
         events = LeaseLifecycleEvent.objects.filter(lease=lease).order_by("occurred_at", "id")
         self.assertEqual(events.count(), 4)
@@ -228,6 +234,25 @@ class LeaseServiceTests(TestCase):
         self.assertEqual(terminated.actor_id, self.manager.id)
         self.assertEqual(terminated.metadata["from_status"], Lease.STATUS_ACTIVE)
         self.assertEqual(terminated.metadata["to_status"], Lease.STATUS_TERMINATED)
+
+    def test_generic_transition_rejects_terminal_lifecycle_services(self):
+        lease = create_lease(self.manager, self.workspace, self._data())
+        transition_lease(self.manager, self.workspace, lease.id, Lease.STATUS_PENDING_SIGNATURE)
+        transition_lease(self.manager, self.workspace, lease.id, Lease.STATUS_ACTIVE)
+
+        for target_status in (Lease.STATUS_EXPIRED, Lease.STATUS_TERMINATED):
+            with self.assertRaisesMessage(
+                ValidationError,
+                "Terminal lease transitions must use their dedicated lifecycle service",
+            ):
+                transition_lease(
+                    self.manager,
+                    self.workspace,
+                    lease.id,
+                    target_status,
+                )
+        lease.refresh_from_db()
+        self.assertEqual(lease.status, Lease.STATUS_ACTIVE)
 
     def test_same_status_transition_does_not_duplicate_event(self):
         lease = create_lease(self.manager, self.workspace, self._data())
