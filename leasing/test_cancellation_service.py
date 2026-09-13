@@ -72,6 +72,32 @@ class CancellationServiceTests(TestCase):
         lease = self._pending_lease(**overrides)
         return transition_lease(self.manager, self.workspace, lease.id, Lease.STATUS_ACTIVE)
 
+    def _separate_occupancy(self, number, email, full_name):
+        unit = Unit.objects.create(
+            property=self.property,
+            unit_type="flat",
+            unit_number=number,
+            rent=Decimal("12000.00"),
+        )
+        tenant = Tenant.objects.create(
+            owner=self.owner,
+            workspace=self.workspace,
+            full_name=full_name,
+            phone=f"99999999{number[-2:]}",
+            email=email,
+            permanent_address="Lucknow, Uttar Pradesh",
+        )
+        return Occupancy.objects.create(
+            tenant=tenant,
+            unit=unit,
+            rent=Decimal("12000.00"),
+            security_deposit=Decimal("24000.00"),
+            check_in_date=date(2026, 1, 1),
+            check_out_date=date(2026, 12, 31),
+            next_due_date=date(2026, 1, 1),
+            is_active=True,
+        )
+
     def test_cancellation_records_reason_effective_date_actor_and_status_transition(self):
         lease = self._lease()
         effective_date = timezone.localdate()
@@ -119,12 +145,18 @@ class CancellationServiceTests(TestCase):
         with self.assertRaises(ValidationError):
             cancel_lease(self.manager, self.workspace, active.id, reason="Too late")
 
-        expired = self._active_lease(end_date=timezone.localdate())
+        expired_occupancy = self._separate_occupancy(
+            "102", "cancellation-expired@example.com", "Cancellation Expired Tenant"
+        )
+        expired = self._active_lease(occupancy=expired_occupancy, end_date=timezone.localdate())
         expire_lease(self.manager, self.workspace, expired.id)
         with self.assertRaises(ValidationError):
             cancel_lease(self.manager, self.workspace, expired.id, reason="Already expired")
 
-        terminated = self._active_lease()
+        terminated_occupancy = self._separate_occupancy(
+            "103", "cancellation-terminated@example.com", "Cancellation Terminated Tenant"
+        )
+        terminated = self._active_lease(occupancy=terminated_occupancy)
         terminate_lease(self.manager, self.workspace, terminated.id, reason="Already terminated")
         with self.assertRaises(ValidationError):
             cancel_lease(self.manager, self.workspace, terminated.id, reason="Already terminated")
