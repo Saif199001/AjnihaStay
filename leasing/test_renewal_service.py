@@ -5,7 +5,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import TestCase
 
 from accounts.models import User
-from leasing.lifecycle_models import LeaseRenewal
+from leasing.lifecycle_models import LeaseContractVersion, LeaseRenewal
 from leasing.models import Lease
 from leasing.renewal_service import cancel_renewal, confirm_renewal, create_renewal
 from properties.models import Property
@@ -72,14 +72,46 @@ class LeaseRenewalServiceTests(TestCase):
         with self.assertRaises(ValidationError):
             create_renewal(other_owner, other_workspace, self.lease.id, self._data())
 
-    def test_confirm_renewal_sets_confirmed_at_and_is_idempotent(self):
-        renewal = create_renewal(self.manager, self.workspace, self.lease.id, self._data())
+    def test_confirm_renewal_materializes_immutable_successor_version(self):
+        renewal = create_renewal(self.manager, self.workspace, self.lease.id, self._data(rent_amount=Decimal("13500.00"), security_deposit=Decimal("27000.00")))
         confirmed = confirm_renewal(self.manager, self.workspace, renewal.id)
+        confirmed.refresh_from_db()
+
         self.assertEqual(confirmed.status, LeaseRenewal.STATUS_CONFIRMED)
         self.assertIsNotNone(confirmed.confirmed_at)
-        again = confirm_renewal(self.manager, self.workspace, renewal.id)
-        self.assertEqual(again.id, renewal.id)
-        self.assertEqual(again.status, LeaseRenewal.STATUS_CONFIRMED)
+        self.assertIsNotNone(confirmed.successor_version_id)
+
+        version_one = LeaseContractVersion.objects.get(lease=self.lease, version_number=1)
+        successor = LeaseContractVersion.objects.get(pk=confirmed.successor_version_id)
+        self.assertEqual(successor.version_number, 2)
+        self.assertEqual(successor.predecessor_id, version_one.id)
+        self.assertEqual(successor.start_date, renewal.start_date)
+        self.assertEqual(successor.end_date, renewal.end_date)
+        self.assertEqual(successor.rent_amount, Decimal("13500.00"))
+        self.assertEqual(successor.security_deposit, Decimal("27000.00"))
+        self.assertEqual(successor.source_renewal.id, renewal.id)
+        self.assertEqual(self.lease.rent_amount, Decimal("12000.00"))
+
+    def test_confirm_renewal_is_idempotent_without_duplicate_successor(self):
+        renewal = create_renewal(self.manager, self.workspace, self.lease.id, self._data())
+        first = confirm_renewal(self.manager, self.workspace, renewal.id)
+        second = confirm_renewal(self.manager, self.workspace, renewal.id)
+        self.assertEqual(first.id, second.id)
+        self.assertEqual(LeaseContractVersion.objects.filter(lease=self.lease).count(), 2)
+        self.assertEqual(second.successor_version_id, first.successor_version_id)
+
+    def test_second_confirmed_renewal_continues_version_chain(self):
+        first = create_renewal(self.manager, self.workspace, self.lease.id, self._data())
+        confirm_renewal(self.manager, self.workspace, first.id)
+        second = create_renewal(self.manager, self.workspace, self.lease.id, self._data(start_date=date(2028, 1, 1), end_date=date(2028, 12, 31)))
+        confirmed_second = confirm_renewal(self.manager, self.workspace, second.id)
+
+        version_one = LeaseContractVersion.objects.get(lease=self.lease, version_number=1)
+        version_two = LeaseContractVersion.objects.get(lease=self.lease, version_number=2)
+        version_three = LeaseContractVersion.objects.get(lease=self.lease, version_number=3)
+        self.assertEqual(version_two.predecessor_id, version_one.id)
+        self.assertEqual(version_three.predecessor_id, version_two.id)
+        self.assertEqual(confirmed_second.successor_version_id, version_three.id)
 
     def test_confirm_renewal_rejects_cancelled(self):
         renewal = create_renewal(self.manager, self.workspace, self.lease.id, self._data())
@@ -102,6 +134,7 @@ class LeaseRenewalServiceTests(TestCase):
         again = cancel_renewal(self.manager, self.workspace, renewal.id)
         self.assertEqual(again.id, renewal.id)
         self.assertEqual(again.status, LeaseRenewal.STATUS_CANCELLED)
+        self.assertIsNone(again.successor_version_id)
 
     def test_cancel_renewal_rejects_confirmed(self):
         renewal = create_renewal(self.manager, self.workspace, self.lease.id, self._data())
