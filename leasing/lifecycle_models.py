@@ -143,6 +143,13 @@ class LeaseRenewal(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     confirmed_at = models.DateTimeField(null=True, blank=True)
     cancelled_at = models.DateTimeField(null=True, blank=True)
+    successor_version = models.OneToOneField(
+        "LeaseContractVersion",
+        on_delete=models.PROTECT,
+        related_name="source_renewal",
+        null=True,
+        blank=True,
+    )
 
     class Meta:
         indexes = [
@@ -162,6 +169,8 @@ class LeaseRenewal(models.Model):
     def clean(self):
         if self.source_lease_id and self.workspace_id and self.source_lease.workspace_id != self.workspace_id:
             raise ValidationError("Renewal must belong to the same workspace as the source lease")
+        if self.successor_version_id and self.successor_version.workspace_id != self.workspace_id:
+            raise ValidationError("Renewal successor version must belong to the same workspace")
         if self.created_by_id and self.workspace_id:
             from workspaces.models import Membership
             if not Membership.objects.filter(workspace_id=self.workspace_id, user_id=self.created_by_id, is_active=True).exists():
@@ -173,4 +182,80 @@ class LeaseRenewal(models.Model):
             previous_status = type(self).objects.filter(pk=self.pk).values_list("status", flat=True).first()
             if previous_status == self.STATUS_CONFIRMED:
                 raise ValidationError("Confirmed renewals are immutable")
+        super().save(*args, **kwargs)
+
+
+class LeaseContractVersion(models.Model):
+    """Immutable contractual-period snapshots owned by a Lease anchor.
+
+    This preserves the existing Lease -> Occupancy OneToOne contract while
+    giving renewal a durable predecessor/successor version chain.
+    """
+
+    lease = models.ForeignKey(
+        "leasing.Lease",
+        on_delete=models.PROTECT,
+        related_name="contract_versions",
+    )
+    workspace = models.ForeignKey(
+        "workspaces.Workspace",
+        on_delete=models.PROTECT,
+        related_name="lease_contract_versions",
+    )
+    version_number = models.PositiveIntegerField()
+    predecessor = models.OneToOneField(
+        "self",
+        on_delete=models.PROTECT,
+        related_name="successor",
+        null=True,
+        blank=True,
+    )
+    start_date = models.DateField()
+    end_date = models.DateField()
+    rent_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    security_deposit = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    notice_period_days = models.PositiveIntegerField(default=0)
+    terms = models.JSONField(default=dict, blank=True)
+    agreement_reference = models.CharField(max_length=500, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="lease_contract_versions_created",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["lease_id", "version_number"]
+        indexes = [
+            models.Index(fields=["workspace", "lease", "version_number"], name="lease_ver_ws_lease_num_idx"),
+            models.Index(fields=["workspace", "start_date"], name="lease_ver_ws_start_idx"),
+            models.Index(fields=["workspace", "end_date"], name="lease_ver_ws_end_idx"),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["lease", "version_number"], name="lease_ver_lease_num_uniq"),
+            models.CheckConstraint(condition=Q(version_number__gte=1), name="lease_ver_num_positive"),
+            models.CheckConstraint(condition=Q(end_date__gte=models.F("start_date")), name="lease_ver_end_gte_start"),
+            models.CheckConstraint(condition=Q(rent_amount__gte=0), name="lease_ver_rent_non_negative"),
+            models.CheckConstraint(condition=Q(security_deposit__gte=0), name="lease_ver_dep_non_negative"),
+        ]
+
+    def clean(self):
+        if self.lease_id and self.workspace_id and self.lease.workspace_id != self.workspace_id:
+            raise ValidationError("Contract version must belong to the same workspace as the lease")
+        if self.predecessor_id:
+            if self.predecessor.lease_id != self.lease_id:
+                raise ValidationError("Contract version predecessor must belong to the same lease")
+            if self.predecessor.workspace_id != self.workspace_id:
+                raise ValidationError("Contract version predecessor must belong to the same workspace")
+            if self.version_number != self.predecessor.version_number + 1:
+                raise ValidationError("Contract version must increment directly from its predecessor")
+        if self.created_by_id and self.workspace_id:
+            from workspaces.models import Membership
+            if not Membership.objects.filter(workspace_id=self.workspace_id, user_id=self.created_by_id, is_active=True).exists():
+                raise ValidationError("Contract version creator must be an active workspace member")
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        if self.pk:
+            raise ValidationError("Lease contract versions are immutable")
         super().save(*args, **kwargs)
