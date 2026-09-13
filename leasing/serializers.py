@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .lifecycle_models import LeaseNotice
+from .lifecycle_models import LeaseNotice, LeaseRenewal
 from .models import Lease
 
 
@@ -62,3 +62,45 @@ class LeaseNoticeSerializer(serializers.ModelSerializer):
 
 class LeaseNoticeTransitionSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=LeaseNotice.STATUS_CHOICES)
+
+
+class LeaseRenewalSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LeaseRenewal
+        fields = [
+            "id", "workspace", "source_lease", "renewal_number", "start_date", "end_date",
+            "rent_amount", "security_deposit", "notice_period_days", "terms", "agreement_reference",
+            "status", "created_by", "created_at", "confirmed_at", "cancelled_at", "successor_version",
+        ]
+        read_only_fields = [
+            "id", "workspace", "source_lease", "status", "created_by", "created_at",
+            "confirmed_at", "cancelled_at", "successor_version",
+        ]
+
+    def validate(self, data):
+        if data.get("end_date") and data.get("start_date") and data["end_date"] < data["start_date"]:
+            raise serializers.ValidationError("Renewal end date cannot be before start date")
+        if data.get("rent_amount") is not None and data["rent_amount"] < 0:
+            raise serializers.ValidationError("Rent amount cannot be negative")
+        if data.get("security_deposit") is not None and data["security_deposit"] < 0:
+            raise serializers.ValidationError("Security deposit cannot be negative")
+        return data
+
+
+class LeaseRenewalCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LeaseRenewal
+        fields = [
+            "renewal_number", "start_date", "end_date", "rent_amount", "security_deposit",
+            "notice_period_days", "terms", "agreement_reference",
+        ]
+        extra_kwargs = {"renewal_number": {"required": False}}
+
+    def validate(self, data):
+        if data.get("end_date") and data.get("start_date") and data["end_date"] < data["start_date"]:
+            raise serializers.ValidationError("Renewal end date cannot be before start date")
+        return data
+
+
+class LeaseRenewalActionSerializer(serializers.Serializer):
+    action = serializers.ChoiceField(choices=["confirm", "cancel"])
