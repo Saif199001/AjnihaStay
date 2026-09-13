@@ -8,6 +8,7 @@ from django.test import TestCase
 from accounts.models import User
 from leasing.lease_service import create_lease, transition_lease, update_lease
 from leasing.models import Lease
+from leasing.termination_service import terminate_lease
 from properties.models import Property
 from tenant.models import Occupancy, Tenant
 from unit.models import Unit
@@ -87,7 +88,20 @@ class LeaseServiceHardeningTests(TestCase):
         lease = create_lease(self.manager, self.workspace, self.data())
         transition_lease(self.manager, self.workspace, lease.id, Lease.STATUS_PENDING_SIGNATURE)
         transition_lease(self.manager, self.workspace, lease.id, Lease.STATUS_ACTIVE)
-        transition_lease(self.manager, self.workspace, lease.id, Lease.STATUS_TERMINATED)
+
+        # Terminal lifecycle changes are owned by dedicated services, not the
+        # generic transition boundary. Once terminated, the terminal state is
+        # irreversible and cannot be changed to expired through that boundary.
+        terminate_lease(
+            self.manager,
+            self.workspace,
+            lease.id,
+            reason="P1.3 hardening test",
+            effective_date=date.today(),
+        )
+        lease.refresh_from_db()
+        self.assertEqual(lease.status, Lease.STATUS_TERMINATED)
+
         with self.assertRaises(ValidationError):
             transition_lease(self.manager, self.workspace, lease.id, Lease.STATUS_EXPIRED)
 
