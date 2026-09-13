@@ -32,11 +32,9 @@ IMMUTABLE_CONTRACT_STATUSES = {
 ALLOWED_TRANSITIONS = {
     Lease.STATUS_DRAFT: {
         Lease.STATUS_PENDING_SIGNATURE,
-        Lease.STATUS_CANCELLED,
     },
     Lease.STATUS_PENDING_SIGNATURE: {
         Lease.STATUS_ACTIVE,
-        Lease.STATUS_CANCELLED,
     },
     Lease.STATUS_ACTIVE: {
         Lease.STATUS_EXPIRED,
@@ -52,7 +50,6 @@ STATUS_EVENT_TYPES = {
     Lease.STATUS_ACTIVE: LeaseLifecycleEvent.EVENT_ACTIVATED,
     Lease.STATUS_EXPIRED: LeaseLifecycleEvent.EVENT_EXPIRED,
     Lease.STATUS_TERMINATED: LeaseLifecycleEvent.EVENT_TERMINATED,
-    Lease.STATUS_CANCELLED: LeaseLifecycleEvent.EVENT_CANCELLED,
 }
 
 
@@ -238,9 +235,6 @@ def transition_lease(user, workspace, lease_id, target_status):
         else:
             if target_status == Lease.STATUS_TERMINATED:
                 lease.terminated_at = now
-            elif target_status == Lease.STATUS_CANCELLED:
-                lease.cancelled_at = now
-
             lease.status = target_status
             lease.updated_by = user
             lease.save()
