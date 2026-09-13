@@ -22,6 +22,12 @@ def _validation_message(exc):
     return exc.messages[0] if exc.messages else str(exc)
 
 
+def _reject_renewal_action_payload(request):
+    if request.data:
+        return Response({"error": "Renewal action endpoints do not accept request fields"}, status=400)
+    return None
+
+
 @api_view(["GET"])
 @permission_classes([WorkspaceStaffPermission])
 def lease_list_api(request):
@@ -163,6 +169,9 @@ def lease_renewal_create_api(request, lease_id):
 @api_view(["POST"])
 @permission_classes([WorkspaceManagerPermission])
 def lease_renewal_confirm_api(request, renewal_id):
+    rejected = _reject_renewal_action_payload(request)
+    if rejected:
+        return rejected
     try:
         renewal = confirm_renewal(request.user, request.workspace, renewal_id)
     except ValidationError as exc:
@@ -173,6 +182,9 @@ def lease_renewal_confirm_api(request, renewal_id):
 @api_view(["POST"])
 @permission_classes([WorkspaceManagerPermission])
 def lease_renewal_cancel_api(request, renewal_id):
+    rejected = _reject_renewal_action_payload(request)
+    if rejected:
+        return rejected
     try:
         renewal = cancel_renewal(request.user, request.workspace, renewal_id)
     except ValidationError as exc:
