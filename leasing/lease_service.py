@@ -6,7 +6,8 @@ from django.db import transaction
 from payments.authorization import require_mutation_permission
 from tenant.models import Occupancy
 
-from .lifecycle_models import LeaseContractVersion
+from .lifecycle_event_service import append_lifecycle_event
+from .lifecycle_models import LeaseContractVersion, LeaseLifecycleEvent
 from .models import Lease
 
 
@@ -44,6 +45,14 @@ ALLOWED_TRANSITIONS = {
     Lease.STATUS_EXPIRED: set(),
     Lease.STATUS_TERMINATED: set(),
     Lease.STATUS_CANCELLED: set(),
+}
+
+STATUS_EVENT_TYPES = {
+    Lease.STATUS_PENDING_SIGNATURE: LeaseLifecycleEvent.EVENT_PENDING_SIGNATURE,
+    Lease.STATUS_ACTIVE: LeaseLifecycleEvent.EVENT_ACTIVATED,
+    Lease.STATUS_EXPIRED: LeaseLifecycleEvent.EVENT_EXPIRED,
+    Lease.STATUS_TERMINATED: LeaseLifecycleEvent.EVENT_TERMINATED,
+    Lease.STATUS_CANCELLED: LeaseLifecycleEvent.EVENT_CANCELLED,
 }
 
 
@@ -164,6 +173,15 @@ def create_lease(user, workspace, data):
             created_by=user,
         )
         lease.save()
+        append_lifecycle_event(
+            lease=lease,
+            event_type=LeaseLifecycleEvent.EVENT_CREATED,
+            actor=user,
+            occurred_at=lease.created_at,
+            effective_date=lease.start_date,
+            metadata={"status": Lease.STATUS_DRAFT},
+            event_key=LeaseLifecycleEvent.EVENT_CREATED,
+        )
         return lease
 
 
@@ -192,7 +210,7 @@ def update_lease(user, workspace, lease_id, changes):
 
 
 def transition_lease(user, workspace, lease_id, target_status):
-    """Apply a validated Lease lifecycle transition atomically."""
+    """Apply a validated Lease lifecycle transition atomically and record its event."""
     _require_active_member(user, workspace)
     if target_status not in Lease.VALID_STATUSES:
         raise ValidationError("Invalid lease status")
@@ -216,13 +234,26 @@ def transition_lease(user, workspace, lease_id, target_status):
             lease.updated_by = user
             lease.save()
             _ensure_active_contract_version(lease)
-            return lease
-        if target_status == Lease.STATUS_TERMINATED:
-            lease.terminated_at = now
-        elif target_status == Lease.STATUS_CANCELLED:
-            lease.cancelled_at = now
+        else:
+            if target_status == Lease.STATUS_TERMINATED:
+                lease.terminated_at = now
+            elif target_status == Lease.STATUS_CANCELLED:
+                lease.cancelled_at = now
 
-        lease.status = target_status
-        lease.updated_by = user
-        lease.save()
+            lease.status = target_status
+            lease.updated_by = user
+            lease.save()
+
+        append_lifecycle_event(
+            lease=lease,
+            event_type=STATUS_EVENT_TYPES[target_status],
+            actor=user,
+            occurred_at=now,
+            effective_date=now.date(),
+            metadata={
+                "from_status": lease.status if False else None,
+                "to_status": target_status,
+            },
+            event_key=STATUS_EVENT_TYPES[target_status],
+        )
         return lease
