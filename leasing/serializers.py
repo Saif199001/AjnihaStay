@@ -32,7 +32,7 @@ class LeaseSerializer(serializers.ModelSerializer):
         start_date = data.get("start_date")
         end_date = data.get("end_date")
         if start_date and end_date and end_date < start_date:
-            raise serializers.ValidationError("Lease end date cannot be before start date")
+            raise serializers.ValidationError("Lease end date cannot be before lease start date")
         return data
 
 
@@ -47,7 +47,7 @@ class LeaseNoticeSerializer(serializers.ModelSerializer):
             "id", "workspace", "lease", "notice_date", "effective_date", "notice_type",
             "reason", "status", "created_by", "created_at", "updated_at",
         ]
-        read_only_fields = ["id", "workspace", "status", "created_by", "created_at", "updated_at"]
+        read_only_fields = ["id", "workspace", "lease", "status", "created_by", "created_at", "updated_at"]
 
     def validate(self, data):
         if data.get("effective_date") and data.get("notice_date") and data["effective_date"] < data["notice_date"]:
