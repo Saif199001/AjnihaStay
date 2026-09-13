@@ -35,7 +35,9 @@ class HasWorkspaceRole(HasWorkspaceMembership):
     def has_permission(self, request, view):
         if not super().has_permission(request, view):
             return False
-        return ROLE_RANK[request.workspace_membership.role] >= ROLE_RANK[self.minimum_role]
+        member_rank = ROLE_RANK.get(request.workspace_membership.role, 0)
+        minimum_rank = ROLE_RANK.get(self.minimum_role, 0)
+        return member_rank >= minimum_rank
 
 
 class WorkspaceStaffPermission(HasWorkspaceRole):
