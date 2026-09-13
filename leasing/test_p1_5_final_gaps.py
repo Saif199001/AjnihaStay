@@ -157,6 +157,7 @@ class P15FinalGapTests(TestCase):
     def test_cancelled_renewal_does_not_block_same_contract_period(self):
         first = create_renewal(self.manager, self.workspace, self.lease.id, self.renewal_data())
         cancel_renewal(self.manager, self.workspace, first.id)
+        first.refresh_from_db()
 
         second = create_renewal(self.manager, self.workspace, self.lease.id, self.renewal_data())
 
