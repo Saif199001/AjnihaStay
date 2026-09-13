@@ -68,10 +68,12 @@ class LeaseP15AdversarialRenewalApiTests(TestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_renewal_api_unauthenticated_actions_return_401(self):
+        renewal_id = self.create_renewal_via_api()
+
         create_request = self.factory.post(f"/api/leases/{self.lease.id}/renewals/create/", self.payload(), format="json")
         create_request.workspace = self.workspace
         self.assertEqual(lease_renewal_create_api(create_request, self.lease.id).status_code, 401)
-        renewal_id = self.create_renewal_via_api()
+
         for view in (lease_renewal_confirm_api, lease_renewal_cancel_api):
             request = self.factory.post("/api/leases/renewals/action/", {}, format="json")
             request.workspace = self.workspace
