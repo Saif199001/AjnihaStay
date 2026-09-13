@@ -1,4 +1,3 @@
-from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import ValidationError
@@ -7,6 +6,7 @@ from django.db import transaction
 from payments.authorization import require_mutation_permission
 from tenant.models import Occupancy
 
+from .lifecycle_models import LeaseContractVersion
 from .models import Lease
 
 
@@ -19,6 +19,13 @@ MUTABLE_FIELDS = {
     "notice_period_days",
     "terms",
     "agreement_reference",
+}
+
+IMMUTABLE_CONTRACT_STATUSES = {
+    Lease.STATUS_ACTIVE,
+    Lease.STATUS_EXPIRED,
+    Lease.STATUS_TERMINATED,
+    Lease.STATUS_CANCELLED,
 }
 
 ALLOWED_TRANSITIONS = {
@@ -76,6 +83,25 @@ def _get_locked_lease(lease_id, workspace):
         )
     except (Lease.DoesNotExist, TypeError, ValueError):
         raise ValidationError("Lease not found")
+
+
+def _ensure_active_contract_version(lease):
+    existing = LeaseContractVersion.objects.filter(lease=lease, version_number=1).first()
+    if existing:
+        return existing
+    return LeaseContractVersion.objects.create(
+        lease=lease,
+        workspace=lease.workspace,
+        version_number=1,
+        start_date=lease.start_date,
+        end_date=lease.end_date,
+        rent_amount=lease.rent_amount,
+        security_deposit=lease.security_deposit,
+        notice_period_days=lease.notice_period_days,
+        terms=dict(lease.terms or {}),
+        agreement_reference=lease.agreement_reference,
+        created_by=lease.created_by,
+    )
 
 
 def create_lease(user, workspace, data):
@@ -142,7 +168,7 @@ def create_lease(user, workspace, data):
 
 
 def update_lease(user, workspace, lease_id, changes):
-    """Update only P1.3-approved contractual Lease fields."""
+    """Update contractual Lease fields only before the contract is effective."""
     _require_active_member(user, workspace)
     changes = dict(changes or {})
     unsupported = set(changes) - MUTABLE_FIELDS
@@ -153,6 +179,9 @@ def update_lease(user, workspace, lease_id, changes):
 
     with transaction.atomic():
         lease = _get_locked_lease(lease_id, workspace)
+        if lease.status in IMMUTABLE_CONTRACT_STATUSES:
+            raise ValidationError("Contractual lease facts are immutable after activation")
+
         for field, value in changes.items():
             if field in {"rent_amount", "security_deposit"}:
                 value = _decimal(value, field.replace("_", " ").title())
@@ -179,18 +208,18 @@ def transition_lease(user, workspace, lease_id, target_status):
                 f"Invalid lease transition: {lease.status} -> {target_status}"
             )
 
-        now = None
+        from django.utils import timezone
+        now = timezone.now()
         if target_status == Lease.STATUS_ACTIVE:
-            from django.utils import timezone
-            now = timezone.now()
             lease.activated_at = now
-        elif target_status == Lease.STATUS_TERMINATED:
-            from django.utils import timezone
-            now = timezone.now()
+            lease.status = target_status
+            lease.updated_by = user
+            lease.save()
+            _ensure_active_contract_version(lease)
+            return lease
+        if target_status == Lease.STATUS_TERMINATED:
             lease.terminated_at = now
         elif target_status == Lease.STATUS_CANCELLED:
-            from django.utils import timezone
-            now = timezone.now()
             lease.cancelled_at = now
 
         lease.status = target_status
