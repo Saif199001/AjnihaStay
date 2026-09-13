@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from accounts.models import User
 from leasing.lease_service import create_lease, transition_lease
-from leasing.lifecycle_models import LeaseContractVersion, LeaseLifecycleEvent, LeaseNotice
+from leasing.lifecycle_models import LeaseContractVersion, LeaseLifecycleEvent, LeaseNotice, LeaseRenewal
 from leasing.models import Lease
 from leasing.notice_service import create_notice, transition_notice
 from leasing.renewal_service import cancel_renewal, confirm_renewal, create_renewal
