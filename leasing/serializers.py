@@ -96,9 +96,22 @@ class LeaseRenewalCreateSerializer(serializers.ModelSerializer):
         ]
         extra_kwargs = {"renewal_number": {"required": False}}
 
+    def to_internal_value(self, data):
+        allowed = set(self.fields)
+        unknown = sorted(set(data) - allowed)
+        if unknown:
+            raise serializers.ValidationError(
+                {field: ["This field is not allowed for renewal creation."] for field in unknown}
+            )
+        return super().to_internal_value(data)
+
     def validate(self, data):
         if data.get("end_date") and data.get("start_date") and data["end_date"] < data["start_date"]:
             raise serializers.ValidationError("Renewal end date cannot be before start date")
+        if data.get("rent_amount") is not None and data["rent_amount"] < 0:
+            raise serializers.ValidationError("Rent amount cannot be negative")
+        if data.get("security_deposit") is not None and data["security_deposit"] < 0:
+            raise serializers.ValidationError("Security deposit cannot be negative")
         return data
 
 
