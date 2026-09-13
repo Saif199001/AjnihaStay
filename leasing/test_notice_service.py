@@ -75,9 +75,23 @@ class LeaseNoticeServiceTests(TestCase):
             self._create(effective_date=timezone.localdate() - timedelta(days=1))
         with self.assertRaises(ValidationError):
             self._create(reason="   ")
-        draft = create_lease(self.manager, self.workspace, {"occupancy": Occupancy.objects.get(pk=self.lease.occupancy_id), "start_date": date(2026, 1, 1), "end_date": date(2026, 12, 31), "rent_amount": Decimal("12000.00"), "security_deposit": Decimal("24000.00")})
-        with self.assertRaises(ValidationError):
-            create_notice(self.manager, self.workspace, draft.id, notice_date=timezone.localdate(), effective_date=timezone.localdate(), notice_type=LeaseNotice.TYPE_OTHER, reason="Invalid source")
+
+        # Occupancy -> Lease is OneToOne, so the invalid source-state case must
+        # reuse the existing lease rather than creating a second lease for it.
+        Lease.objects.filter(pk=self.lease.pk).update(status=Lease.STATUS_DRAFT)
+        try:
+            with self.assertRaises(ValidationError):
+                create_notice(
+                    self.manager,
+                    self.workspace,
+                    self.lease.id,
+                    notice_date=timezone.localdate(),
+                    effective_date=timezone.localdate(),
+                    notice_type=LeaseNotice.TYPE_OTHER,
+                    reason="Invalid source",
+                )
+        finally:
+            Lease.objects.filter(pk=self.lease.pk).update(status=Lease.STATUS_ACTIVE)
 
     def test_cross_workspace_and_member_permissions_are_rejected(self):
         other_owner = User.objects.create_user(email="notice-other@example.com", password="pass")
