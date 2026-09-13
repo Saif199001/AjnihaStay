@@ -6,7 +6,7 @@ from django.utils import timezone
 
 from payments.authorization import require_mutation_permission
 
-from .lifecycle_models import LeaseRenewal
+from .lifecycle_models import LeaseContractVersion, LeaseRenewal
 from .models import Lease
 
 
@@ -40,6 +40,31 @@ def _require_renewable_source(lease):
 
 def _overlaps(start_date, end_date, periods):
     return any(start_date <= existing_end and end_date >= existing_start for existing_start, existing_end in periods)
+
+
+def _ensure_base_contract_version(lease):
+    """Guarantee a version-1 snapshot for legacy/directly-created Lease rows."""
+    base = (
+        LeaseContractVersion.objects.select_for_update()
+        .filter(lease=lease, version_number=1)
+        .first()
+    )
+    if base:
+        return base
+
+    return LeaseContractVersion.objects.create(
+        lease=lease,
+        workspace=lease.workspace,
+        version_number=1,
+        start_date=lease.start_date,
+        end_date=lease.end_date,
+        rent_amount=lease.rent_amount,
+        security_deposit=lease.security_deposit,
+        notice_period_days=lease.notice_period_days,
+        terms=dict(lease.terms or {}),
+        agreement_reference=lease.agreement_reference,
+        created_by=lease.created_by,
+    )
 
 
 def create_renewal(user, workspace, source_lease_id, data):
@@ -113,7 +138,7 @@ def create_renewal(user, workspace, source_lease_id, data):
 
 
 def confirm_renewal(user, workspace, renewal_id):
-    """Confirm a draft renewal atomically; confirmed renewals are immutable."""
+    """Confirm a draft renewal and materialize its immutable successor version atomically."""
     _require_manager(user, workspace)
 
     with transaction.atomic():
@@ -133,9 +158,33 @@ def confirm_renewal(user, workspace, renewal_id):
 
         source_lease = _get_locked_source_lease(renewal.source_lease_id, workspace)
         _require_renewable_source(source_lease)
+        predecessor = (
+            LeaseContractVersion.objects.select_for_update()
+            .filter(lease=source_lease)
+            .order_by("-version_number")
+            .first()
+        )
+        if predecessor is None:
+            predecessor = _ensure_base_contract_version(source_lease)
+
+        successor = LeaseContractVersion.objects.create(
+            lease=source_lease,
+            workspace=workspace,
+            version_number=predecessor.version_number + 1,
+            predecessor=predecessor,
+            start_date=renewal.start_date,
+            end_date=renewal.end_date,
+            rent_amount=renewal.rent_amount,
+            security_deposit=renewal.security_deposit,
+            notice_period_days=renewal.notice_period_days,
+            terms=dict(renewal.terms or {}),
+            agreement_reference=renewal.agreement_reference,
+            created_by=renewal.created_by,
+        )
 
         renewal.status = LeaseRenewal.STATUS_CONFIRMED
         renewal.confirmed_at = timezone.now()
+        renewal.successor_version = successor
         renewal.save()
         return renewal
 
