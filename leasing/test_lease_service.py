@@ -6,6 +6,7 @@ from django.test import TestCase
 
 from accounts.models import User
 from leasing.lease_service import create_lease, transition_lease, update_lease
+from leasing.lifecycle_models import LeaseContractVersion
 from leasing.models import Lease
 from properties.models import Property
 from tenant.models import Occupancy, Tenant
@@ -151,6 +152,21 @@ class LeaseServiceTests(TestCase):
         self.assertEqual(updated.notice_period_days, 30)
         self.assertEqual(updated.updated_by_id, self.manager.id)
 
+    def test_update_rejects_contract_changes_after_activation(self):
+        lease = create_lease(self.manager, self.workspace, self._data())
+        transition_lease(self.manager, self.workspace, lease.id, Lease.STATUS_PENDING_SIGNATURE)
+        lease = transition_lease(self.manager, self.workspace, lease.id, Lease.STATUS_ACTIVE)
+        self.assertEqual(LeaseContractVersion.objects.filter(lease=lease).count(), 1)
+        with self.assertRaises(ValidationError):
+            update_lease(
+                self.manager,
+                self.workspace,
+                lease.id,
+                {"rent_amount": Decimal("12500.00")},
+            )
+        lease.refresh_from_db()
+        self.assertEqual(lease.rent_amount, Decimal("12000.00"))
+
     def test_update_rejects_status_occupancy_and_workspace_mutation(self):
         lease = create_lease(self.manager, self.workspace, self._data())
         for field, value in (
@@ -195,6 +211,7 @@ class LeaseServiceTests(TestCase):
         )
         self.assertEqual(lease.status, Lease.STATUS_ACTIVE)
         self.assertIsNotNone(lease.activated_at)
+        self.assertEqual(LeaseContractVersion.objects.filter(lease=lease).count(), 1)
         lease = transition_lease(
             self.manager, self.workspace, lease.id, Lease.STATUS_TERMINATED
         )
