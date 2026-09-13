@@ -8,12 +8,13 @@ media URL through domain models or serializers.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from typing import BinaryIO, Protocol
 from uuid import uuid4
 
 import cloudinary
+import cloudinary.api
 import cloudinary.uploader
 import cloudinary.utils
 import requests
@@ -33,11 +34,7 @@ class StorageObject:
 
 @dataclass(frozen=True)
 class DeliveryGrant:
-    """Short-lived provider delivery grant.
-
-    The URL is intentionally returned only from the storage adapter. KYC API
-    serializers must not expose it as passive document metadata.
-    """
+    """Short-lived provider delivery grant."""
 
     url: str
     expires_at: datetime
@@ -73,12 +70,7 @@ def generate_storage_key(*, workspace_id: int, tenant_id: int) -> str:
 
 
 class CloudinaryPrivateDocumentStorage:
-    """Cloudinary implementation using private raw resources.
-
-    Cloudinary is treated strictly as a storage/delivery provider. It does not
-    perform tenant authorization and no provider URL is persisted as domain
-    truth.
-    """
+    """Cloudinary implementation using private raw resources."""
 
     resource_type = "raw"
     delivery_type = "private"
@@ -114,7 +106,7 @@ class CloudinaryPrivateDocumentStorage:
                 use_filename=False,
                 invalidate=False,
             )
-        except Exception as exc:  # provider-specific exceptions must not leak
+        except Exception as exc:
             raise PrivateStorageError("KYC document upload failed") from exc
 
         return StorageObject(
@@ -133,18 +125,19 @@ class CloudinaryPrivateDocumentStorage:
         self._ensure_configured()
         if expires_at.tzinfo is None:
             raise PrivateStorageError("Delivery grant expiry must be timezone-aware")
-        if expires_at <= datetime.now(timezone.utc):
+        now = datetime.now(timezone.utc)
+        if expires_at <= now:
             raise PrivateStorageError("Delivery grant expiry must be in the future")
 
         public_id = self._public_id(storage_key)
         try:
-            url, _ = cloudinary.utils.cloudinary_url(
+            url = cloudinary.utils.private_download_url(
                 public_id,
+                "",
                 resource_type=self.resource_type,
                 type=self.delivery_type,
-                secure=True,
-                sign_url=True,
-                format=None,
+                expires_at=int(expires_at.timestamp()),
+                attachment=False,
             )
         except Exception as exc:
             raise PrivateStorageError("KYC document delivery grant creation failed") from exc
@@ -152,23 +145,28 @@ class CloudinaryPrivateDocumentStorage:
         return DeliveryGrant(url=url, expires_at=expires_at)
 
     def open(self, storage_key: str) -> BinaryIO:
-        """Open a private object through a short-lived signed provider URL."""
+        """Read a private object through a one-minute expiring grant."""
 
         grant = self.create_controlled_access(
             storage_key,
-            expires_at=datetime.now(timezone.utc).replace(microsecond=0),
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=1),
         )
-        # create_controlled_access intentionally requires a future expiry; use a
-        # minimal provider-side read grant for backend-controlled retrieval.
-        raise PrivateStorageError(
-            "Direct backend object streaming is not enabled; use controlled delivery"
-        )
+        try:
+            response = requests.get(grant.url, timeout=30)
+            response.raise_for_status()
+        except Exception as exc:
+            raise PrivateStorageError("KYC document retrieval failed") from exc
+        return BytesIO(response.content)
 
     def exists(self, storage_key: str) -> bool:
         self._ensure_configured()
         public_id = self._public_id(storage_key)
         try:
-            cloudinary.api.resource(public_id, resource_type=self.resource_type, type=self.delivery_type)
+            cloudinary.api.resource(
+                public_id,
+                resource_type=self.resource_type,
+                type=self.delivery_type,
+            )
             return True
         except Exception:
             return False
