@@ -8,6 +8,8 @@ from accounts.models import User
 from leasing.lifecycle_models import LeaseContractVersion, LeaseLifecycleEvent, LeaseRenewal
 from leasing.models import Lease
 from leasing.renewal_service import cancel_renewal, confirm_renewal, create_renewal
+from leasing.termination_service import terminate_lease
+from leasing.lease_service import create_lease, transition_lease
 from properties.models import Property
 from tenant.models import Occupancy, Tenant
 from unit.models import Unit
@@ -25,7 +27,9 @@ class LeaseRenewalServiceTests(TestCase):
         unit = Unit.objects.create(property=property_obj, unit_type="flat", unit_number="101", rent=Decimal("12000.00"))
         tenant = Tenant.objects.create(owner=self.owner, workspace=self.workspace, full_name="Renewal Tenant", phone="9999999999", email="renew-tenant@example.com", permanent_address="Lucknow, Uttar Pradesh")
         occupancy = Occupancy.objects.create(tenant=tenant, unit=unit, rent=Decimal("12000.00"), security_deposit=Decimal("24000.00"), check_in_date=date(2026, 1, 1), check_out_date=date(2026, 12, 31), next_due_date=date(2026, 1, 1), is_active=True)
-        self.lease = Lease.objects.create(workspace=self.workspace, occupancy=occupancy, start_date=date(2026, 1, 1), end_date=date(2026, 12, 31), rent_amount=Decimal("12000.00"), security_deposit=Decimal("24000.00"), created_by=self.owner, status=Lease.STATUS_ACTIVE)
+        lease = create_lease(self.manager, self.workspace, {"occupancy": occupancy, "start_date": date(2026, 1, 1), "end_date": date(2026, 12, 31), "rent_amount": Decimal("12000.00"), "security_deposit": Decimal("24000.00")})
+        transition_lease(self.manager, self.workspace, lease.id, Lease.STATUS_PENDING_SIGNATURE)
+        self.lease = transition_lease(self.manager, self.workspace, lease.id, Lease.STATUS_ACTIVE)
 
     def _data(self, **overrides):
         data = {"start_date": date(2027, 1, 1), "end_date": date(2027, 12, 31)}
@@ -54,8 +58,7 @@ class LeaseRenewalServiceTests(TestCase):
             create_renewal(self.manager, self.workspace, self.lease.id, self._data(start_date=date(2027, 6, 1), end_date=date(2028, 5, 31)))
 
     def test_create_renewal_rejects_invalid_source_state(self):
-        self.lease.status = Lease.STATUS_DRAFT
-        self.lease.save()
+        terminate_lease(self.manager, self.workspace, self.lease.id, reason="Renewal source closed", effective_date=date.today())
         with self.assertRaises(ValidationError):
             create_renewal(self.manager, self.workspace, self.lease.id, self._data())
 
@@ -76,11 +79,9 @@ class LeaseRenewalServiceTests(TestCase):
         renewal = create_renewal(self.manager, self.workspace, self.lease.id, self._data(rent_amount=Decimal("13500.00"), security_deposit=Decimal("27000.00")))
         confirmed = confirm_renewal(self.manager, self.workspace, renewal.id)
         confirmed.refresh_from_db()
-
         self.assertEqual(confirmed.status, LeaseRenewal.STATUS_CONFIRMED)
         self.assertIsNotNone(confirmed.confirmed_at)
         self.assertIsNotNone(confirmed.successor_version_id)
-
         version_one = LeaseContractVersion.objects.get(lease=self.lease, version_number=1)
         successor = LeaseContractVersion.objects.get(pk=confirmed.successor_version_id)
         self.assertEqual(successor.version_number, 2)
@@ -116,7 +117,6 @@ class LeaseRenewalServiceTests(TestCase):
         confirm_renewal(self.manager, self.workspace, first.id)
         second = create_renewal(self.manager, self.workspace, self.lease.id, self._data(start_date=date(2028, 1, 1), end_date=date(2028, 12, 31)))
         confirmed_second = confirm_renewal(self.manager, self.workspace, second.id)
-
         version_one = LeaseContractVersion.objects.get(lease=self.lease, version_number=1)
         version_two = LeaseContractVersion.objects.get(lease=self.lease, version_number=2)
         version_three = LeaseContractVersion.objects.get(lease=self.lease, version_number=3)
@@ -133,8 +133,7 @@ class LeaseRenewalServiceTests(TestCase):
 
     def test_confirm_renewal_rejects_invalid_source_state(self):
         renewal = create_renewal(self.manager, self.workspace, self.lease.id, self._data())
-        self.lease.status = Lease.STATUS_TERMINATED
-        self.lease.save()
+        terminate_lease(self.manager, self.workspace, self.lease.id, reason="Source terminated", effective_date=date.today())
         with self.assertRaises(ValidationError):
             confirm_renewal(self.manager, self.workspace, renewal.id)
 
