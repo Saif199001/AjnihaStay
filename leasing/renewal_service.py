@@ -1,4 +1,3 @@
-from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import ValidationError
@@ -64,7 +63,7 @@ def create_renewal(user, workspace, source_lease_id, data):
                 .first()
             )
             renewal_number = (latest or 0) + 1
-        if not isinstance(renewal_number, int) or renewal_number < 1:
+        if not isinstance(renewal_number, int) or isinstance(renewal_number, bool) or renewal_number < 1:
             raise ValidationError("Renewal number must be a positive integer")
 
         periods = [(source_lease.start_date, source_lease.end_date)]
