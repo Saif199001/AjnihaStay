@@ -6,7 +6,7 @@ from django.db import IntegrityError, transaction
 from django.test import TestCase
 
 from accounts.models import User
-from leasing.lifecycle_models import LeaseLifecycleEvent, LeaseNotice, LeaseRenewal
+from leasing.lifecycle_models import LeaseContractVersion, LeaseLifecycleEvent, LeaseNotice, LeaseRenewal
 from leasing.models import Lease
 from properties.models import Property
 from tenant.models import Occupancy, Tenant
@@ -26,7 +26,7 @@ class LeaseLifecycleModelTests(TestCase):
         self.lease = Lease.objects.create(workspace=self.workspace, occupancy=occupancy, start_date=date(2026, 1, 1), end_date=date(2026, 12, 31), rent_amount=Decimal("12000.00"), security_deposit=Decimal("24000.00"), created_by=self.owner)
 
     def test_field_names_and_indexes_are_under_postgresql_identifier_limit(self):
-        for model in (LeaseLifecycleEvent, LeaseNotice, LeaseRenewal):
+        for model in (LeaseLifecycleEvent, LeaseNotice, LeaseRenewal, LeaseContractVersion):
             for field in model._meta.fields:
                 self.assertLess(len(field.name), 30)
             for index in model._meta.indexes:
@@ -41,6 +41,9 @@ class LeaseLifecycleModelTests(TestCase):
         self.assertEqual(LeaseNotice._meta.get_field("workspace").remote_field.related_name, "lease_notices")
         self.assertEqual(LeaseRenewal._meta.get_field("source_lease").remote_field.related_name, "renewals")
         self.assertEqual(LeaseRenewal._meta.get_field("workspace").remote_field.related_name, "lease_renewals")
+        self.assertEqual(LeaseRenewal._meta.get_field("successor_version").remote_field.related_name, "source_renewal")
+        self.assertEqual(LeaseContractVersion._meta.get_field("lease").remote_field.related_name, "contract_versions")
+        self.assertEqual(LeaseContractVersion._meta.get_field("predecessor").remote_field.related_name, "successor")
 
     def test_lifecycle_event_preserves_workspace_and_actor_contract(self):
         event = LeaseLifecycleEvent.objects.create(workspace=self.workspace, lease=self.lease, event_type=LeaseLifecycleEvent.EVENT_ACTIVATED, occurred_at=datetime(2026, 1, 1, tzinfo=timezone.utc), effective_date=date(2026, 1, 1), actor=self.owner, metadata={"source": "p1.5"})
@@ -98,3 +101,69 @@ class LeaseLifecycleModelTests(TestCase):
         renewal.rent_amount = Decimal("14000.00")
         with self.assertRaises(ValidationError):
             renewal.save()
+
+    def test_contract_version_is_immutable_and_chained(self):
+        version_one = LeaseContractVersion.objects.create(
+            lease=self.lease,
+            workspace=self.workspace,
+            version_number=1,
+            start_date=self.lease.start_date,
+            end_date=self.lease.end_date,
+            rent_amount=self.lease.rent_amount,
+            security_deposit=self.lease.security_deposit,
+            notice_period_days=self.lease.notice_period_days,
+            terms=dict(self.lease.terms or {}),
+            agreement_reference=self.lease.agreement_reference,
+            created_by=self.owner,
+        )
+        version_two = LeaseContractVersion.objects.create(
+            lease=self.lease,
+            workspace=self.workspace,
+            version_number=2,
+            predecessor=version_one,
+            start_date=date(2027, 1, 1),
+            end_date=date(2027, 12, 31),
+            rent_amount=Decimal("13500.00"),
+            security_deposit=Decimal("27000.00"),
+            notice_period_days=30,
+            terms={"renewed": True},
+            agreement_reference="renewal-1",
+            created_by=self.owner,
+        )
+        self.assertEqual(version_two.predecessor_id, version_one.id)
+        self.assertEqual(version_one.successor.id, version_two.id)
+        version_two.rent_amount = Decimal("14000.00")
+        with self.assertRaises(ValidationError):
+            version_two.save()
+
+    def test_contract_version_rejects_wrong_predecessor_lease(self):
+        other_owner = User.objects.create_user(email="p15-version-other@example.com", password="pass")
+        other_workspace = Workspace.objects.create(name="P15 Version Other", slug="p15-version-other", owner=other_owner)
+        Membership.objects.create(workspace=other_workspace, user=other_owner, role="owner", is_active=True)
+        property_obj = Property.objects.create(owner=other_owner, workspace=other_workspace, name="Other Property", property_type="flat", address="Address", city="Lucknow", state="UP", pincode="226002")
+        unit = Unit.objects.create(property=property_obj, unit_type="flat", unit_number="201", rent=Decimal("13000.00"))
+        tenant = Tenant.objects.create(owner=other_owner, workspace=other_workspace, full_name="Other Tenant", phone="8888888888", email="other-version@example.com", permanent_address="Lucknow")
+        occupancy = Occupancy.objects.create(tenant=tenant, unit=unit, rent=Decimal("13000.00"), security_deposit=Decimal("26000.00"), check_in_date=date(2026, 1, 1), check_out_date=date(2026, 12, 31), next_due_date=date(2026, 1, 1), is_active=True)
+        other_lease = Lease.objects.create(workspace=other_workspace, occupancy=occupancy, start_date=date(2026, 1, 1), end_date=date(2026, 12, 31), rent_amount=Decimal("13000.00"), security_deposit=Decimal("26000.00"), created_by=other_owner)
+        predecessor = LeaseContractVersion.objects.create(
+            lease=other_lease,
+            workspace=other_workspace,
+            version_number=1,
+            start_date=other_lease.start_date,
+            end_date=other_lease.end_date,
+            rent_amount=other_lease.rent_amount,
+            security_deposit=other_lease.security_deposit,
+            created_by=other_owner,
+        )
+        with self.assertRaises(ValidationError):
+            LeaseContractVersion.objects.create(
+                lease=self.lease,
+                workspace=self.workspace,
+                version_number=2,
+                predecessor=predecessor,
+                start_date=date(2027, 1, 1),
+                end_date=date(2027, 12, 31),
+                rent_amount=Decimal("13500.00"),
+                security_deposit=Decimal("27000.00"),
+                created_by=self.owner,
+            )
