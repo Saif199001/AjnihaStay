@@ -1,6 +1,6 @@
-from django.core.exceptions import ValidationError
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
+from django.core.exceptions import ValidationError
 
 from workspaces.permissions import WorkspaceManagerPermission, WorkspaceStaffPermission
 
@@ -10,7 +10,11 @@ from .lease_service import create_lease, transition_lease, update_lease
 from .lifecycle_models import LeaseNotice
 from .models import Lease
 from .notice_service import create_notice, transition_notice
-from .serializers import LeaseLifecycleActionSerializer, LeaseNoticeSerializer, LeaseNoticeTransitionSerializer, LeaseSerializer, LeaseTransitionSerializer
+from .renewal_service import cancel_renewal, confirm_renewal, create_renewal
+from .serializers import (
+    LeaseLifecycleActionSerializer, LeaseNoticeSerializer, LeaseNoticeTransitionSerializer,
+    LeaseRenewalCreateSerializer, LeaseRenewalSerializer, LeaseSerializer, LeaseTransitionSerializer,
+)
 from .termination_service import terminate_lease
 
 
@@ -141,3 +145,36 @@ def lease_notice_transition_api(request, notice_id):
     except ValidationError as exc:
         return Response({"error": _validation_message(exc)}, status=400)
     return Response({"message": "Notice status updated", "data": LeaseNoticeSerializer(notice).data})
+
+
+@api_view(["POST"])
+@permission_classes([WorkspaceManagerPermission])
+def lease_renewal_create_api(request, lease_id):
+    serializer = LeaseRenewalCreateSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=400)
+    try:
+        renewal = create_renewal(request.user, request.workspace, lease_id, serializer.validated_data)
+    except ValidationError as exc:
+        return Response({"error": _validation_message(exc)}, status=400)
+    return Response({"message": "Renewal created", "data": LeaseRenewalSerializer(renewal).data}, status=201)
+
+
+@api_view(["POST"])
+@permission_classes([WorkspaceManagerPermission])
+def lease_renewal_confirm_api(request, renewal_id):
+    try:
+        renewal = confirm_renewal(request.user, request.workspace, renewal_id)
+    except ValidationError as exc:
+        return Response({"error": _validation_message(exc)}, status=400)
+    return Response({"message": "Renewal confirmed", "data": LeaseRenewalSerializer(renewal).data})
+
+
+@api_view(["POST"])
+@permission_classes([WorkspaceManagerPermission])
+def lease_renewal_cancel_api(request, renewal_id):
+    try:
+        renewal = cancel_renewal(request.user, request.workspace, renewal_id)
+    except ValidationError as exc:
+        return Response({"error": _validation_message(exc)}, status=400)
+    return Response({"message": "Renewal cancelled", "data": LeaseRenewalSerializer(renewal).data})
