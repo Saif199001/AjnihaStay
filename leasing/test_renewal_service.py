@@ -5,7 +5,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import TestCase
 
 from accounts.models import User
-from leasing.lifecycle_models import LeaseContractVersion, LeaseRenewal
+from leasing.lifecycle_models import LeaseContractVersion, LeaseLifecycleEvent, LeaseRenewal
 from leasing.models import Lease
 from leasing.renewal_service import cancel_renewal, confirm_renewal, create_renewal
 from properties.models import Property
@@ -92,13 +92,24 @@ class LeaseRenewalServiceTests(TestCase):
         self.assertEqual(successor.source_renewal.id, renewal.id)
         self.assertEqual(self.lease.rent_amount, Decimal("12000.00"))
 
-    def test_confirm_renewal_is_idempotent_without_duplicate_successor(self):
+    def test_confirm_renewal_records_one_renewed_event(self):
+        renewal = create_renewal(self.manager, self.workspace, self.lease.id, self._data())
+        confirmed = confirm_renewal(self.manager, self.workspace, renewal.id)
+        event = LeaseLifecycleEvent.objects.get(lease=self.lease, event_key=f"renewal:{renewal.id}")
+        self.assertEqual(event.event_type, LeaseLifecycleEvent.EVENT_RENEWED)
+        self.assertEqual(event.actor_id, self.manager.id)
+        self.assertEqual(event.effective_date, confirmed.successor_version.start_date)
+        self.assertEqual(event.metadata["renewal_id"], renewal.id)
+        self.assertEqual(event.metadata["successor_version_id"], confirmed.successor_version_id)
+
+    def test_confirm_renewal_is_idempotent_without_duplicate_successor_or_event(self):
         renewal = create_renewal(self.manager, self.workspace, self.lease.id, self._data())
         first = confirm_renewal(self.manager, self.workspace, renewal.id)
         second = confirm_renewal(self.manager, self.workspace, renewal.id)
         self.assertEqual(first.id, second.id)
         self.assertEqual(LeaseContractVersion.objects.filter(lease=self.lease).count(), 2)
         self.assertEqual(second.successor_version_id, first.successor_version_id)
+        self.assertEqual(LeaseLifecycleEvent.objects.filter(lease=self.lease, event_key=f"renewal:{renewal.id}").count(), 1)
 
     def test_second_confirmed_renewal_continues_version_chain(self):
         first = create_renewal(self.manager, self.workspace, self.lease.id, self._data())
@@ -112,6 +123,7 @@ class LeaseRenewalServiceTests(TestCase):
         self.assertEqual(version_two.predecessor_id, version_one.id)
         self.assertEqual(version_three.predecessor_id, version_two.id)
         self.assertEqual(confirmed_second.successor_version_id, version_three.id)
+        self.assertEqual(LeaseLifecycleEvent.objects.filter(lease=self.lease, event_type=LeaseLifecycleEvent.EVENT_RENEWED).count(), 2)
 
     def test_confirm_renewal_rejects_cancelled(self):
         renewal = create_renewal(self.manager, self.workspace, self.lease.id, self._data())
