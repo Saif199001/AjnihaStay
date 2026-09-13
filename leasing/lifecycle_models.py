@@ -4,6 +4,11 @@ from django.db import models
 from django.db.models import Q
 
 
+class LeaseLifecycleEventQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("Lease lifecycle events are immutable")
+
+
 class LeaseLifecycleEvent(models.Model):
     EVENT_CREATED = "created"
     EVENT_PENDING_SIGNATURE = "pending_signature"
@@ -35,6 +40,8 @@ class LeaseLifecycleEvent(models.Model):
     metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    objects = LeaseLifecycleEventQuerySet.as_manager()
+
     class Meta:
         indexes = [
             models.Index(fields=["workspace", "lease"], name="lease_evt_ws_lease_idx"),
@@ -59,6 +66,21 @@ class LeaseLifecycleEvent(models.Model):
         if self.pk:
             raise ValidationError("Lease lifecycle events are immutable")
         super().save(*args, **kwargs)
+
+
+class LeaseNoticeQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        if "status" in kwargs:
+            raise ValidationError("Notice lifecycle status changes must use the canonical lifecycle service")
+        return super().update(**kwargs)
+
+
+class LeaseNoticeManager(models.Manager):
+    def create(self, **kwargs):
+        allow_canonical_create = kwargs.pop("_allow_canonical_create", False)
+        if not allow_canonical_create:
+            raise ValidationError("Lease notices must be created through the canonical notice service")
+        return super().create(**kwargs)
 
 
 class LeaseNotice(models.Model):
@@ -93,6 +115,9 @@ class LeaseNotice(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    objects = LeaseNoticeQuerySet.as_manager()
+    notice_manager = LeaseNoticeManager()
+
     class Meta:
         indexes = [
             models.Index(fields=["workspace", "lease"], name="lease_note_ws_lease_idx"),
@@ -116,8 +141,22 @@ class LeaseNotice(models.Model):
                 raise ValidationError("Notice creator must be an active workspace member")
 
     def save(self, *args, **kwargs):
+        allow_lifecycle_mutation = kwargs.pop("_allow_lifecycle_mutation", False)
         self.clean()
+        if self.pk:
+            previous_status = type(self).objects.filter(pk=self.pk).values_list("status", flat=True).first()
+            if previous_status is not None and previous_status != self.status and not allow_lifecycle_mutation:
+                raise ValidationError("Notice lifecycle status changes must use the canonical lifecycle service")
         super().save(*args, **kwargs)
+
+
+class LeaseRenewalQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        if "status" in kwargs:
+            raise ValidationError("Renewal lifecycle status changes must use the canonical renewal service")
+        if self.filter(status=LeaseRenewal.STATUS_CONFIRMED).exists():
+            raise ValidationError("Confirmed renewals are immutable")
+        return super().update(**kwargs)
 
 
 class LeaseRenewal(models.Model):
@@ -153,6 +192,8 @@ class LeaseRenewal(models.Model):
         blank=True,
     )
 
+    objects = LeaseRenewalQuerySet.as_manager()
+
     class Meta:
         indexes = [
             models.Index(fields=["workspace", "source_lease"], name="lease_renew_ws_src_idx"),
@@ -179,12 +220,20 @@ class LeaseRenewal(models.Model):
                 raise ValidationError("Renewal creator must be an active workspace member")
 
     def save(self, *args, **kwargs):
+        allow_lifecycle_mutation = kwargs.pop("_allow_lifecycle_mutation", False)
         self.clean()
         if self.pk:
             previous_status = type(self).objects.filter(pk=self.pk).values_list("status", flat=True).first()
             if previous_status == self.STATUS_CONFIRMED:
                 raise ValidationError("Confirmed renewals are immutable")
+            if previous_status is not None and previous_status != self.status and not allow_lifecycle_mutation:
+                raise ValidationError("Renewal lifecycle status changes must use the canonical renewal service")
         super().save(*args, **kwargs)
+
+
+class LeaseContractVersionQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("Lease contract versions are immutable")
 
 
 class LeaseContractVersion(models.Model):
@@ -207,6 +256,8 @@ class LeaseContractVersion(models.Model):
     agreement_reference = models.CharField(max_length=500, blank=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="lease_contract_versions_created")
     created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = LeaseContractVersionQuerySet.as_manager()
 
     class Meta:
         ordering = ["lease_id", "version_number"]
