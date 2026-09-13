@@ -36,10 +36,7 @@ ALLOWED_TRANSITIONS = {
     Lease.STATUS_PENDING_SIGNATURE: {
         Lease.STATUS_ACTIVE,
     },
-    Lease.STATUS_ACTIVE: {
-        Lease.STATUS_EXPIRED,
-        Lease.STATUS_TERMINATED,
-    },
+    Lease.STATUS_ACTIVE: set(),
     Lease.STATUS_EXPIRED: set(),
     Lease.STATUS_TERMINATED: set(),
     Lease.STATUS_CANCELLED: set(),
@@ -207,10 +204,14 @@ def update_lease(user, workspace, lease_id, changes):
 
 
 def transition_lease(user, workspace, lease_id, target_status):
-    """Apply a validated Lease lifecycle transition atomically and record its event."""
+    """Apply non-terminal Lease lifecycle transitions atomically and record their event."""
     _require_active_member(user, workspace)
     if target_status not in Lease.VALID_STATUSES:
         raise ValidationError("Invalid lease status")
+    if target_status in {Lease.STATUS_EXPIRED, Lease.STATUS_TERMINATED}:
+        raise ValidationError(
+            "Terminal lease transitions must use their dedicated lifecycle service"
+        )
 
     with transaction.atomic():
         lease = _get_locked_lease(lease_id, workspace)
@@ -233,8 +234,6 @@ def transition_lease(user, workspace, lease_id, target_status):
             lease.save()
             _ensure_active_contract_version(lease)
         else:
-            if target_status == Lease.STATUS_TERMINATED:
-                lease.terminated_at = now
             lease.status = target_status
             lease.updated_by = user
             lease.save()
