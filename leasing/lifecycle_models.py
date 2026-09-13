@@ -69,18 +69,13 @@ class LeaseLifecycleEvent(models.Model):
 
 
 class LeaseNoticeQuerySet(models.QuerySet):
+    def create(self, **kwargs):
+        raise ValidationError("Lease notices must be created through the canonical notice service")
+
     def update(self, **kwargs):
         if "status" in kwargs:
             raise ValidationError("Notice lifecycle status changes must use the canonical lifecycle service")
         return super().update(**kwargs)
-
-
-class LeaseNoticeManager(models.Manager):
-    def create(self, **kwargs):
-        allow_canonical_create = kwargs.pop("_allow_canonical_create", False)
-        if not allow_canonical_create:
-            raise ValidationError("Lease notices must be created through the canonical notice service")
-        return super().create(**kwargs)
 
 
 class LeaseNotice(models.Model):
@@ -116,7 +111,6 @@ class LeaseNotice(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     objects = LeaseNoticeQuerySet.as_manager()
-    notice_manager = LeaseNoticeManager()
 
     class Meta:
         indexes = [
