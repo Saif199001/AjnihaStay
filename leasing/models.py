@@ -12,6 +12,13 @@ class LeaseQuerySet(models.QuerySet):
             )
         return super().update(**kwargs)
 
+    def bulk_update(self, objs, fields, batch_size=None):
+        if "status" in fields:
+            raise ValidationError(
+                "Lease lifecycle status changes must use the canonical lifecycle service"
+            )
+        return super().bulk_update(objs, fields, batch_size=batch_size)
+
 
 class Lease(models.Model):
     STATUS_DRAFT = "draft"
@@ -57,7 +64,7 @@ class Lease(models.Model):
         if self.status not in self.VALID_STATUSES:
             raise ValidationError("Invalid lease status")
         if self.start_date and self.end_date and self.end_date < self.start_date:
-            raise ValidationError("Lease end date cannot be before start date")
+            raise ValidationError("Lease end date cannot be before lease start date")
         if self.occupancy_id and self.workspace_id and self.occupancy.tenant.workspace_id != self.workspace_id:
             raise ValidationError("Lease occupancy must belong to the same workspace")
         if self.created_by_id and self.workspace_id:
