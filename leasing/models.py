@@ -86,6 +86,13 @@ class Lease(models.Model):
                 raise ValidationError("Lease creator must be an active workspace member")
 
     def save(self, *args, **kwargs):
+        allow_lifecycle_mutation = kwargs.pop("_allow_lifecycle_mutation", False)
+        if self.pk and not allow_lifecycle_mutation:
+            previous_status = type(self).objects.filter(pk=self.pk).values_list("status", flat=True).first()
+            if previous_status is not None and previous_status != self.status:
+                raise ValidationError(
+                    "Lease lifecycle status changes must use the canonical lifecycle service"
+                )
         self.clean()
         super().save(*args, **kwargs)
 
