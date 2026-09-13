@@ -186,7 +186,7 @@ def confirm_renewal(user, workspace, renewal_id):
         renewal.status = LeaseRenewal.STATUS_CONFIRMED
         renewal.confirmed_at = timezone.now()
         renewal.successor_version = successor
-        renewal.save()
+        renewal.save(_allow_lifecycle_mutation=True)
         append_lifecycle_event(
             lease=source_lease,
             event_type=LeaseLifecycleEvent.EVENT_RENEWED,
@@ -205,12 +205,16 @@ def confirm_renewal(user, workspace, renewal_id):
 
 
 def cancel_renewal(user, workspace, renewal_id):
-    """Cancel a draft renewal atomically."""
+    """Cancel a draft renewal atomically and record the lifecycle transition."""
     _require_manager(user, workspace)
 
     with transaction.atomic():
         try:
-            renewal = LeaseRenewal.objects.select_for_update().get(id=renewal_id, workspace=workspace)
+            renewal = (
+                LeaseRenewal.objects.select_for_update()
+                .select_related("source_lease")
+                .get(id=renewal_id, workspace=workspace)
+            )
         except (LeaseRenewal.DoesNotExist, TypeError, ValueError):
             raise ValidationError("Renewal not found")
 
@@ -219,7 +223,24 @@ def cancel_renewal(user, workspace, renewal_id):
         if renewal.status != LeaseRenewal.STATUS_DRAFT:
             raise ValidationError("Only draft renewals can be cancelled")
 
+        source_lease = _get_locked_source_lease(renewal.source_lease_id, workspace)
+        previous_status = renewal.status
         renewal.status = LeaseRenewal.STATUS_CANCELLED
         renewal.cancelled_at = timezone.now()
-        renewal.save()
+        renewal.save(_allow_lifecycle_mutation=True)
+        append_lifecycle_event(
+            lease=source_lease,
+            event_type=LeaseLifecycleEvent.EVENT_RENEWED,
+            actor=user,
+            occurred_at=renewal.cancelled_at,
+            effective_date=renewal.start_date,
+            metadata={
+                "renewal_id": renewal.id,
+                "renewal_number": renewal.renewal_number,
+                "from_status": previous_status,
+                "to_status": renewal.status,
+                "action": "cancelled",
+            },
+            event_key=f"renewal:{renewal.id}:cancelled",
+        )
         return renewal
