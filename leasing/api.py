@@ -10,13 +10,7 @@ from .lease_service import create_lease, transition_lease, update_lease
 from .lifecycle_models import LeaseNotice
 from .models import Lease
 from .notice_service import create_notice, transition_notice
-from .serializers import (
-    LeaseLifecycleActionSerializer,
-    LeaseNoticeSerializer,
-    LeaseNoticeTransitionSerializer,
-    LeaseSerializer,
-    LeaseTransitionSerializer,
-)
+from .serializers import LeaseLifecycleActionSerializer, LeaseNoticeSerializer, LeaseNoticeTransitionSerializer, LeaseSerializer, LeaseTransitionSerializer
 from .termination_service import terminate_lease
 
 
@@ -88,17 +82,20 @@ def _lease_action_api(request, lease_id, action):
     try:
         if action == "expire":
             lease = expire_lease(request.user, request.workspace, lease_id, effective_date=data.get("effective_date"))
+            message = "Lease expired"
         elif action == "terminate":
             if "reason" not in data:
                 return Response({"error": "Termination reason is required"}, status=400)
             lease = terminate_lease(request.user, request.workspace, lease_id, reason=data["reason"], effective_date=data.get("effective_date"))
+            message = "Lease terminated"
         else:
             if "reason" not in data:
                 return Response({"error": "Cancellation reason is required"}, status=400)
             lease = cancel_lease(request.user, request.workspace, lease_id, reason=data["reason"], effective_date=data.get("effective_date"))
+            message = "Lease cancelled"
     except ValidationError as exc:
         return Response({"error": _validation_message(exc)}, status=400)
-    return Response({"message": f"Lease {action}d", "data": LeaseSerializer(lease).data})
+    return Response({"message": message, "data": LeaseSerializer(lease).data})
 
 
 @api_view(["POST"])
