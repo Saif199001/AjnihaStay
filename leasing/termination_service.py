@@ -33,9 +33,7 @@ def terminate_lease(user, workspace, lease_id, *, reason, effective_date=None):
 
     requested_date = effective_date or timezone.localdate()
     today = timezone.localdate()
-    if requested_date < today and requested_date < today:
-        # Past effective dates are intentionally rejected for the immediate
-        # state transition; historical corrections require a separate policy.
+    if requested_date < today:
         raise ValidationError("Termination effective date cannot be in the past")
     if requested_date > today:
         raise ValidationError("Termination effective date cannot be in the future")
@@ -52,7 +50,9 @@ def terminate_lease(user, workspace, lease_id, *, reason, effective_date=None):
                 event.effective_date != requested_date
                 or event.metadata.get("reason") != normalized_reason
             ):
-                raise ValidationError("Lease is already terminated with immutable termination details")
+                raise ValidationError(
+                    "Lease is already terminated with immutable termination details"
+                )
             return lease
 
         if lease.status != Lease.STATUS_ACTIVE:
