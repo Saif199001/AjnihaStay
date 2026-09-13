@@ -227,7 +227,7 @@ class LeaseRenewal(models.Model):
     def clean(self):
         if self.source_lease_id and self.workspace_id and self.source_lease.workspace_id != self.workspace_id:
             raise ValidationError("Renewal must belong to the same workspace as the source lease")
-        if self.successor_version_id and self.successor_version.workspace_id != self.workspacespace_id:
+        if self.successor_version_id and self.successor_version.workspace_id != self.workspace_id:
             raise ValidationError("Renewal successor version must belong to the same workspace")
         if self.created_by_id and self.workspace_id:
             from workspaces.models import Membership
