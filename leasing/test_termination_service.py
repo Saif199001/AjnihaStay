@@ -115,6 +115,11 @@ class TerminationServiceTests(TestCase):
         with self.assertRaises(ValidationError):
             terminate_lease(self.manager, self.workspace, draft.id, reason="Not active")
 
+        # Lease.occupancy is intentionally OneToOne, so reuse the same occupancy
+        # only after the draft fixture has been removed. This keeps the test
+        # aligned with the existing domain constraint instead of manufacturing
+        # an invalid second lease/occupancy pair.
+        draft.delete()
         active = self._active_lease()
         active.status = Lease.STATUS_EXPIRED
         active.save()
