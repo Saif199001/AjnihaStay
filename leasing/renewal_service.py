@@ -33,6 +33,11 @@ def _get_locked_source_lease(lease_id, workspace):
         raise ValidationError("Lease not found")
 
 
+def _require_renewable_source(lease):
+    if lease.status not in {Lease.STATUS_ACTIVE, Lease.STATUS_EXPIRED}:
+        raise ValidationError("Only active or expired leases can be renewed")
+
+
 def _overlaps(start_date, end_date, periods):
     return any(start_date <= existing_end and end_date >= existing_start for existing_start, existing_end in periods)
 
@@ -44,8 +49,7 @@ def create_renewal(user, workspace, source_lease_id, data):
 
     with transaction.atomic():
         source_lease = _get_locked_source_lease(source_lease_id, workspace)
-        if source_lease.status in {Lease.STATUS_DRAFT, Lease.STATUS_PENDING_SIGNATURE, Lease.STATUS_CANCELLED}:
-            raise ValidationError("Only active or expired leases can be renewed")
+        _require_renewable_source(source_lease)
 
         start_date = data.get("start_date")
         end_date = data.get("end_date")
@@ -128,8 +132,7 @@ def confirm_renewal(user, workspace, renewal_id):
             raise ValidationError("Only draft renewals can be confirmed")
 
         source_lease = _get_locked_source_lease(renewal.source_lease_id, workspace)
-        if source_lease.status in {Lease.STATUS_DRAFT, Lease.STATUS_PENDING_SIGNATURE, Lease.STATUS_CANCELLED}:
-            raise ValidationError("Only active or expired leases can be renewed")
+        _require_renewable_source(source_lease)
 
         renewal.status = LeaseRenewal.STATUS_CONFIRMED
         renewal.confirmed_at = timezone.now()
