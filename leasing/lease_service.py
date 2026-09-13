@@ -220,10 +220,11 @@ def transition_lease(user, workspace, lease_id, target_status):
         if lease.status == target_status:
             return lease
 
-        allowed = ALLOWED_TRANSITIONS.get(lease.status, set())
+        previous_status = lease.status
+        allowed = ALLOWED_TRANSITIONS.get(previous_status, set())
         if target_status not in allowed:
             raise ValidationError(
-                f"Invalid lease transition: {lease.status} -> {target_status}"
+                f"Invalid lease transition: {previous_status} -> {target_status}"
             )
 
         from django.utils import timezone
@@ -251,7 +252,7 @@ def transition_lease(user, workspace, lease_id, target_status):
             occurred_at=now,
             effective_date=now.date(),
             metadata={
-                "from_status": lease.status if False else None,
+                "from_status": previous_status,
                 "to_status": target_status,
             },
             event_key=STATUS_EVENT_TYPES[target_status],
