@@ -99,6 +99,7 @@ def create_renewal(user, workspace, source_lease_id, data):
         periods = [(source_lease.start_date, source_lease.end_date)]
         periods.extend(
             LeaseRenewal.objects.filter(source_lease=source_lease)
+            .exclude(status=LeaseRenewal.STATUS_CANCELLED)
             .values_list("start_date", "end_date")
         )
         if _overlaps(start_date, end_date, periods):
