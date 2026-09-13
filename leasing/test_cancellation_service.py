@@ -159,21 +159,19 @@ class CancellationServiceTests(TestCase):
         self.assertEqual(lease.status, Lease.STATUS_DRAFT)
 
     def test_active_expired_and_terminated_leases_cannot_be_cancelled(self):
-        active = self._active_lease()
+        lease = self._active_lease()
         with self.assertRaises(ValidationError):
-            cancel_lease(self.manager, self.workspace, active.id, reason="Too late")
+            cancel_lease(self.manager, self.workspace, lease.id, reason="Too late")
 
-        expired = self._lease()
-        expired.status = Lease.STATUS_EXPIRED
-        expired.save()
+        lease.status = Lease.STATUS_EXPIRED
+        lease.save()
         with self.assertRaises(ValidationError):
-            cancel_lease(self.manager, self.workspace, expired.id, reason="Already expired")
+            cancel_lease(self.manager, self.workspace, lease.id, reason="Already expired")
 
-        terminated = self._lease()
-        terminated.status = Lease.STATUS_TERMINATED
-        terminated.save()
+        lease.status = Lease.STATUS_TERMINATED
+        lease.save()
         with self.assertRaises(ValidationError):
-            cancel_lease(self.manager, self.workspace, terminated.id, reason="Already terminated")
+            cancel_lease(self.manager, self.workspace, lease.id, reason="Already terminated")
 
     def test_repeated_identical_cancellation_is_idempotent(self):
         lease = self._lease()
