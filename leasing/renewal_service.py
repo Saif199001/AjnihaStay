@@ -6,7 +6,8 @@ from django.utils import timezone
 
 from payments.authorization import require_mutation_permission
 
-from .lifecycle_models import LeaseContractVersion, LeaseRenewal
+from .lifecycle_event_service import append_lifecycle_event
+from .lifecycle_models import LeaseContractVersion, LeaseLifecycleEvent, LeaseRenewal
 from .models import Lease
 
 
@@ -186,6 +187,20 @@ def confirm_renewal(user, workspace, renewal_id):
         renewal.confirmed_at = timezone.now()
         renewal.successor_version = successor
         renewal.save()
+        append_lifecycle_event(
+            lease=source_lease,
+            event_type=LeaseLifecycleEvent.EVENT_RENEWED,
+            actor=user,
+            occurred_at=renewal.confirmed_at,
+            effective_date=successor.start_date,
+            metadata={
+                "renewal_id": renewal.id,
+                "renewal_number": renewal.renewal_number,
+                "successor_version_id": successor.id,
+                "successor_version_number": successor.version_number,
+            },
+            event_key=f"renewal:{renewal.id}",
+        )
         return renewal
 
 
