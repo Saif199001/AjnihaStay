@@ -22,9 +22,13 @@ def expire_lease(user, workspace, lease_id, *, effective_date=None):
     with transaction.atomic():
         lease = _get_locked_lease(lease_id, workspace)
 
-        # A retry of the same expiry operation is an idempotent no-op.
         if lease.status == Lease.STATUS_EXPIRED:
-            return lease
+            event = LeaseLifecycleEvent.objects.filter(
+                lease=lease, event_key=LeaseLifecycleEvent.EVENT_EXPIRED
+            ).first()
+            if event and (effective_date is None or effective_date == event.effective_date):
+                return lease
+            raise ValidationError("Lease is already expired with immutable expiry details")
 
         if lease.status != Lease.STATUS_ACTIVE:
             raise ValidationError(
