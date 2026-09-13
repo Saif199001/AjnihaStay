@@ -28,6 +28,7 @@ class LeaseLifecycleEvent(models.Model):
     workspace = models.ForeignKey("workspaces.Workspace", on_delete=models.PROTECT, related_name="lease_lifecycle_events")
     lease = models.ForeignKey("leasing.Lease", on_delete=models.PROTECT, related_name="lifecycle_events")
     event_type = models.CharField(max_length=24, choices=EVENT_CHOICES)
+    event_key = models.CharField(max_length=100, null=True, blank=True)
     occurred_at = models.DateTimeField()
     effective_date = models.DateField(null=True, blank=True)
     actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="lease_lifecycle_events", null=True, blank=True)
@@ -42,6 +43,7 @@ class LeaseLifecycleEvent(models.Model):
         ]
         constraints = [
             models.CheckConstraint(condition=Q(event_type__in=["created", "pending_signature", "activated", "renewed", "notice", "expired", "terminated", "cancelled"]), name="lease_evt_type_valid"),
+            models.UniqueConstraint(fields=["lease", "event_key"], condition=Q(event_key__isnull=False), name="lease_evt_lease_key_uniq"),
         ]
 
     def clean(self):
@@ -192,24 +194,10 @@ class LeaseContractVersion(models.Model):
     giving renewal a durable predecessor/successor version chain.
     """
 
-    lease = models.ForeignKey(
-        "leasing.Lease",
-        on_delete=models.PROTECT,
-        related_name="contract_versions",
-    )
-    workspace = models.ForeignKey(
-        "workspaces.Workspace",
-        on_delete=models.PROTECT,
-        related_name="lease_contract_versions",
-    )
+    lease = models.ForeignKey("leasing.Lease", on_delete=models.PROTECT, related_name="contract_versions")
+    workspace = models.ForeignKey("workspaces.Workspace", on_delete=models.PROTECT, related_name="lease_contract_versions")
     version_number = models.PositiveIntegerField()
-    predecessor = models.OneToOneField(
-        "self",
-        on_delete=models.PROTECT,
-        related_name="successor",
-        null=True,
-        blank=True,
-    )
+    predecessor = models.OneToOneField("self", on_delete=models.PROTECT, related_name="successor", null=True, blank=True)
     start_date = models.DateField()
     end_date = models.DateField()
     rent_amount = models.DecimalField(max_digits=10, decimal_places=2)
@@ -217,11 +205,7 @@ class LeaseContractVersion(models.Model):
     notice_period_days = models.PositiveIntegerField(default=0)
     terms = models.JSONField(default=dict, blank=True)
     agreement_reference = models.CharField(max_length=500, blank=True)
-    created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT,
-        related_name="lease_contract_versions_created",
-    )
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="lease_contract_versions_created")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
