@@ -8,6 +8,12 @@ class LeaseLifecycleEventQuerySet(models.QuerySet):
     def update(self, **kwargs):
         raise ValidationError("Lease lifecycle events are immutable")
 
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise ValidationError("Lease lifecycle events are immutable")
+
+    def bulk_create(self, objs, batch_size=None, ignore_conflicts=False, update_conflicts=False, update_fields=None, unique_fields=None):
+        raise ValidationError("Lease lifecycle events must be created through the canonical lifecycle service")
+
 
 class LeaseLifecycleEvent(models.Model):
     EVENT_CREATED = "created"
@@ -72,10 +78,18 @@ class LeaseNoticeQuerySet(models.QuerySet):
     def create(self, **kwargs):
         raise ValidationError("Lease notices must be created through the canonical notice service")
 
+    def bulk_create(self, objs, batch_size=None, ignore_conflicts=False, update_conflicts=False, update_fields=None, unique_fields=None):
+        raise ValidationError("Lease notices must be created through the canonical notice service")
+
     def update(self, **kwargs):
         if "status" in kwargs:
             raise ValidationError("Notice lifecycle status changes must use the canonical lifecycle service")
         return super().update(**kwargs)
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        if "status" in fields:
+            raise ValidationError("Notice lifecycle status changes must use the canonical lifecycle service")
+        return super().bulk_update(objs, fields, batch_size=batch_size)
 
 
 class LeaseNotice(models.Model):
@@ -152,6 +166,13 @@ class LeaseRenewalQuerySet(models.QuerySet):
             raise ValidationError("Confirmed renewals are immutable")
         return super().update(**kwargs)
 
+    def bulk_update(self, objs, fields, batch_size=None):
+        if "status" in fields:
+            raise ValidationError("Renewal lifecycle status changes must use the canonical renewal service")
+        if any(obj.status == LeaseRenewal.STATUS_CONFIRMED for obj in objs):
+            raise ValidationError("Confirmed renewals are immutable")
+        return super().bulk_update(objs, fields, batch_size=batch_size)
+
 
 class LeaseRenewal(models.Model):
     STATUS_DRAFT = "draft"
@@ -206,7 +227,7 @@ class LeaseRenewal(models.Model):
     def clean(self):
         if self.source_lease_id and self.workspace_id and self.source_lease.workspace_id != self.workspace_id:
             raise ValidationError("Renewal must belong to the same workspace as the source lease")
-        if self.successor_version_id and self.successor_version.workspace_id != self.workspace_id:
+        if self.successor_version_id and self.successor_version.workspace_id != self.workspacespace_id:
             raise ValidationError("Renewal successor version must belong to the same workspace")
         if self.created_by_id and self.workspace_id:
             from workspaces.models import Membership
@@ -228,6 +249,12 @@ class LeaseRenewal(models.Model):
 class LeaseContractVersionQuerySet(models.QuerySet):
     def update(self, **kwargs):
         raise ValidationError("Lease contract versions are immutable")
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise ValidationError("Lease contract versions are immutable")
+
+    def bulk_create(self, objs, batch_size=None, ignore_conflicts=False, update_conflicts=False, update_fields=None, unique_fields=None):
+        raise ValidationError("Lease contract versions must be created through the canonical renewal service")
 
 
 class LeaseContractVersion(models.Model):
