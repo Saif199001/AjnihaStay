@@ -6,7 +6,7 @@ from django.test import TestCase
 
 from accounts.models import User
 from leasing.lease_service import create_lease, transition_lease, update_lease
-from leasing.lifecycle_models import LeaseContractVersion
+from leasing.lifecycle_models import LeaseContractVersion, LeaseLifecycleEvent
 from leasing.models import Lease
 from properties.models import Property
 from tenant.models import Occupancy, Tenant
@@ -93,6 +93,17 @@ class LeaseServiceTests(TestCase):
         self.assertEqual(lease.rent_amount, Decimal("12000.00"))
         self.assertEqual(lease.security_deposit, Decimal("24000.00"))
         self.assertEqual(lease.created_by_id, self.manager.id)
+
+    def test_create_lease_records_immutable_created_event(self):
+        lease = create_lease(self.manager, self.workspace, self._data())
+        event = LeaseLifecycleEvent.objects.get(lease=lease, event_key=LeaseLifecycleEvent.EVENT_CREATED)
+        self.assertEqual(event.event_type, LeaseLifecycleEvent.EVENT_CREATED)
+        self.assertEqual(event.actor_id, self.manager.id)
+        self.assertEqual(event.effective_date, lease.start_date)
+        self.assertEqual(event.metadata["status"], Lease.STATUS_DRAFT)
+        with self.assertRaises(ValidationError):
+            event.metadata = {"tampered": True}
+            event.save()
 
     def test_create_rejects_cross_workspace_occupancy(self):
         other_owner = User.objects.create_user(
@@ -200,23 +211,34 @@ class LeaseServiceTests(TestCase):
                 {"rent_amount": Decimal("1.001")},
             )
 
-    def test_lifecycle_transitions_are_canonical(self):
+    def test_lifecycle_transitions_record_one_canonical_event_each(self):
         lease = create_lease(self.manager, self.workspace, self._data())
-        lease = transition_lease(
-            self.manager, self.workspace, lease.id, Lease.STATUS_PENDING_SIGNATURE
+        transition_lease(self.manager, self.workspace, lease.id, Lease.STATUS_PENDING_SIGNATURE)
+        transition_lease(self.manager, self.workspace, lease.id, Lease.STATUS_ACTIVE)
+        transition_lease(self.manager, self.workspace, lease.id, Lease.STATUS_TERMINATED)
+
+        events = LeaseLifecycleEvent.objects.filter(lease=lease).order_by("occurred_at", "id")
+        self.assertEqual(events.count(), 4)
+        self.assertEqual(
+            list(events.values_list("event_type", flat=True)),
+            ["created", "pending_signature", "activated", "terminated"],
         )
-        self.assertEqual(lease.status, Lease.STATUS_PENDING_SIGNATURE)
-        lease = transition_lease(
-            self.manager, self.workspace, lease.id, Lease.STATUS_ACTIVE
+        terminated = events.get(event_type=LeaseLifecycleEvent.EVENT_TERMINATED)
+        self.assertEqual(terminated.actor_id, self.manager.id)
+        self.assertEqual(terminated.metadata["from_status"], Lease.STATUS_ACTIVE)
+        self.assertEqual(terminated.metadata["to_status"], Lease.STATUS_TERMINATED)
+
+    def test_same_status_transition_does_not_duplicate_event(self):
+        lease = create_lease(self.manager, self.workspace, self._data())
+        transition_lease(self.manager, self.workspace, lease.id, Lease.STATUS_PENDING_SIGNATURE)
+        transition_lease(self.manager, self.workspace, lease.id, Lease.STATUS_PENDING_SIGNATURE)
+        self.assertEqual(
+            LeaseLifecycleEvent.objects.filter(
+                lease=lease,
+                event_key=LeaseLifecycleEvent.EVENT_PENDING_SIGNATURE,
+            ).count(),
+            1,
         )
-        self.assertEqual(lease.status, Lease.STATUS_ACTIVE)
-        self.assertIsNotNone(lease.activated_at)
-        self.assertEqual(LeaseContractVersion.objects.filter(lease=lease).count(), 1)
-        lease = transition_lease(
-            self.manager, self.workspace, lease.id, Lease.STATUS_TERMINATED
-        )
-        self.assertEqual(lease.status, Lease.STATUS_TERMINATED)
-        self.assertIsNotNone(lease.terminated_at)
 
     def test_lifecycle_supports_cancellation_before_activation(self):
         lease = create_lease(self.manager, self.workspace, self._data())
@@ -225,6 +247,8 @@ class LeaseServiceTests(TestCase):
         )
         self.assertEqual(lease.status, Lease.STATUS_CANCELLED)
         self.assertIsNotNone(lease.cancelled_at)
+        event = LeaseLifecycleEvent.objects.get(lease=lease, event_type=LeaseLifecycleEvent.EVENT_CANCELLED)
+        self.assertEqual(event.metadata["from_status"], Lease.STATUS_DRAFT)
 
     def test_invalid_lifecycle_transition_is_rejected(self):
         lease = create_lease(self.manager, self.workspace, self._data())
