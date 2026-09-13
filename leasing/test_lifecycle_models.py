@@ -7,7 +7,10 @@ from django.test import TestCase
 
 from accounts.models import User
 from leasing.lifecycle_models import LeaseContractVersion, LeaseLifecycleEvent, LeaseNotice, LeaseRenewal
+from leasing.lease_service import create_lease, transition_lease
 from leasing.models import Lease
+from leasing.notice_service import create_notice
+from leasing.renewal_service import confirm_renewal, create_renewal
 from properties.models import Property
 from tenant.models import Occupancy, Tenant
 from unit.models import Unit
@@ -24,6 +27,11 @@ class LeaseLifecycleModelTests(TestCase):
         tenant = Tenant.objects.create(owner=self.owner, workspace=self.workspace, full_name="P15 Tenant", phone="9999999999", email="p15-tenant@example.com", permanent_address="Lucknow, Uttar Pradesh")
         occupancy = Occupancy.objects.create(tenant=tenant, unit=unit, rent=Decimal("12000.00"), security_deposit=Decimal("24000.00"), check_in_date=date(2026, 1, 1), check_out_date=date(2026, 12, 31), next_due_date=date(2026, 1, 1), is_active=True)
         self.lease = Lease.objects.create(workspace=self.workspace, occupancy=occupancy, start_date=date(2026, 1, 1), end_date=date(2026, 12, 31), rent_amount=Decimal("12000.00"), security_deposit=Decimal("24000.00"), created_by=self.owner)
+
+    def _activate_lease(self):
+        transition_lease(self.owner, self.workspace, self.lease.id, Lease.STATUS_PENDING_SIGNATURE)
+        self.lease = transition_lease(self.owner, self.workspace, self.lease.id, Lease.STATUS_ACTIVE)
+        return self.lease
 
     def test_field_names_and_indexes_are_under_postgresql_identifier_limit(self):
         for model in (LeaseLifecycleEvent, LeaseNotice, LeaseRenewal, LeaseContractVersion):
@@ -65,13 +73,15 @@ class LeaseLifecycleModelTests(TestCase):
             LeaseLifecycleEvent.objects.create(workspace=other_workspace, lease=self.lease, event_type=LeaseLifecycleEvent.EVENT_NOTICE, occurred_at=datetime(2026, 2, 1, tzinfo=timezone.utc), actor=other_owner)
 
     def test_notice_requires_reason_and_valid_dates(self):
-        notice = LeaseNotice.objects.create(workspace=self.workspace, lease=self.lease, notice_date=date(2026, 6, 1), effective_date=date(2026, 7, 1), notice_type=LeaseNotice.TYPE_TERMINATION, reason="Contractual termination", created_by=self.owner)
+        self._activate_lease()
+        notice = create_notice(self.owner, self.workspace, self.lease.id, notice_date=date(2026, 6, 1), effective_date=date(2026, 7, 1), notice_type=LeaseNotice.TYPE_TERMINATION, reason="Contractual termination")
         self.assertEqual(notice.status, LeaseNotice.STATUS_DRAFT)
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
-                LeaseNotice.objects.create(workspace=self.workspace, lease=self.lease, notice_date=date(2026, 6, 2), effective_date=date(2026, 6, 1), notice_type=LeaseNotice.TYPE_TERMINATION, reason="Invalid date", created_by=self.owner)
+                invalid_notice = LeaseNotice(workspace=self.workspace, lease=self.lease, notice_date=date(2026, 6, 2), effective_date=date(2026, 6, 1), notice_type=LeaseNotice.TYPE_TERMINATION, reason="Invalid date", created_by=self.owner)
+                invalid_notice.save()
         with self.assertRaises(ValidationError):
-            LeaseNotice.objects.create(workspace=self.workspace, lease=self.lease, notice_date=date(2026, 6, 1), effective_date=date(2026, 7, 1), notice_type=LeaseNotice.TYPE_TERMINATION, reason="   ", created_by=self.owner)
+            create_notice(self.owner, self.workspace, self.lease.id, notice_date=date(2026, 6, 1), effective_date=date(2026, 7, 1), notice_type=LeaseNotice.TYPE_TERMINATION, reason="   ")
 
     def test_renewal_preserves_source_and_contract_snapshot(self):
         renewal = LeaseRenewal.objects.create(workspace=self.workspace, source_lease=self.lease, renewal_number=1, start_date=date(2027, 1, 1), end_date=date(2027, 12, 31), rent_amount=Decimal("13500.00"), security_deposit=Decimal("27000.00"), created_by=self.owner)
@@ -91,45 +101,26 @@ class LeaseLifecycleModelTests(TestCase):
         other_owner = User.objects.create_user(email="p15-renew-other@example.com", password="pass")
         other_workspace = Workspace.objects.create(name="P15 Renewal Other", slug="p15-renew-other", owner=other_owner)
         Membership.objects.create(workspace=other_workspace, user=other_owner, role="owner", is_active=True)
+        property_obj = Property.objects.create(owner=other_owner, workspace=other_workspace, name="Other Property", property_type="flat", address="Address", city="Lucknow", state="UP", pincode="226002")
+        unit = Unit.objects.create(property=property_obj, unit_type="flat", unit_number="201", rent=Decimal("13000.00"))
+        tenant = Tenant.objects.create(owner=other_owner, workspace=other_workspace, full_name="Other Tenant", phone="8888888888", email="other-version@example.com", permanent_address="Lucknow")
+        occupancy = Occupancy.objects.create(tenant=tenant, unit=unit, rent=Decimal("13000.00"), security_deposit=Decimal("26000.00"), check_in_date=date(2026, 1, 1), check_out_date=date(2026, 12, 31), next_due_date=date(2026, 1, 1), is_active=True)
+        other_lease = Lease.objects.create(workspace=other_workspace, occupancy=occupancy, start_date=date(2026, 1, 1), end_date=date(2026, 12, 31), rent_amount=Decimal("13000.00"), security_deposit=Decimal("26000.00"), created_by=other_owner)
+        predecessor = LeaseContractVersion.objects.create(lease=other_lease, workspace=other_workspace, version_number=1, start_date=other_lease.start_date, end_date=other_lease.end_date, rent_amount=other_lease.rent_amount, security_deposit=other_lease.security_deposit, created_by=other_owner)
         with self.assertRaises(ValidationError):
-            LeaseRenewal.objects.create(workspace=other_workspace, source_lease=self.lease, renewal_number=1, start_date=date(2027, 1, 1), end_date=date(2027, 12, 31), rent_amount=Decimal("13500.00"), created_by=other_owner)
+            LeaseContractVersion.objects.create(lease=self.lease, workspace=self.workspace, version_number=2, predecessor=predecessor, start_date=date(2027, 1, 1), end_date=date(2027, 12, 31), rent_amount=Decimal("13500.00"), security_deposit=Decimal("27000.00"), created_by=self.owner)
 
     def test_confirmed_renewal_is_immutable(self):
-        renewal = LeaseRenewal.objects.create(workspace=self.workspace, source_lease=self.lease, renewal_number=1, start_date=date(2027, 1, 1), end_date=date(2027, 12, 31), rent_amount=Decimal("13500.00"), created_by=self.owner)
-        renewal.status = LeaseRenewal.STATUS_CONFIRMED
-        renewal.save()
+        self._activate_lease()
+        renewal = create_renewal(self.owner, self.workspace, self.lease.id, {"start_date": date(2027, 1, 1), "end_date": date(2027, 12, 31), "rent_amount": Decimal("13500.00")})
+        renewal = confirm_renewal(self.owner, self.workspace, renewal.id)
         renewal.rent_amount = Decimal("14000.00")
         with self.assertRaises(ValidationError):
             renewal.save()
 
     def test_contract_version_is_immutable_and_chained(self):
-        version_one = LeaseContractVersion.objects.create(
-            lease=self.lease,
-            workspace=self.workspace,
-            version_number=1,
-            start_date=self.lease.start_date,
-            end_date=self.lease.end_date,
-            rent_amount=self.lease.rent_amount,
-            security_deposit=self.lease.security_deposit,
-            notice_period_days=self.lease.notice_period_days,
-            terms=dict(self.lease.terms or {}),
-            agreement_reference=self.lease.agreement_reference,
-            created_by=self.owner,
-        )
-        version_two = LeaseContractVersion.objects.create(
-            lease=self.lease,
-            workspace=self.workspace,
-            version_number=2,
-            predecessor=version_one,
-            start_date=date(2027, 1, 1),
-            end_date=date(2027, 12, 31),
-            rent_amount=Decimal("13500.00"),
-            security_deposit=Decimal("27000.00"),
-            notice_period_days=30,
-            terms={"renewed": True},
-            agreement_reference="renewal-1",
-            created_by=self.owner,
-        )
+        version_one = LeaseContractVersion.objects.create(lease=self.lease, workspace=self.workspace, version_number=1, start_date=self.lease.start_date, end_date=self.lease.end_date, rent_amount=self.lease.rent_amount, security_deposit=self.lease.security_deposit, notice_period_days=self.lease.notice_period_days, terms=dict(self.lease.terms or {}), agreement_reference=self.lease.agreement_reference, created_by=self.owner)
+        version_two = LeaseContractVersion.objects.create(lease=self.lease, workspace=self.workspace, version_number=2, predecessor=version_one, start_date=date(2027, 1, 1), end_date=date(2027, 12, 31), rent_amount=Decimal("13500.00"), security_deposit=Decimal("27000.00"), notice_period_days=30, terms={"renewed": True}, agreement_reference="renewal-1", created_by=self.owner)
         self.assertEqual(version_two.predecessor_id, version_one.id)
         self.assertEqual(version_one.successor.id, version_two.id)
         version_two.rent_amount = Decimal("14000.00")
@@ -145,25 +136,6 @@ class LeaseLifecycleModelTests(TestCase):
         tenant = Tenant.objects.create(owner=other_owner, workspace=other_workspace, full_name="Other Tenant", phone="8888888888", email="other-version@example.com", permanent_address="Lucknow")
         occupancy = Occupancy.objects.create(tenant=tenant, unit=unit, rent=Decimal("13000.00"), security_deposit=Decimal("26000.00"), check_in_date=date(2026, 1, 1), check_out_date=date(2026, 12, 31), next_due_date=date(2026, 1, 1), is_active=True)
         other_lease = Lease.objects.create(workspace=other_workspace, occupancy=occupancy, start_date=date(2026, 1, 1), end_date=date(2026, 12, 31), rent_amount=Decimal("13000.00"), security_deposit=Decimal("26000.00"), created_by=other_owner)
-        predecessor = LeaseContractVersion.objects.create(
-            lease=other_lease,
-            workspace=other_workspace,
-            version_number=1,
-            start_date=other_lease.start_date,
-            end_date=other_lease.end_date,
-            rent_amount=other_lease.rent_amount,
-            security_deposit=other_lease.security_deposit,
-            created_by=other_owner,
-        )
+        predecessor = LeaseContractVersion.objects.create(lease=other_lease, workspace=other_workspace, version_number=1, start_date=other_lease.start_date, end_date=other_lease.end_date, rent_amount=other_lease.rent_amount, security_deposit=other_lease.security_deposit, created_by=other_owner)
         with self.assertRaises(ValidationError):
-            LeaseContractVersion.objects.create(
-                lease=self.lease,
-                workspace=self.workspace,
-                version_number=2,
-                predecessor=predecessor,
-                start_date=date(2027, 1, 1),
-                end_date=date(2027, 12, 31),
-                rent_amount=Decimal("13500.00"),
-                security_deposit=Decimal("27000.00"),
-                created_by=self.owner,
-            )
+            LeaseContractVersion.objects.create(lease=self.lease, workspace=self.workspace, version_number=2, predecessor=predecessor, start_date=date(2027, 1, 1), end_date=date(2027, 12, 31), rent_amount=Decimal("13500.00"), security_deposit=Decimal("27000.00"), created_by=self.owner)
