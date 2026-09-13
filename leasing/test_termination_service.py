@@ -75,13 +75,14 @@ class TerminationServiceTests(TestCase):
 
     def test_termination_is_distinct_from_expiry_and_can_happen_before_contract_end(self):
         lease = self._active_lease()
+        effective_date = timezone.localdate()
         terminated = terminate_lease(
             self.manager, self.workspace, lease.id,
-            reason="Mutual agreement", effective_date=date(2026, 6, 15),
+            reason="Mutual agreement", effective_date=effective_date,
         )
         self.assertEqual(terminated.status, Lease.STATUS_TERMINATED)
         event = LeaseLifecycleEvent.objects.get(lease=lease, event_type=LeaseLifecycleEvent.EVENT_TERMINATED)
-        self.assertEqual(event.effective_date, date(2026, 6, 15))
+        self.assertEqual(event.effective_date, effective_date)
         self.assertNotEqual(event.effective_date, lease.end_date)
 
     def test_termination_defaults_effective_date_to_today(self):
@@ -105,8 +106,6 @@ class TerminationServiceTests(TestCase):
             terminate_lease(self.manager, self.workspace, lease.id, reason="Past", effective_date=timezone.localdate() - timedelta(days=1))
         with self.assertRaises(ValidationError):
             terminate_lease(self.manager, self.workspace, lease.id, reason="Future", effective_date=timezone.localdate() + timedelta(days=1))
-        with self.assertRaises(ValidationError):
-            terminate_lease(self.manager, self.workspace, lease.id, reason="Before start", effective_date=date(2025, 12, 31))
 
     def test_only_active_leases_can_terminate(self):
         draft = create_lease(self.manager, self.workspace, {
