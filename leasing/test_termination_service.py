@@ -6,6 +6,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from accounts.models import User
+from leasing.expiry_service import expire_lease
 from leasing.lease_service import create_lease, transition_lease
 from leasing.lifecycle_models import LeaseContractVersion, LeaseLifecycleEvent
 from leasing.models import Lease
@@ -20,50 +21,28 @@ class TerminationServiceTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(email="termination-owner@example.com", password="pass")
         self.manager = User.objects.create_user(email="termination-manager@example.com", password="pass")
-        self.workspace = Workspace.objects.create(
-            name="Termination Workspace", slug="termination-workspace", owner=self.owner
-        )
+        self.workspace = Workspace.objects.create(name="Termination Workspace", slug="termination-workspace", owner=self.owner)
         Membership.objects.create(workspace=self.workspace, user=self.owner, role="owner", is_active=True)
         Membership.objects.create(workspace=self.workspace, user=self.manager, role="manager", is_active=True)
-        self.property = Property.objects.create(
-            owner=self.owner, workspace=self.workspace, name="Termination Property",
-            property_type="flat", address="Address", city="Lucknow", state="UP", pincode="226001",
-        )
-        self.unit = Unit.objects.create(
-            property=self.property, unit_type="flat", unit_number="101", rent=Decimal("12000.00")
-        )
-        self.tenant = Tenant.objects.create(
-            owner=self.owner, workspace=self.workspace, full_name="Termination Tenant",
-            phone="9999999999", email="termination-tenant@example.com",
-            permanent_address="Lucknow, Uttar Pradesh",
-        )
-        self.occupancy = Occupancy.objects.create(
-            tenant=self.tenant, unit=self.unit, rent=Decimal("12000.00"),
-            security_deposit=Decimal("24000.00"), check_in_date=date(2026, 1, 1),
-            check_out_date=date(2026, 12, 31), next_due_date=date(2026, 1, 1), is_active=True,
-        )
+        self.property = Property.objects.create(owner=self.owner, workspace=self.workspace, name="Termination Property", property_type="flat", address="Address", city="Lucknow", state="UP", pincode="226001")
+        self.unit = Unit.objects.create(property=self.property, unit_type="flat", unit_number="101", rent=Decimal("12000.00"))
+        self.tenant = Tenant.objects.create(owner=self.owner, workspace=self.workspace, full_name="Termination Tenant", phone="9999999999", email="termination-tenant@example.com", permanent_address="Lucknow, Uttar Pradesh")
+        self.occupancy = Occupancy.objects.create(tenant=self.tenant, unit=self.unit, rent=Decimal("12000.00"), security_deposit=Decimal("24000.00"), check_in_date=date(2026, 1, 1), check_out_date=date(2026, 12, 31), next_due_date=date(2026, 1, 1), is_active=True)
 
-    def _active_lease(self):
-        lease = create_lease(self.manager, self.workspace, {
-            "occupancy": self.occupancy,
-            "start_date": date(2026, 1, 1), "end_date": date(2026, 12, 31),
-            "rent_amount": Decimal("12000.00"), "security_deposit": Decimal("24000.00"),
-        })
+    def _active_lease(self, **overrides):
+        data = {"occupancy": self.occupancy, "start_date": date(2026, 1, 1), "end_date": date(2026, 12, 31), "rent_amount": Decimal("12000.00"), "security_deposit": Decimal("24000.00")}
+        data.update(overrides)
+        lease = create_lease(self.manager, self.workspace, data)
         transition_lease(self.manager, self.workspace, lease.id, Lease.STATUS_PENDING_SIGNATURE)
         return transition_lease(self.manager, self.workspace, lease.id, Lease.STATUS_ACTIVE)
 
     def test_termination_records_reason_effective_date_actor_and_contract_version(self):
         lease = self._active_lease()
         effective_date = timezone.localdate()
-        terminated = terminate_lease(
-            self.manager, self.workspace, lease.id,
-            reason="Tenant requested early move-out", effective_date=effective_date,
-        )
+        terminated = terminate_lease(self.manager, self.workspace, lease.id, reason="Tenant requested early move-out", effective_date=effective_date)
         self.assertEqual(terminated.status, Lease.STATUS_TERMINATED)
         self.assertIsNotNone(terminated.terminated_at)
-        event = LeaseLifecycleEvent.objects.get(
-            lease=lease, event_key=LeaseLifecycleEvent.EVENT_TERMINATED
-        )
+        event = LeaseLifecycleEvent.objects.get(lease=lease, event_key=LeaseLifecycleEvent.EVENT_TERMINATED)
         self.assertEqual(event.actor_id, self.manager.id)
         self.assertEqual(event.effective_date, effective_date)
         self.assertEqual(event.metadata["reason"], "Tenant requested early move-out")
@@ -76,10 +55,7 @@ class TerminationServiceTests(TestCase):
     def test_termination_is_distinct_from_expiry_and_can_happen_before_contract_end(self):
         lease = self._active_lease()
         effective_date = timezone.localdate()
-        terminated = terminate_lease(
-            self.manager, self.workspace, lease.id,
-            reason="Mutual agreement", effective_date=effective_date,
-        )
+        terminated = terminate_lease(self.manager, self.workspace, lease.id, reason="Mutual agreement", effective_date=effective_date)
         self.assertEqual(terminated.status, Lease.STATUS_TERMINATED)
         event = LeaseLifecycleEvent.objects.get(lease=lease, event_type=LeaseLifecycleEvent.EVENT_TERMINATED)
         self.assertEqual(event.effective_date, effective_date)
@@ -108,18 +84,18 @@ class TerminationServiceTests(TestCase):
             terminate_lease(self.manager, self.workspace, lease.id, reason="Future", effective_date=timezone.localdate() + timedelta(days=1))
 
     def test_only_active_leases_can_terminate(self):
-        draft = create_lease(self.manager, self.workspace, {
-            "occupancy": self.occupancy, "start_date": date(2026, 1, 1), "end_date": date(2026, 12, 31),
-            "rent_amount": Decimal("12000.00"), "security_deposit": Decimal("24000.00"),
-        })
+        draft = create_lease(self.manager, self.workspace, {"occupancy": self.occupancy, "start_date": date(2026, 1, 1), "end_date": date(2026, 12, 31), "rent_amount": Decimal("12000.00"), "security_deposit": Decimal("24000.00")})
         with self.assertRaises(ValidationError):
             terminate_lease(self.manager, self.workspace, draft.id, reason="Not active")
 
-        # Keep the same lease fixture and move it directly to a terminal state.
-        # Deleting the draft is intentionally avoided because lifecycle history
-        # is protected and Lease.occupancy is intentionally OneToOne.
-        draft.status = Lease.STATUS_EXPIRED
-        draft.save()
+        # Exercise the terminal-state guard through the canonical expiry service.
+        # The lease fixture uses today's date so expiry is a valid lifecycle transition.
+        draft.end_date = timezone.localdate()
+        draft.save(update_fields=["end_date"])
+        # The active contract version does not exist until activation, so activate first.
+        transition_lease(self.manager, self.workspace, draft.id, Lease.STATUS_PENDING_SIGNATURE)
+        transition_lease(self.manager, self.workspace, draft.id, Lease.STATUS_ACTIVE)
+        expire_lease(self.manager, self.workspace, draft.id)
         with self.assertRaises(ValidationError):
             terminate_lease(self.manager, self.workspace, draft.id, reason="Already expired")
 
@@ -131,18 +107,14 @@ class TerminationServiceTests(TestCase):
         second = terminate_lease(self.manager, self.workspace, lease.id, reason="Mutual agreement", effective_date=effective_date)
         self.assertEqual(second.id, first.id)
         self.assertEqual(second.terminated_at, first_terminated_at)
-        self.assertEqual(
-            LeaseLifecycleEvent.objects.filter(lease=lease, event_key=LeaseLifecycleEvent.EVENT_TERMINATED).count(), 1
-        )
+        self.assertEqual(LeaseLifecycleEvent.objects.filter(lease=lease, event_key=LeaseLifecycleEvent.EVENT_TERMINATED).count(), 1)
 
     def test_terminated_history_is_immutable_on_retry(self):
         lease = self._active_lease()
         terminate_lease(self.manager, self.workspace, lease.id, reason="Original reason")
         with self.assertRaises(ValidationError):
             terminate_lease(self.manager, self.workspace, lease.id, reason="Changed reason")
-        self.assertEqual(
-            LeaseLifecycleEvent.objects.filter(lease=lease, event_key=LeaseLifecycleEvent.EVENT_TERMINATED).count(), 1
-        )
+        self.assertEqual(LeaseLifecycleEvent.objects.filter(lease=lease, event_key=LeaseLifecycleEvent.EVENT_TERMINATED).count(), 1)
 
     def test_occupancy_and_contract_version_are_unchanged(self):
         lease = self._active_lease()
@@ -162,7 +134,6 @@ class TerminationServiceTests(TestCase):
         Membership.objects.create(workspace=other_workspace, user=other_owner, role="owner", is_active=True)
         with self.assertRaises(ValidationError):
             terminate_lease(other_owner, other_workspace, lease.id, reason="Wrong workspace")
-
         member = User.objects.create_user(email="termination-member@example.com", password="pass")
         Membership.objects.create(workspace=self.workspace, user=member, role="member", is_active=True)
         with self.assertRaises(PermissionDenied):
