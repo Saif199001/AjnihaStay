@@ -33,35 +33,14 @@ class P15GapHardeningTests(TestCase):
         self.lease = transition_lease(self.manager, self.workspace, lease.id, Lease.STATUS_ACTIVE)
 
     def _renewal(self):
-        return create_renewal(
-            self.manager,
-            self.workspace,
-            self.lease.id,
-            {"start_date": date(2027, 1, 1), "end_date": date(2027, 12, 31), "rent_amount": Decimal("13500.00")},
-        )
+        return create_renewal(self.manager, self.workspace, self.lease.id, {"start_date": date(2027, 1, 1), "end_date": date(2027, 12, 31), "rent_amount": Decimal("13500.00")})
 
     def _notice(self):
-        return create_notice(
-            self.manager,
-            self.workspace,
-            self.lease.id,
-            notice_date=timezone.localdate(),
-            effective_date=timezone.localdate(),
-            notice_type=LeaseNotice.TYPE_TERMINATION,
-            reason="Gap hardening notice",
-        )
+        return create_notice(self.manager, self.workspace, self.lease.id, notice_date=timezone.localdate(), effective_date=timezone.localdate(), notice_type=LeaseNotice.TYPE_TERMINATION, reason="Gap hardening notice")
 
     def test_notice_direct_create_is_blocked(self):
         with self.assertRaises(ValidationError):
-            LeaseNotice.objects.create(
-                workspace=self.workspace,
-                lease=self.lease,
-                notice_date=timezone.localdate(),
-                effective_date=timezone.localdate(),
-                notice_type=LeaseNotice.TYPE_TERMINATION,
-                reason="Bypass",
-                created_by=self.manager,
-            )
+            LeaseNotice.objects.create(workspace=self.workspace, lease=self.lease, notice_date=timezone.localdate(), effective_date=timezone.localdate(), notice_type=LeaseNotice.TYPE_TERMINATION, reason="Bypass", created_by=self.manager)
 
     def test_notice_direct_status_save_and_bulk_update_are_blocked(self):
         notice = self._notice()
@@ -84,8 +63,8 @@ class P15GapHardeningTests(TestCase):
 
     def test_contract_version_bulk_update_is_blocked(self):
         renewal = self._renewal()
-        confirm_renewal(self.manager, self.workspace, renewal.id)
-        successor = LeaseContractVersion.objects.get(pk=renewal.successor_version_id)
+        confirmed = confirm_renewal(self.manager, self.workspace, renewal.id)
+        successor = confirmed.successor_version
         with self.assertRaises(ValidationError):
             LeaseContractVersion.objects.filter(pk=successor.pk).update(rent_amount=Decimal("1.00"))
 
