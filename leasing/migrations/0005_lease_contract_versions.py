@@ -5,28 +5,50 @@ from django.db.models import F, Q
 
 def backfill_initial_contract_versions(apps, schema_editor):
     Lease = apps.get_model("leasing", "Lease")
+    LeaseRenewal = apps.get_model("leasing", "LeaseRenewal")
     LeaseContractVersion = apps.get_model("leasing", "LeaseContractVersion")
     db_alias = schema_editor.connection.alias
 
-    versions = []
     for lease in Lease.objects.using(db_alias).all().iterator():
-        versions.append(
-            LeaseContractVersion(
+        LeaseContractVersion.objects.using(db_alias).create(
+            lease_id=lease.id,
+            workspace_id=lease.workspace_id,
+            version_number=1,
+            predecessor_id=None,
+            start_date=lease.start_date,
+            end_date=lease.end_date,
+            rent_amount=lease.rent_amount,
+            security_deposit=lease.security_deposit,
+            notice_period_days=lease.notice_period_days,
+            terms=lease.terms,
+            agreement_reference=lease.agreement_reference,
+            created_by_id=lease.created_by_id,
+        )
+
+        predecessor = LeaseContractVersion.objects.using(db_alias).get(lease_id=lease.id, version_number=1)
+        confirmed_renewals = (
+            LeaseRenewal.objects.using(db_alias)
+            .filter(source_lease_id=lease.id, status="confirmed")
+            .order_by("renewal_number", "id")
+        )
+        for renewal in confirmed_renewals:
+            version = LeaseContractVersion.objects.using(db_alias).create(
                 lease_id=lease.id,
                 workspace_id=lease.workspace_id,
-                version_number=1,
-                predecessor_id=None,
-                start_date=lease.start_date,
-                end_date=lease.end_date,
-                rent_amount=lease.rent_amount,
-                security_deposit=lease.security_deposit,
-                notice_period_days=lease.notice_period_days,
-                terms=lease.terms,
-                agreement_reference=lease.agreement_reference,
-                created_by_id=lease.created_by_id,
+                version_number=predecessor.version_number + 1,
+                predecessor_id=predecessor.id,
+                start_date=renewal.start_date,
+                end_date=renewal.end_date,
+                rent_amount=renewal.rent_amount,
+                security_deposit=renewal.security_deposit,
+                notice_period_days=renewal.notice_period_days,
+                terms=renewal.terms,
+                agreement_reference=renewal.agreement_reference,
+                created_by_id=renewal.created_by_id,
             )
-        )
-    LeaseContractVersion.objects.using(db_alias).bulk_create(versions, batch_size=500)
+            renewal.successor_version_id = version.id
+            renewal.save(update_fields=["successor_version"])
+            predecessor = version
 
 
 def remove_contract_versions(apps, schema_editor):
