@@ -89,7 +89,7 @@ def transition_notice(user, workspace, notice_id, target_status):
 
         previous_status = notice.status
         notice.status = target_status
-        notice.save()
+        notice.save(_allow_lifecycle_mutation=True)
         append_lifecycle_event(
             lease=notice.lease,
             event_type=LeaseLifecycleEvent.EVENT_NOTICE,
