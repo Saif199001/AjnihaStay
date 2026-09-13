@@ -5,6 +5,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import TestCase
 
 from accounts.models import User
+from leasing.cancellation_service import cancel_lease
 from leasing.lease_service import create_lease, transition_lease, update_lease
 from leasing.lifecycle_models import LeaseContractVersion, LeaseLifecycleEvent
 from leasing.models import Lease
@@ -240,15 +241,21 @@ class LeaseServiceTests(TestCase):
             1,
         )
 
-    def test_lifecycle_supports_cancellation_before_activation(self):
+    def test_cancellation_requires_dedicated_service(self):
         lease = create_lease(self.manager, self.workspace, self._data())
-        lease = transition_lease(
-            self.manager, self.workspace, lease.id, Lease.STATUS_CANCELLED
+        with self.assertRaises(ValidationError):
+            transition_lease(
+                self.manager, self.workspace, lease.id, Lease.STATUS_CANCELLED
+            )
+
+        cancelled = cancel_lease(
+            self.manager,
+            self.workspace,
+            lease.id,
+            reason="Owner cancelled before signing",
         )
-        self.assertEqual(lease.status, Lease.STATUS_CANCELLED)
-        self.assertIsNotNone(lease.cancelled_at)
-        event = LeaseLifecycleEvent.objects.get(lease=lease, event_type=LeaseLifecycleEvent.EVENT_CANCELLED)
-        self.assertEqual(event.metadata["from_status"], Lease.STATUS_DRAFT)
+        self.assertEqual(cancelled.status, Lease.STATUS_CANCELLED)
+        self.assertIsNotNone(cancelled.cancelled_at)
 
     def test_invalid_lifecycle_transition_is_rejected(self):
         lease = create_lease(self.manager, self.workspace, self._data())
@@ -259,8 +266,11 @@ class LeaseServiceTests(TestCase):
 
     def test_terminal_lifecycle_state_cannot_change(self):
         lease = create_lease(self.manager, self.workspace, self._data())
-        lease = transition_lease(
-            self.manager, self.workspace, lease.id, Lease.STATUS_CANCELLED
+        lease = cancel_lease(
+            self.manager,
+            self.workspace,
+            lease.id,
+            reason="Cancelled before activation",
         )
         with self.assertRaises(ValidationError):
             transition_lease(
