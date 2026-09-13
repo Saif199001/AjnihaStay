@@ -40,6 +40,11 @@ class LeaseTransitionSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=Lease.STATUS_CHOICES)
 
 
+class LeaseLifecycleActionSerializer(serializers.Serializer):
+    reason = serializers.CharField(required=False, allow_blank=False, max_length=500)
+    effective_date = serializers.DateField(required=False)
+
+
 class LeaseNoticeSerializer(serializers.ModelSerializer):
     class Meta:
         model = LeaseNotice
