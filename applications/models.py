@@ -42,7 +42,10 @@ class Applicant(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        indexes = [models.Index(fields=["workspace", "created_at"]), models.Index(fields=["workspace", "phone"])]
+        indexes = [
+            models.Index(fields=["workspace", "created_at"], name="applications_applicant_workspace_created_idx"),
+            models.Index(fields=["workspace", "phone"], name="applications_applicant_workspace_phone_idx"),
+        ]
 
     def __str__(self):
         return self.full_name
@@ -79,8 +82,14 @@ class Application(models.Model):
     objects = LifecycleProtectedQuerySet.as_manager()
 
     class Meta:
-        indexes = [models.Index(fields=["workspace", "status", "created_at"]), models.Index(fields=["workspace", "applicant", "property", "status"])]
-        constraints = [models.CheckConstraint(condition=Q(requested_check_out_date__isnull=True) | Q(requested_check_in_date__isnull=True) | Q(requested_check_out_date__gte=F("requested_check_in_date")), name="application_dates_valid")]
+        indexes = [
+            models.Index(fields=["workspace", "status", "created_at"], name="applications_application_workspace_status_created_idx"),
+            models.Index(fields=["workspace", "applicant", "property", "status"], name="applications_application_workspace_applicant_property_status_idx"),
+        ]
+        constraints = [
+            models.CheckConstraint(condition=Q(requested_check_out_date__isnull=True) | Q(requested_check_in_date__isnull=True) | Q(requested_check_out_date__gte=F("requested_check_in_date")), name="application_dates_valid"),
+            models.UniqueConstraint(condition=Q(status__in=["draft", "submitted", "under_review"]), fields=["workspace", "applicant", "property"], name="application_active_applicant_property_uniq"),
+        ]
 
     def clean(self):
         if self.requested_check_in_date and self.requested_check_out_date and self.requested_check_out_date < self.requested_check_in_date:
@@ -128,7 +137,9 @@ class ApplicationEvent(models.Model):
     objects = EventProtectedQuerySet.as_manager()
 
     class Meta:
-        indexes = [models.Index(fields=["workspace", "application", "occurred_at"])]
+        indexes = [
+            models.Index(fields=["workspace", "application", "occurred_at"], name="applications_event_workspace_application_occurred_idx"),
+        ]
         constraints = [models.UniqueConstraint(fields=["application", "event_key"], name="application_event_key_uniq")]
 
     @classmethod
