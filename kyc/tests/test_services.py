@@ -2,6 +2,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import TestCase
 from django.utils import timezone
 from unittest.mock import Mock
+from decimal import Decimal
 
 from accounts.models import User
 from tenant.models import Occupancy, Tenant
@@ -83,10 +84,10 @@ class KycServiceTests(TestCase):
 
     def test_agreement_link_requires_matching_workspace_and_occupancy(self):
         unit = Unit.objects.create(
-            property=self._property(), unit_type="room", unit_number="K1", rent="10000.00"
+            property=self._property(), unit_type="room", unit_number="K1", rent=Decimal("10000.00")
         )
         occupancy = Occupancy.objects.create(
-            tenant=self.tenant, unit=unit, allotted_by=self.owner, rent="10000.00",
+            tenant=self.tenant, unit=unit, allotted_by=self.owner, rent=Decimal("10000.00"),
             check_in_date=timezone.localdate(), next_due_date=timezone.localdate(),
         )
         link = create_agreement_link(
