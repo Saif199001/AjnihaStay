@@ -71,16 +71,16 @@ def get_or_create_profile(user, workspace, tenant_id):
 
 def _append_event(*, profile, actor, from_status, to_status, reason="", metadata=None):
     event_key = f"{from_status}:{to_status}:{uuid4().hex}"
-    return KycVerificationEvent.objects.create(
+    return KycVerificationEvent.append(
         workspace=profile.workspace,
-        kyc_profile=profile,
+        profile=profile,
         tenant=profile.tenant,
         from_status=from_status,
         to_status=to_status,
         actor=actor,
         occurred_at=timezone.now(),
         reason=reason,
-        metadata=metadata or {},
+        metadata=metadata,
         event_key=event_key,
     )
 
