@@ -1,6 +1,5 @@
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Q
 from django.utils import timezone
 
 from .models import Applicant, Application, ApplicationEvent
@@ -96,9 +95,8 @@ def create_applicant(workspace, data, actor=None):
         raise ValidationError("Phone number required")
 
     with transaction.atomic():
-        # Applicant identity is workspace-local. Phone/email are matching signals,
-        # never global identity keys. Lock the workspace-local matches so concurrent
-        # creation cannot silently produce ambiguous duplicate identities.
+        # Applicant identity is workspace-local. Phone/email are matching
+        # signals, never global identity keys. Ambiguous matches are rejected.
         phone_matches = list(
             Applicant.objects.select_for_update().filter(workspace=workspace, phone=phone)
         )
@@ -113,17 +111,17 @@ def create_applicant(workspace, data, actor=None):
         if len(matched_ids) > 1:
             raise ValidationError("Applicant identity match is ambiguous")
         if matched_ids:
-            applicant = Applicant.objects.get(id=next(iter(matched_ids)), workspace=workspace)
-            return applicant, False
+            return Applicant.objects.get(
+                id=next(iter(matched_ids)), workspace=workspace
+            )
 
-        applicant = Applicant.objects.create(
+        return Applicant.objects.create(
             workspace=workspace,
             full_name=full_name,
             phone=phone,
             email=email,
             address=address,
         )
-        return applicant, True
 
 
 def get_applicant(workspace, applicant_id):
@@ -162,7 +160,9 @@ def create_application(workspace, data, actor):
             property=property_obj,
             status__in=_ACTIVE_STATUSES,
         ).exists():
-            raise ValidationError("An active application already exists for this applicant and property")
+            raise ValidationError(
+                "An active application already exists for this applicant and property"
+            )
 
         application = Application(
             workspace=workspace,
@@ -180,7 +180,9 @@ def create_application(workspace, data, actor):
         try:
             application.save()
         except IntegrityError:
-            raise ValidationError("An active application already exists for this applicant and property")
+            raise ValidationError(
+                "An active application already exists for this applicant and property"
+            )
         return application
 
 
@@ -198,7 +200,9 @@ def list_applications(workspace, status=None, applicant_id=None, property_id=Non
         queryset = queryset.filter(applicant_id=applicant_id)
     if property_id not in (None, ""):
         queryset = queryset.filter(property_id=property_id)
-    return queryset.select_related("applicant", "property", "unit", "subunit").order_by("-created_at", "-id")
+    return queryset.select_related(
+        "applicant", "property", "unit", "subunit"
+    ).order_by("-created_at", "-id")
 
 
 def _transition(
@@ -230,8 +234,8 @@ def _transition(
             },
         }
 
-        # Retries of an already-completed action are deterministic and do not
-        # append a second logical history event.
+        # Repeating the same already-completed action is deterministic and does
+        # not append a duplicate logical history event.
         if current_status == target_status:
             return application, False
 
@@ -280,23 +284,23 @@ def _transition(
         if event_key is None:
             event_key = f"status:{current_status}:{target_status}"
 
+        # Isolate the uniqueness failure in a savepoint so the outer
+        # transaction remains usable for deterministic retry handling.
         try:
-            ApplicationEvent.append(
-                workspace=workspace,
-                application=application,
-                applicant=application.applicant,
-                from_status=current_status,
-                to_status=target_status,
-                actor=actor,
-                occurred_at=now,
-                reason=reason,
-                metadata={},
-                event_key=event_key,
-            )
+            with transaction.atomic():
+                ApplicationEvent.append(
+                    workspace=workspace,
+                    application=application,
+                    applicant=application.applicant,
+                    from_status=current_status,
+                    to_status=target_status,
+                    actor=actor,
+                    occurred_at=now,
+                    reason=reason,
+                    metadata={},
+                    event_key=event_key,
+                )
         except IntegrityError:
-            # The unique event key makes retries deterministic. Because the
-            # application row is locked, an existing event indicates that the
-            # requested logical transition was already recorded.
             existing = ApplicationEvent.objects.filter(
                 application=application,
                 event_key=event_key,
