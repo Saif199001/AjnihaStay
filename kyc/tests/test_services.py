@@ -1,3 +1,4 @@
+from datetime import timedelta
 from decimal import Decimal
 
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -177,7 +178,7 @@ class KycServiceTests(TestCase):
         with self.assertRaises(ValidationError):
             review_document(self.manager, self.workspace, document.id, action="verify")
 
-        future = timezone.localdate() + timezone.timedelta(days=1)
+        future = timezone.localdate() + timedelta(days=1)
         document = self._uploaded_document("pan", expires_at=future)
         review_document(self.manager, self.workspace, document.id, action="under_review")
         review_document(self.manager, self.workspace, document.id, action="verify")
@@ -188,13 +189,14 @@ class KycServiceTests(TestCase):
         self.assertEqual(KycDocumentEvent.objects.filter(document=document).count(), 3)
         self.assertEqual(expire_document(self.manager, self.workspace, document.id).status, KycDocument.STATUS_EXPIRED)
 
-    def test_expired_verified_documents_do_not_count_for_kyc_verification(self):
-        document = self._uploaded_document(expires_at=timezone.localdate())
-        document.status = KycDocument.STATUS_VERIFIED
-        document.verified_at = timezone.now()
-        document.verified_by = self.manager
+    def test_expired_document_is_not_accepted_for_kyc_verification(self):
+        document = self._uploaded_document(expires_at=timezone.localdate() + timedelta(days=1))
+        submit_kyc(self.manager, self.workspace, self.tenant.id)
+        review_document(self.manager, self.workspace, document.id, action="under_review")
+        review_document(self.manager, self.workspace, document.id, action="verify")
+        KycDocument.objects.filter(pk=document.pk).update(expires_at=timezone.localdate())
         with self.assertRaises(ValidationError):
-            document.save()
+            verify_kyc(self.manager, self.workspace, self.tenant.id)
 
     def test_agreement_link_requires_matching_workspace_and_occupancy(self):
         unit = Unit.objects.create(property=self._property(), unit_type="room", unit_number="K1", rent=Decimal("10000.00"))
