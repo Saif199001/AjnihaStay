@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 from uuid import uuid4
 
 from django.conf import settings
@@ -20,6 +21,11 @@ from .storage import PrivateStorageError, generate_storage_key
 
 KYC_MANAGER_ROLES = frozenset({Membership.ROLE_OWNER, Membership.ROLE_ADMIN, Membership.ROLE_MANAGER})
 KYC_DOCUMENT_CONTENT_TYPES = frozenset({"application/pdf", "image/jpeg", "image/png"})
+KYC_DOCUMENT_EXTENSIONS = {
+    "application/pdf": frozenset({".pdf"}),
+    "image/jpeg": frozenset({".jpg", ".jpeg"}),
+    "image/png": frozenset({".png"}),
+}
 KYC_DOCUMENT_MAX_SIZE = 10 * 1024 * 1024
 KYC_DEFAULT_MIN_SUBMISSION_DOCUMENTS = 1
 KYC_DEFAULT_MIN_VERIFIED_DOCUMENTS = 1
@@ -183,6 +189,19 @@ def reject_kyc(user, workspace, tenant_id, *, reason):
         return profile
 
 
+def _read_file_prefix(file, size=16):
+    try:
+        position = file.tell()
+        file.seek(0)
+        prefix = file.read(size)
+        file.seek(position)
+    except (AttributeError, OSError, ValueError):
+        raise ValidationError("KYC document file cannot be inspected safely")
+    if not isinstance(prefix, bytes):
+        raise ValidationError("KYC document file cannot be inspected safely")
+    return prefix
+
+
 def _validate_document_file(file, content_type):
     if file is None:
         raise ValidationError("KYC document file is required")
@@ -193,6 +212,18 @@ def _validate_document_file(file, content_type):
         raise ValidationError("KYC document file size must be positive")
     if size > KYC_DOCUMENT_MAX_SIZE:
         raise ValidationError("KYC document exceeds the maximum allowed size")
+    filename = str(getattr(file, "name", "") or "").strip().lower()
+    extension = Path(filename).suffix
+    if extension not in KYC_DOCUMENT_EXTENSIONS[content_type]:
+        raise ValidationError("KYC document file extension does not match its content type")
+    prefix = _read_file_prefix(file)
+    signature_ok = {
+        "application/pdf": prefix.startswith(b"%PDF-"),
+        "image/jpeg": prefix.startswith(b"\xff\xd8\xff"),
+        "image/png": prefix.startswith(b"\x89PNG\r\n\x1a\n"),
+    }[content_type]
+    if not signature_ok:
+        raise ValidationError("KYC document file content does not match its declared type")
     return size
 
 
@@ -223,11 +254,7 @@ def upload_document(user, workspace, tenant_id, *, document_type, file, content_
                 content_type=stored.content_type, file_size=size, status=KycDocument.STATUS_UPLOADED,
                 issued_at=issued_at, expires_at=expires_at, uploaded_by=user,
             )
-            _append_document_event(
-                document=document, actor=user,
-                from_status="", to_status=KycDocument.STATUS_UPLOADED,
-                metadata={"document_type": document.document_type},
-            )
+            _append_document_event(document=document, actor=user, from_status="", to_status=KycDocument.STATUS_UPLOADED, metadata={"document_type": document.document_type})
         except Exception:
             try:
                 storage.delete(storage_key)
