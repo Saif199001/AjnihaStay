@@ -3,7 +3,7 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -215,7 +215,7 @@ class KycServiceTests(TestCase):
             with self.assertRaises(ValidationError):
                 verify_kyc(self.manager, self.workspace, self.tenant.id)
 
-    def test_agreement_link_duplicate_is_idempotent(self):
+    def test_agreement_link_duplicate_is_idempotent_and_db_unique(self):
         unit = Unit.objects.create(property=self._property(), unit_type="room", unit_number="K1", rent=Decimal("10000.00"))
         occupancy = Occupancy.objects.create(tenant=self.tenant, unit=unit, allotted_by=self.owner, rent=Decimal("10000.00"), check_in_date=timezone.localdate(), next_due_date=timezone.localdate())
         first = create_agreement_link(self.manager, self.workspace, tenant_id=self.tenant.id, occupancy_id=occupancy.id, agreement_type="rental_agreement", reference="AGR-1")
@@ -228,8 +228,9 @@ class KycServiceTests(TestCase):
             agreement_type="rental_agreement", reference="AGR-1", created_by=self.manager,
         )
         with self.assertRaises(IntegrityError):
-            with self.captureOnCommitCallbacks(execute=True):
+            with transaction.atomic():
                 duplicate.save()
+        self.assertEqual(AgreementLink.objects.count(), 1)
 
     def test_agreement_link_requires_matching_workspace_and_occupancy(self):
         unit = Unit.objects.create(property=self._property(), unit_type="room", unit_number="K1", rent=Decimal("10000.00"))
