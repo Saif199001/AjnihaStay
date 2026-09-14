@@ -36,7 +36,7 @@ def applicant_create_api(request):
         return Response(serializer.errors, status=400)
     try:
         applicant = create_applicant(request.workspace, serializer.validated_data, request.user)
-        return Response({"message": "Applicant created", "data": ApplicantSerializer(applicant).data}, status=201)
+        return Response({"message": "Applicant saved", "data": ApplicantSerializer(applicant).data}, status=201)
     except ValidationError as exc:
         return Response({"error": _validation_message(exc)}, status=400)
 
@@ -96,6 +96,13 @@ def application_detail_api(request, application_id):
 
 
 def _transition_response(request, transition, application_id, reason=None):
+    messages = {
+        "submit": "Application submitted",
+        "review": "Application moved to review",
+        "approve": "Application approved",
+        "reject": "Application rejected",
+        "withdraw": "Application withdrawn",
+    }
     try:
         if transition == "submit":
             application = submit_application(request.workspace, application_id, request.user)
@@ -107,7 +114,7 @@ def _transition_response(request, transition, application_id, reason=None):
             application = reject_application(request.workspace, application_id, request.user, reason or "")
         else:
             application = withdraw_application(request.workspace, application_id, request.user, reason or "")
-        return Response({"message": f"Application {transition}d" if transition in {"approve", "reject"} else f"Application {transition}ed", **_application_payload(application)})
+        return Response({"message": messages[transition], **_application_payload(application)})
     except ValidationError as exc:
         return Response({"error": _validation_message(exc)}, status=400)
 
@@ -133,15 +140,13 @@ def application_approve_api(request, application_id):
 @api_view(["POST"])
 @permission_classes([WorkspaceManagerPermission])
 def application_reject_api(request, application_id):
-    reason = request.data.get("reason", "")
-    return _transition_response(request, "reject", application_id, reason)
+    return _transition_response(request, "reject", application_id, request.data.get("reason", ""))
 
 
 @api_view(["POST"])
 @permission_classes([WorkspaceManagerPermission])
 def application_withdraw_api(request, application_id):
-    reason = request.data.get("reason", "")
-    return _transition_response(request, "withdraw", application_id, reason)
+    return _transition_response(request, "withdraw", application_id, request.data.get("reason", ""))
 
 
 @api_view(["GET"])
