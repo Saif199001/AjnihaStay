@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     "tenant",
     "leasing",
     "payments",
+    "kyc",
     "cloudinary",
     "cloudinary_storage",
     "dashboard",

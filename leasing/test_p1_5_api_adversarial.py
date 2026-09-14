@@ -2,6 +2,7 @@ from datetime import date
 from decimal import Decimal
 
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from accounts.models import User
@@ -69,11 +70,9 @@ class LeaseP15AdversarialRenewalApiTests(TestCase):
 
     def test_renewal_api_unauthenticated_actions_return_401(self):
         renewal_id = self.create_renewal_via_api()
-
         create_request = self.factory.post(f"/api/leases/{self.lease.id}/renewals/create/", self.payload(), format="json")
         create_request.workspace = self.workspace
         self.assertEqual(lease_renewal_create_api(create_request, self.lease.id).status_code, 401)
-
         for view in (lease_renewal_confirm_api, lease_renewal_cancel_api):
             request = self.factory.post("/api/leases/renewals/action/", {}, format="json")
             request.workspace = self.workspace
@@ -105,7 +104,13 @@ class LeaseP15AdversarialRenewalApiTests(TestCase):
 
     def test_terminal_source_lease_cannot_be_renewed(self):
         from leasing.termination_service import terminate_lease
-        terminate_lease(self.manager, self.workspace, self.lease.id, reason="P15 API terminal source test", effective_date=date(2026, 9, 13))
+        terminate_lease(
+            self.manager,
+            self.workspace,
+            self.lease.id,
+            reason="P15 API terminal source test",
+            effective_date=timezone.localdate(),
+        )
         response = lease_renewal_create_api(self.auth(self.factory.post(f"/api/leases/{self.lease.id}/renewals/create/", self.payload(), format="json")), self.lease.id)
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.data["error"], "Only active or expired leases can be renewed")
