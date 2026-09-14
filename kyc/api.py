@@ -1,19 +1,16 @@
-from datetime import timedelta
-
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import FileResponse
-from django.utils import timezone
 from rest_framework.decorators import api_view, parser_classes, permission_classes
-from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
 from workspaces.permissions import WorkspaceManagerPermission, WorkspaceStaffPermission
 
-from .models import AgreementLink, KycDocument, KycDocumentEvent, KycProfile, KycVerificationEvent
+from .models import AgreementLink, KycDocument, KycProfile, KycVerificationEvent
 from .serializers import (
     AgreementLinkCreateSerializer,
     AgreementLinkSerializer,
-    KycDocumentEventSerializer,
+    KycDocumentMetadataSerializer,
     KycDocumentReviewSerializer,
     KycDocumentSerializer,
     KycDocumentUploadSerializer,
@@ -31,6 +28,9 @@ from .services import (
     verify_kyc,
 )
 from .storage import CloudinaryPrivateDocumentStorage, PrivateStorageError
+
+
+MANAGER_ROLES = {"manager", "admin", "owner"}
 
 
 def _error(exc):
@@ -114,9 +114,10 @@ def kyc_documents_api(request, tenant_id):
         return Response({"error": "Tenant not found"}, status=404)
     if request.method == "GET":
         documents = KycDocument.objects.filter(tenant=tenant, workspace=request.workspace).order_by("-uploaded_at", "-id")
-        return Response({"data": KycDocumentSerializer(documents, many=True).data})
+        serializer_class = KycDocumentSerializer if request.workspace_membership.role in MANAGER_ROLES else KycDocumentMetadataSerializer
+        return Response({"data": serializer_class(documents, many=True).data})
 
-    if not request.workspace_membership.role in {"manager", "admin", "owner"}:
+    if request.workspace_membership.role not in MANAGER_ROLES:
         return Response({"error": "Manager-level access required"}, status=403)
     serializer = KycDocumentUploadSerializer(data=request.data)
     if not serializer.is_valid():
@@ -174,17 +175,6 @@ def kyc_document_download_api(request, document_id):
     response["Content-Length"] = str(document.file_size)
     response["Content-Disposition"] = "attachment; filename=kyc-document"
     return response
-
-
-@api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
-def kyc_document_history_api(request, document_id):
-    try:
-        document = KycDocument.objects.get(id=document_id, workspace=request.workspace)
-    except (KycDocument.DoesNotExist, TypeError, ValueError):
-        return Response({"error": "KYC document not found"}, status=404)
-    events = KycDocumentEvent.objects.filter(document=document, workspace=request.workspace).order_by("occurred_at", "id")
-    return Response({"data": KycDocumentEventSerializer(events, many=True).data})
 
 
 @api_view(["GET", "POST"])
