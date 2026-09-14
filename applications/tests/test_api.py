@@ -41,6 +41,10 @@ class ApplicationApiTests(TestCase):
         self.client.force_authenticate(user=user)
         self.client.defaults["HTTP_X_WORKSPACE_ID"] = str(self.workspace.id)
 
+    def test_anonymous_api_access_is_rejected(self):
+        response = self.client.get("/api/applications/")
+        self.assertIn(response.status_code, (401, 403))
+
     def test_staff_can_list_applicants_and_applications_but_cannot_create(self):
         self._auth(self.staff)
         self.assertEqual(self.client.get("/api/applicants/").status_code, 200)
@@ -71,6 +75,7 @@ class ApplicationApiTests(TestCase):
         history = self.client.get(f"/api/applications/{application_id}/history/")
         self.assertEqual(history.status_code, 200)
         self.assertEqual(len(history.data["data"]), 3)
+        self.assertEqual(history.data["pagination"]["count"], 3)
         self.assertEqual(ApplicationEvent.objects.filter(application_id=application_id).count(), 3)
 
     def test_reject_requires_reason_and_exposes_history(self):
@@ -117,3 +122,98 @@ class ApplicationApiTests(TestCase):
         self.assertEqual(response.status_code, 404)
         response = self.client.get(f"/api/applications/{other_application.id}/history/")
         self.assertEqual(response.status_code, 404)
+
+    def test_unknown_fields_are_rejected_on_create_and_transition(self):
+        self._auth(self.manager)
+        response = self.client.post(
+            "/api/applicants/create/",
+            {"full_name": "Unknown Field", "phone": "7777777777", "workspace_id": self.workspace.id},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Unknown field(s)", str(response.data))
+
+        response = self.client.post(
+            "/api/applications/create/",
+            {"applicant": self.applicant.id, "property": self.property.id, "is_admin": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+        response = self.client.post(
+            "/api/applications/create/",
+            {"applicant": self.applicant.id, "property": self.property.id},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        application_id = response.data["data"]["id"]
+        response = self.client.post(
+            f"/api/applications/{application_id}/submit/", {"status": "approved"}, format="json"
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Application.objects.get(id=application_id).status, Application.STATUS_DRAFT)
+
+    def test_reject_and_withdraw_accept_only_reason_payload(self):
+        self._auth(self.manager)
+        response = self.client.post(
+            "/api/applications/create/",
+            {"applicant": self.applicant.id, "property": self.property.id},
+            format="json",
+        )
+        application_id = response.data["data"]["id"]
+        response = self.client.post(f"/api/applications/{application_id}/submit/", {"unexpected": "x"}, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.client.post(f"/api/applications/{application_id}/submit/", {}, format="json")
+        self.client.post(f"/api/applications/{application_id}/review/", {}, format="json")
+        response = self.client.post(
+            f"/api/applications/{application_id}/reject/", {"reason": "No", "unexpected": "x"}, format="json"
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Application.objects.get(id=application_id).status, Application.STATUS_UNDER_REVIEW)
+
+    def test_list_endpoints_are_bounded_and_cap_client_page_size(self):
+        for index in range(101):
+            Applicant.objects.create(
+                workspace=self.workspace,
+                full_name=f"Paged Applicant {index}",
+                phone=f"700000{index:04d}",
+            )
+        self._auth(self.staff)
+        response = self.client.get("/api/applicants/?page_size=999")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["pagination"]["page_size"], 100)
+        self.assertEqual(len(response.data["data"]), 100)
+        self.assertEqual(response.data["pagination"]["count"], 102)
+
+        response = self.client.get("/api/applicants/?page=2&page_size=100")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["data"]), 2)
+
+    def test_application_list_filters_and_pagination_metadata(self):
+        self._auth(self.manager)
+        response = self.client.post(
+            "/api/applications/create/",
+            {"applicant": self.applicant.id, "property": self.property.id},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        response = self.client.get("/api/applications/?status=draft&page_size=1")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["pagination"]["page_size"], 1)
+        self.assertEqual(response.data["pagination"]["count"], 1)
+
+    def test_status_and_actor_fields_cannot_be_injected(self):
+        self._auth(self.manager)
+        response = self.client.post(
+            "/api/applications/create/",
+            {
+                "applicant": self.applicant.id,
+                "property": self.property.id,
+                "status": Application.STATUS_APPROVED,
+                "created_by": self.other_applicant.id,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["data"]["status"], Application.STATUS_DRAFT)
+        self.assertEqual(response.data["data"]["created_by"], self.manager.id)
