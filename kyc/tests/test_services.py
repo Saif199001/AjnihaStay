@@ -1,5 +1,6 @@
 from datetime import timedelta
 from decimal import Decimal
+from io import BytesIO
 from unittest.mock import patch
 
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -16,11 +17,30 @@ from kyc.services import (
     reject_kyc,
     review_document,
     submit_kyc,
+    upload_document,
     verify_kyc,
 )
+from kyc.storage import StorageObject
 from tenant.models import Occupancy, Tenant
 from unit.models import Unit
 from workspaces.models import Membership, Workspace
+
+
+class FakePrivateStorage:
+    def put(self, file, *, storage_key, content_type):
+        return StorageObject(storage_key=storage_key, provider_reference=storage_key, content_type=content_type, file_size=file.size)
+
+    def delete(self, storage_key):
+        return None
+
+    def open(self, storage_key):
+        return BytesIO(b"test")
+
+    def exists(self, storage_key):
+        return True
+
+    def create_controlled_access(self, storage_key, *, expires_at):
+        raise NotImplementedError
 
 
 class KycServiceTests(TestCase):
@@ -127,7 +147,19 @@ class KycServiceTests(TestCase):
         self.assertEqual(document.status, KycDocument.STATUS_VERIFIED)
         self.assertIsNotNone(document.verified_at)
         self.assertEqual(document.verified_by_id, self.manager.id)
-        self.assertEqual(KycDocumentEvent.objects.filter(document=document).count(), 3)
+        self.assertEqual(KycDocumentEvent.objects.filter(document=document).count(), 2)
+
+    def test_document_upload_records_initial_history_event(self):
+        document = upload_document(
+            self.manager, self.workspace, self.tenant.id,
+            document_type="passport", file=BytesIO(b"document"), content_type="application/pdf",
+            storage=FakePrivateStorage(),
+        )
+        events = list(KycDocumentEvent.objects.filter(document=document).order_by("id"))
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].from_status, "")
+        self.assertEqual(events[0].to_status, KycDocument.STATUS_UPLOADED)
+        self.assertEqual(events[0].actor_id, self.manager.id)
 
     def test_document_direct_lifecycle_creation_is_blocked(self):
         base = {
@@ -164,13 +196,9 @@ class KycServiceTests(TestCase):
 
     def test_document_history_is_immutable_and_canonical(self):
         document = self._uploaded_document()
-        events = list(KycDocumentEvent.objects.filter(document=document).order_by("id"))
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].from_status, "")
-        self.assertEqual(events[0].to_status, KycDocument.STATUS_UPLOADED)
         review_document(self.manager, self.workspace, document.id, action="under_review")
         events = list(KycDocumentEvent.objects.filter(document=document).order_by("id"))
-        self.assertEqual(len(events), 2)
+        self.assertEqual(len(events), 1)
         event = events[-1]
         with self.assertRaises(ValidationError):
             event.save()
@@ -202,7 +230,7 @@ class KycServiceTests(TestCase):
         with patch("kyc.services.timezone.localdate", return_value=future):
             document = expire_document(self.manager, self.workspace, document.id)
             self.assertEqual(document.status, KycDocument.STATUS_EXPIRED)
-            self.assertEqual(KycDocumentEvent.objects.filter(document=document).count(), 4)
+            self.assertEqual(KycDocumentEvent.objects.filter(document=document).count(), 3)
             self.assertEqual(expire_document(self.manager, self.workspace, document.id).status, KycDocument.STATUS_EXPIRED)
 
     def test_expired_document_is_not_accepted_for_kyc_verification(self):
