@@ -223,6 +223,11 @@ def upload_document(user, workspace, tenant_id, *, document_type, file, content_
                 content_type=stored.content_type, file_size=size, status=KycDocument.STATUS_UPLOADED,
                 issued_at=issued_at, expires_at=expires_at, uploaded_by=user,
             )
+            _append_document_event(
+                document=document, actor=user,
+                from_status="", to_status=KycDocument.STATUS_UPLOADED,
+                metadata={"document_type": document.document_type},
+            )
         except Exception:
             try:
                 storage.delete(storage_key)
