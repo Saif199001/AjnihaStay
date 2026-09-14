@@ -56,12 +56,7 @@ class KycServiceTests(TestCase):
         self.tenant = Tenant.objects.create(owner=self.owner, workspace=self.workspace, full_name="KYC Tenant", phone="9999999999", permanent_address="Delhi")
 
     def _uploaded_document(self, document_type="passport", expires_at=None):
-        return KycDocument.objects.create(
-            tenant=self.tenant, workspace=self.workspace, document_type=document_type,
-            storage_key=f"kyc/private/workspace/{self.workspace.id}/tenant/{self.tenant.id}/0123456789abcdef0123456789abcdef",
-            content_type="application/pdf", file_size=100, uploaded_by=self.manager,
-            expires_at=expires_at,
-        )
+        return KycDocument.objects.create(tenant=self.tenant, workspace=self.workspace, document_type=document_type, storage_key=f"kyc/private/workspace/{self.workspace.id}/tenant/{self.tenant.id}/0123456789abcdef0123456789abcdef", content_type="application/pdf", file_size=100, uploaded_by=self.manager, expires_at=expires_at)
 
     def test_profile_is_created_unverified_and_is_workspace_scoped(self):
         profile = get_or_create_profile(self.staff, self.workspace, self.tenant.id)
@@ -151,11 +146,7 @@ class KycServiceTests(TestCase):
         self.assertEqual(KycDocumentEvent.objects.filter(document=document).count(), 2)
 
     def test_document_upload_records_initial_history_event(self):
-        document = upload_document(
-            self.manager, self.workspace, self.tenant.id,
-            document_type="passport", file=SimpleUploadedFile("document.pdf", b"document", content_type="application/pdf"), content_type="application/pdf",
-            storage=FakePrivateStorage(),
-        )
+        document = upload_document(self.manager, self.workspace, self.tenant.id, document_type="passport", file=SimpleUploadedFile("document.pdf", b"%PDF-1.7\nvalid test document", content_type="application/pdf"), content_type="application/pdf", storage=FakePrivateStorage())
         events = list(KycDocumentEvent.objects.filter(document=document).order_by("id"))
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0].from_status, "")
@@ -163,11 +154,7 @@ class KycServiceTests(TestCase):
         self.assertEqual(events[0].actor_id, self.manager.id)
 
     def test_document_direct_lifecycle_creation_is_blocked(self):
-        base = {
-            "tenant": self.tenant, "workspace": self.workspace, "document_type": "passport",
-            "storage_key": f"kyc/private/workspace/{self.workspace.id}/tenant/{self.tenant.id}/0123456789abcdef0123456789abcdef",
-            "content_type": "application/pdf", "file_size": 100, "uploaded_by": self.manager,
-        }
+        base = {"tenant": self.tenant, "workspace": self.workspace, "document_type": "passport", "storage_key": f"kyc/private/workspace/{self.workspace.id}/tenant/{self.tenant.id}/0123456789abcdef0123456789abcdef", "content_type": "application/pdf", "file_size": 100, "uploaded_by": self.manager}
         for status in (KycDocument.STATUS_UNDER_REVIEW, KycDocument.STATUS_VERIFIED, KycDocument.STATUS_REJECTED, KycDocument.STATUS_EXPIRED):
             with self.subTest(status=status), self.assertRaises(ValidationError):
                 KycDocument.objects.create(**base, status=status)
@@ -184,11 +171,7 @@ class KycServiceTests(TestCase):
 
     def test_verification_history_cannot_be_created_or_bulk_created_directly(self):
         profile = get_or_create_profile(self.staff, self.workspace, self.tenant.id)
-        fields = {
-            "workspace": self.workspace, "kyc_profile": profile, "tenant": self.tenant,
-            "from_status": KycProfile.STATUS_UNVERIFIED, "to_status": KycProfile.STATUS_PENDING,
-            "actor": self.manager, "occurred_at": timezone.now(), "event_key": "direct-test",
-        }
+        fields = {"workspace": self.workspace, "kyc_profile": profile, "tenant": self.tenant, "from_status": KycProfile.STATUS_UNVERIFIED, "to_status": KycProfile.STATUS_PENDING, "actor": self.manager, "occurred_at": timezone.now(), "event_key": "direct-test"}
         with self.assertRaises(ValidationError):
             KycVerificationEvent.objects.create(**fields)
         with self.assertRaises(ValidationError):
@@ -207,11 +190,7 @@ class KycServiceTests(TestCase):
             KycDocumentEvent.objects.filter(pk=event.pk).update(reason="tampered")
         with self.assertRaises(ValidationError):
             KycDocumentEvent.objects.filter(pk=event.pk).delete()
-        fields = {
-            "workspace": self.workspace, "document": document, "tenant": self.tenant,
-            "from_status": KycDocument.STATUS_UPLOADED, "to_status": KycDocument.STATUS_UNDER_REVIEW,
-            "actor": self.manager, "occurred_at": timezone.now(), "event_key": "direct-test",
-        }
+        fields = {"workspace": self.workspace, "document": document, "tenant": self.tenant, "from_status": KycDocument.STATUS_UPLOADED, "to_status": KycDocument.STATUS_UNDER_REVIEW, "actor": self.manager, "occurred_at": timezone.now(), "event_key": "direct-test"}
         with self.assertRaises(ValidationError):
             KycDocumentEvent.objects.create(**fields)
         with self.assertRaises(ValidationError):
@@ -223,7 +202,6 @@ class KycServiceTests(TestCase):
         review_document(self.manager, self.workspace, document.id, action="under_review")
         with self.assertRaises(ValidationError):
             review_document(self.manager, self.workspace, document.id, action="verify")
-
         future = today + timedelta(days=1)
         document = self._uploaded_document("pan", expires_at=future)
         review_document(self.manager, self.workspace, document.id, action="under_review")
@@ -251,11 +229,7 @@ class KycServiceTests(TestCase):
         second = create_agreement_link(self.manager, self.workspace, tenant_id=self.tenant.id, occupancy_id=occupancy.id, agreement_type="rental_agreement", reference="AGR-1")
         self.assertEqual(first.pk, second.pk)
         self.assertEqual(AgreementLink.objects.count(), 1)
-
-        duplicate = AgreementLink(
-            workspace=self.workspace, tenant=self.tenant, occupancy=occupancy,
-            agreement_type="rental_agreement", reference="AGR-1", created_by=self.manager,
-        )
+        duplicate = AgreementLink(workspace=self.workspace, tenant=self.tenant, occupancy=occupancy, agreement_type="rental_agreement", reference="AGR-1", created_by=self.manager)
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
                 duplicate.save()
