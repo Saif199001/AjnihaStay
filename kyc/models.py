@@ -25,24 +25,28 @@ class KycProfileQuerySet(LifecycleProtectedQuerySet):
 
 
 class KycDocumentQuerySet(LifecycleProtectedQuerySet):
-    lifecycle_fields = frozenset({"status"})
+    lifecycle_fields = frozenset({
+        "status", "document_type", "document_number", "storage_key", "content_type", "file_size",
+        "uploaded_by", "uploaded_at", "issued_at", "expires_at", "verified_at", "verified_by",
+        "rejected_at", "rejected_by", "rejection_reason",
+    })
 
 
 class ImmutableQuerySet(models.QuerySet):
     def create(self, **kwargs):
-        raise ValidationError("KYC verification history must be appended through the canonical service")
+        raise ValidationError("KYC history must be appended through the canonical service")
 
     def bulk_create(self, objs, batch_size=None, ignore_conflicts=False):
-        raise ValidationError("KYC verification history must be appended through the canonical service")
+        raise ValidationError("KYC history must be appended through the canonical service")
 
     def update(self, **kwargs):
-        raise ValidationError("KYC verification history is immutable")
+        raise ValidationError("KYC history is immutable")
 
     def bulk_update(self, objs, fields, batch_size=None):
-        raise ValidationError("KYC verification history is immutable")
+        raise ValidationError("KYC history is immutable")
 
     def delete(self):
-        raise ValidationError("KYC verification history is immutable")
+        raise ValidationError("KYC history is immutable")
 
 
 class KycProfile(models.Model):
