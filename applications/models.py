@@ -43,8 +43,8 @@ class Applicant(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=["workspace", "created_at"], name="applications_applicant_workspace_created_idx"),
-            models.Index(fields=["workspace", "phone"], name="applications_applicant_workspace_phone_idx"),
+            models.Index(fields=["workspace", "created_at"], name="applicant_ws_created_idx"),
+            models.Index(fields=["workspace", "phone"], name="applicant_ws_phone_idx"),
         ]
 
     def __str__(self):
@@ -83,8 +83,8 @@ class Application(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=["workspace", "status", "created_at"], name="applications_application_workspace_status_created_idx"),
-            models.Index(fields=["workspace", "applicant", "property", "status"], name="applications_application_workspace_applicant_property_status_idx"),
+            models.Index(fields=["workspace", "status", "created_at"], name="app_ws_status_created_idx"),
+            models.Index(fields=["workspace", "applicant", "property", "status"], name="app_ws_applicant_property_idx"),
         ]
         constraints = [
             models.CheckConstraint(condition=Q(requested_check_out_date__isnull=True) | Q(requested_check_in_date__isnull=True) | Q(requested_check_out_date__gte=F("requested_check_in_date")), name="application_dates_valid"),
@@ -138,7 +138,7 @@ class ApplicationEvent(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=["workspace", "application", "occurred_at"], name="applications_event_workspace_application_occurred_idx"),
+            models.Index(fields=["workspace", "application", "occurred_at"], name="event_ws_app_occurred_idx"),
         ]
         constraints = [models.UniqueConstraint(fields=["application", "event_key"], name="application_event_key_uniq")]
 
