@@ -29,6 +29,12 @@ class KycDocumentQuerySet(LifecycleProtectedQuerySet):
 
 
 class ImmutableQuerySet(models.QuerySet):
+    def create(self, **kwargs):
+        raise ValidationError("KYC verification history must be appended through the canonical service")
+
+    def bulk_create(self, objs, batch_size=None, ignore_conflicts=False):
+        raise ValidationError("KYC verification history must be appended through the canonical service")
+
     def update(self, **kwargs):
         raise ValidationError("KYC verification history is immutable")
 
@@ -83,10 +89,13 @@ class KycProfile(models.Model):
             raise ValidationError("Non-terminal KYC profile cannot contain terminal audit metadata")
 
     def save(self, *args, **kwargs):
-        if self.pk and not kwargs.pop("_allow_lifecycle_mutation", False):
+        allow_lifecycle = kwargs.pop("_allow_lifecycle_mutation", False)
+        if self.pk and not allow_lifecycle:
             previous = type(self).objects.filter(pk=self.pk).values("status").first()
             if previous and previous["status"] != self.status:
                 raise ValidationError("KYC lifecycle status must be changed through the canonical service")
+        if not self.pk and self.status in {self.STATUS_VERIFIED, self.STATUS_REJECTED}:
+            raise ValidationError("KYC terminal lifecycle state must be reached through the canonical service")
         self.clean()
         return super().save(*args, **kwargs)
 
@@ -144,12 +153,17 @@ class KycDocument(models.Model):
             raise ValidationError("Verified document requires verification metadata")
         if self.status == self.STATUS_REJECTED and (not self.rejected_at or not self.rejected_by_id or not self.rejection_reason.strip()):
             raise ValidationError("Rejected document requires rejection metadata")
+        if self.status == self.STATUS_EXPIRED and not self.expires_at:
+            raise ValidationError("Expired document requires an expiry date")
 
     def save(self, *args, **kwargs):
-        if self.pk and not kwargs.pop("_allow_lifecycle_mutation", False):
+        allow_lifecycle = kwargs.pop("_allow_lifecycle_mutation", False)
+        if self.pk and not allow_lifecycle:
             previous = type(self).objects.filter(pk=self.pk).values("status").first()
             if previous and previous["status"] != self.status:
                 raise ValidationError("KYC document lifecycle status must be changed through the canonical service")
+        if not self.pk and self.status in {self.STATUS_UNDER_REVIEW, self.STATUS_VERIFIED, self.STATUS_REJECTED, self.STATUS_EXPIRED}:
+            raise ValidationError("KYC document lifecycle state must be reached through the canonical service")
         self.clean()
         return super().save(*args, **kwargs)
 
@@ -188,8 +202,25 @@ class KycVerificationEvent(models.Model):
     def save(self, *args, **kwargs):
         if self.pk:
             raise ValidationError("KYC verification history is immutable")
-        self.clean()
-        return super().save(*args, **kwargs)
+        raise ValidationError("KYC verification history must be appended through the canonical service")
+
+    @classmethod
+    def append(cls, *, workspace, profile, tenant, from_status, to_status, actor, occurred_at, reason="", metadata=None, event_key):
+        event = cls(
+            workspace=workspace,
+            kyc_profile=profile,
+            tenant=tenant,
+            from_status=from_status,
+            to_status=to_status,
+            actor=actor,
+            occurred_at=occurred_at,
+            reason=reason,
+            metadata=metadata or {},
+            event_key=event_key,
+        )
+        event.clean()
+        models.Model.save(event, force_insert=True)
+        return event
 
     def delete(self, *args, **kwargs):
         raise ValidationError("KYC verification history is immutable")
