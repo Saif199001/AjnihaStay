@@ -1,6 +1,7 @@
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import FileResponse
 from rest_framework.decorators import api_view, parser_classes, permission_classes
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
@@ -31,6 +32,13 @@ from .storage import CloudinaryPrivateDocumentStorage, PrivateStorageError
 
 
 MANAGER_ROLES = {"manager", "admin", "owner"}
+PAGE_SIZE = 100
+
+
+class KycPageNumberPagination(PageNumberPagination):
+    page_size = PAGE_SIZE
+    page_size_query_param = "page_size"
+    max_page_size = PAGE_SIZE
 
 
 def _error(exc):
@@ -46,13 +54,51 @@ def _tenant_or_404(tenant_id, workspace):
         return None
 
 
+def _paged_response(request, queryset, serializer_class):
+    paginator = KycPageNumberPagination()
+    page = paginator.paginate_queryset(queryset, request)
+    data = serializer_class(page, many=True).data
+    return Response({"data": data, "pagination": {
+        "count": paginator.page.paginator.count,
+        "page": paginator.page.number,
+        "page_size": paginator.get_page_size(request),
+        "pages": paginator.page.paginator.num_pages,
+    }})
+
+
+def _validate_api_file(file):
+    """Reject obvious MIME/extension/signature spoofing before the service/storage boundary."""
+    allowed = {
+        "application/pdf": {".pdf": lambda p: p.startswith(b"%PDF-")},
+        "image/jpeg": {".jpg": lambda p: p.startswith(b"\xff\xd8\xff"), ".jpeg": lambda p: p.startswith(b"\xff\xd8\xff")},
+        "image/png": {".png": lambda p: p.startswith(b"\x89PNG\r\n\x1a\n")},
+    }
+    content_type = file.content_type or ""
+    filename = str(getattr(file, "name", "") or "").strip().lower()
+    extension = "." + filename.rsplit(".", 1)[-1] if "." in filename else ""
+    if content_type not in allowed or extension not in allowed[content_type]:
+        raise ValidationError("KYC document file type is not allowed")
+    try:
+        position = file.tell()
+        file.seek(0)
+        prefix = file.read(16)
+        file.seek(position)
+    except (AttributeError, OSError, ValueError):
+        raise ValidationError("KYC document file cannot be inspected safely")
+    if not isinstance(prefix, bytes) or not allowed[content_type][extension](prefix):
+        raise ValidationError("KYC document file content does not match its declared type")
+
+
 @api_view(["GET"])
 @permission_classes([WorkspaceStaffPermission])
 def kyc_detail_api(request, tenant_id):
     tenant = _tenant_or_404(tenant_id, request.workspace)
     if tenant is None:
         return Response({"error": "Tenant not found"}, status=404)
-    profile = get_or_create_profile(request.user, request.workspace, tenant.id)
+    try:
+        profile = KycProfile.objects.get(tenant=tenant, workspace=request.workspace)
+    except KycProfile.DoesNotExist:
+        profile = KycProfile(tenant=tenant, workspace=request.workspace, status=KycProfile.STATUS_UNVERIFIED)
     return Response({"data": KycProfileSerializer(profile).data})
 
 
@@ -102,7 +148,7 @@ def kyc_history_api(request, tenant_id):
     if tenant is None:
         return Response({"error": "Tenant not found"}, status=404)
     events = KycVerificationEvent.objects.filter(tenant=tenant, workspace=request.workspace).order_by("occurred_at", "id")
-    return Response({"data": KycVerificationEventSerializer(events, many=True).data})
+    return _paged_response(request, events, KycVerificationEventSerializer)
 
 
 @api_view(["GET", "POST"])
@@ -115,7 +161,7 @@ def kyc_documents_api(request, tenant_id):
     if request.method == "GET":
         documents = KycDocument.objects.filter(tenant=tenant, workspace=request.workspace).order_by("-uploaded_at", "-id")
         serializer_class = KycDocumentSerializer if request.workspace_membership.role in MANAGER_ROLES else KycDocumentMetadataSerializer
-        return Response({"data": serializer_class(documents, many=True).data})
+        return _paged_response(request, documents, serializer_class)
 
     if request.workspace_membership.role not in MANAGER_ROLES:
         return Response({"error": "Manager-level access required"}, status=403)
@@ -124,6 +170,7 @@ def kyc_documents_api(request, tenant_id):
         return Response(serializer.errors, status=400)
     file = serializer.validated_data["file"]
     try:
+        _validate_api_file(file)
         document = upload_document(
             request.user, request.workspace, tenant.id,
             document_type=serializer.validated_data["document_type"],
@@ -169,8 +216,8 @@ def kyc_document_download_api(request, document_id):
     storage = CloudinaryPrivateDocumentStorage()
     try:
         stream = storage.open(document.storage_key)
-    except PrivateStorageError as exc:
-        return Response({"error": str(exc)}, status=404)
+    except PrivateStorageError:
+        return Response({"error": "KYC document is unavailable"}, status=404)
     response = FileResponse(stream, content_type=document.content_type)
     response["Content-Length"] = str(document.file_size)
     response["Content-Disposition"] = "attachment; filename=kyc-document"
@@ -185,7 +232,7 @@ def kyc_agreements_api(request, tenant_id):
         return Response({"error": "Tenant not found"}, status=404)
     if request.method == "GET":
         links = AgreementLink.objects.filter(tenant=tenant, workspace=request.workspace).order_by("-created_at", "-id")
-        return Response({"data": AgreementLinkSerializer(links, many=True).data})
+        return _paged_response(request, links, AgreementLinkSerializer)
     serializer = AgreementLinkCreateSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
