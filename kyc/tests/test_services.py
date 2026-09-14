@@ -1,15 +1,23 @@
+from decimal import Decimal
+
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import TestCase, override_settings
 from django.utils import timezone
-from decimal import Decimal
 
 from accounts.models import User
+from kyc.models import AgreementLink, KycDocument, KycDocumentEvent, KycProfile, KycVerificationEvent
+from kyc.services import (
+    create_agreement_link,
+    expire_document,
+    get_or_create_profile,
+    reject_kyc,
+    review_document,
+    submit_kyc,
+    verify_kyc,
+)
 from tenant.models import Occupancy, Tenant
 from unit.models import Unit
 from workspaces.models import Membership, Workspace
-
-from kyc.models import AgreementLink, KycDocument, KycProfile, KycVerificationEvent
-from kyc.services import create_agreement_link, get_or_create_profile, reject_kyc, review_document, submit_kyc, verify_kyc
 
 
 class KycServiceTests(TestCase):
@@ -23,11 +31,12 @@ class KycServiceTests(TestCase):
         Membership.objects.create(workspace=self.workspace, user=self.staff, role=Membership.ROLE_STAFF)
         self.tenant = Tenant.objects.create(owner=self.owner, workspace=self.workspace, full_name="KYC Tenant", phone="9999999999", permanent_address="Delhi")
 
-    def _uploaded_document(self, document_type="passport"):
+    def _uploaded_document(self, document_type="passport", expires_at=None):
         return KycDocument.objects.create(
             tenant=self.tenant, workspace=self.workspace, document_type=document_type,
             storage_key="kyc/private/workspace/1/tenant/1/0123456789abcdef0123456789abcdef",
             content_type="application/pdf", file_size=100, uploaded_by=self.manager,
+            expires_at=expires_at,
         )
 
     def test_profile_is_created_unverified_and_is_workspace_scoped(self):
@@ -115,6 +124,7 @@ class KycServiceTests(TestCase):
         self.assertEqual(document.status, KycDocument.STATUS_VERIFIED)
         self.assertIsNotNone(document.verified_at)
         self.assertEqual(document.verified_by_id, self.manager.id)
+        self.assertEqual(KycDocumentEvent.objects.filter(document=document).count(), 2)
 
     def test_document_direct_lifecycle_creation_is_blocked(self):
         base = {
@@ -138,6 +148,53 @@ class KycServiceTests(TestCase):
         with self.assertRaises(ValidationError):
             KycVerificationEvent.objects.bulk_create([KycVerificationEvent(**fields)])
         self.assertEqual(KycVerificationEvent.objects.count(), 0)
+
+    def test_document_history_is_immutable_and_canonical(self):
+        document = self._uploaded_document()
+        review_document(self.manager, self.workspace, document.id, action="under_review")
+        events = list(KycDocumentEvent.objects.filter(document=document))
+        self.assertEqual(len(events), 1)
+        event = events[0]
+        with self.assertRaises(ValidationError):
+            event.save()
+        with self.assertRaises(ValidationError):
+            KycDocumentEvent.objects.filter(pk=event.pk).update(reason="tampered")
+        with self.assertRaises(ValidationError):
+            KycDocumentEvent.objects.filter(pk=event.pk).delete()
+        fields = {
+            "workspace": self.workspace, "document": document, "tenant": self.tenant,
+            "from_status": KycDocument.STATUS_UPLOADED, "to_status": KycDocument.STATUS_UNDER_REVIEW,
+            "actor": self.manager, "occurred_at": timezone.now(), "event_key": "direct-test",
+        }
+        with self.assertRaises(ValidationError):
+            KycDocumentEvent.objects.create(**fields)
+        with self.assertRaises(ValidationError):
+            KycDocumentEvent.objects.bulk_create([KycDocumentEvent(**fields)])
+
+    def test_document_expiry_requires_verified_document_and_expiry_date(self):
+        document = self._uploaded_document(expires_at=timezone.localdate())
+        review_document(self.manager, self.workspace, document.id, action="under_review")
+        with self.assertRaises(ValidationError):
+            review_document(self.manager, self.workspace, document.id, action="verify")
+
+        future = timezone.localdate() + timezone.timedelta(days=1)
+        document = self._uploaded_document("pan", expires_at=future)
+        review_document(self.manager, self.workspace, document.id, action="under_review")
+        review_document(self.manager, self.workspace, document.id, action="verify")
+        KycDocument.objects.filter(pk=document.pk).update(expires_at=timezone.localdate())
+        document.refresh_from_db()
+        document = expire_document(self.manager, self.workspace, document.id)
+        self.assertEqual(document.status, KycDocument.STATUS_EXPIRED)
+        self.assertEqual(KycDocumentEvent.objects.filter(document=document).count(), 3)
+        self.assertEqual(expire_document(self.manager, self.workspace, document.id).status, KycDocument.STATUS_EXPIRED)
+
+    def test_expired_verified_documents_do_not_count_for_kyc_verification(self):
+        document = self._uploaded_document(expires_at=timezone.localdate())
+        document.status = KycDocument.STATUS_VERIFIED
+        document.verified_at = timezone.now()
+        document.verified_by = self.manager
+        with self.assertRaises(ValidationError):
+            document.save()
 
     def test_agreement_link_requires_matching_workspace_and_occupancy(self):
         unit = Unit.objects.create(property=self._property(), unit_type="room", unit_number="K1", rent=Decimal("10000.00"))
