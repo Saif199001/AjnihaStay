@@ -95,7 +95,7 @@ class KycProfile(models.Model):
     def save(self, *args, **kwargs):
         allow_lifecycle = kwargs.pop("_allow_lifecycle_mutation", False)
         if self.pk and not allow_lifecycle:
-            previous = type(self).objects.filter(pk=self.pk).values("status").first()
+            previous = type(self).objects.filter(pk=self.pk).values(*KycProfileQuerySet.lifecycle_fields).first()
             if previous and previous["status"] != self.status:
                 raise ValidationError("KYC lifecycle status must be changed through the canonical service")
         if not self.pk and self.status in {self.STATUS_VERIFIED, self.STATUS_REJECTED}:
@@ -163,9 +163,11 @@ class KycDocument(models.Model):
     def save(self, *args, **kwargs):
         allow_lifecycle = kwargs.pop("_allow_lifecycle_mutation", False)
         if self.pk and not allow_lifecycle:
-            previous = type(self).objects.filter(pk=self.pk).values("status").first()
-            if previous and previous["status"] != self.status:
-                raise ValidationError("KYC document lifecycle status must be changed through the canonical service")
+            previous = type(self).objects.filter(pk=self.pk).values(*KycDocumentQuerySet.lifecycle_fields).first()
+            if previous:
+                changed = {field for field in KycDocumentQuerySet.lifecycle_fields if previous[field] != getattr(self, field)}
+                if changed:
+                    raise ValidationError("KYC document lifecycle and audit fields must be changed through the canonical service")
         if not self.pk and self.status in {self.STATUS_UNDER_REVIEW, self.STATUS_VERIFIED, self.STATUS_REJECTED, self.STATUS_EXPIRED}:
             raise ValidationError("KYC document lifecycle state must be reached through the canonical service")
         self.clean()
