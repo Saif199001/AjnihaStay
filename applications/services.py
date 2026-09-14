@@ -31,8 +31,13 @@ def _get_applicant_for_workspace(workspace, applicant_value):
 def _get_application_for_workspace(workspace, application_id, lock=False):
     queryset = Application.objects.filter(id=application_id, workspace=workspace)
     if lock:
+        # Lock only the Application row. select_related() on nullable
+        # Unit/SubUnit relations would generate LEFT OUTER JOINs, and
+        # PostgreSQL rejects FOR UPDATE against the nullable side of those joins.
         queryset = queryset.select_for_update()
     try:
+        if lock:
+            return queryset.get()
         return queryset.select_related("applicant", "property", "unit", "subunit").get()
     except (Application.DoesNotExist, TypeError, ValueError):
         raise ValidationError("Application not found")
@@ -95,8 +100,6 @@ def create_applicant(workspace, data, actor=None):
         raise ValidationError("Phone number required")
 
     with transaction.atomic():
-        # Applicant identity is workspace-local. Phone/email are matching
-        # signals, never global identity keys. Ambiguous matches are rejected.
         phone_matches = list(
             Applicant.objects.select_for_update().filter(workspace=workspace, phone=phone)
         )
@@ -111,9 +114,7 @@ def create_applicant(workspace, data, actor=None):
         if len(matched_ids) > 1:
             raise ValidationError("Applicant identity match is ambiguous")
         if matched_ids:
-            return Applicant.objects.get(
-                id=next(iter(matched_ids)), workspace=workspace
-            )
+            return Applicant.objects.get(id=next(iter(matched_ids)), workspace=workspace)
 
         return Applicant.objects.create(
             workspace=workspace,
@@ -149,8 +150,6 @@ def create_application(workspace, data, actor):
         check_out = data.get("requested_check_out_date")
         _validate_dates(check_in, check_out)
 
-        # Lock the applicant aggregate before checking the active-application
-        # scope. The partial unique constraint remains the database backstop.
         applicant = Applicant.objects.select_for_update().get(
             id=applicant.id, workspace=workspace
         )
@@ -160,9 +159,7 @@ def create_application(workspace, data, actor):
             property=property_obj,
             status__in=_ACTIVE_STATUSES,
         ).exists():
-            raise ValidationError(
-                "An active application already exists for this applicant and property"
-            )
+            raise ValidationError("An active application already exists for this applicant and property")
 
         application = Application(
             workspace=workspace,
@@ -180,9 +177,7 @@ def create_application(workspace, data, actor):
         try:
             application.save()
         except IntegrityError:
-            raise ValidationError(
-                "An active application already exists for this applicant and property"
-            )
+            raise ValidationError("An active application already exists for this applicant and property")
         return application
 
 
@@ -200,20 +195,10 @@ def list_applications(workspace, status=None, applicant_id=None, property_id=Non
         queryset = queryset.filter(applicant_id=applicant_id)
     if property_id not in (None, ""):
         queryset = queryset.filter(property_id=property_id)
-    return queryset.select_related(
-        "applicant", "property", "unit", "subunit"
-    ).order_by("-created_at", "-id")
+    return queryset.select_related("applicant", "property", "unit", "subunit").order_by("-created_at", "-id")
 
 
-def _transition(
-    workspace,
-    application_id,
-    actor,
-    *,
-    target_status,
-    reason="",
-    event_key=None,
-):
+def _transition(workspace, application_id, actor, *, target_status, reason="", event_key=None):
     actor = _require_actor(actor)
     reason = _clean_text(reason)
 
@@ -223,26 +208,15 @@ def _transition(
 
         allowed = {
             Application.STATUS_DRAFT: {Application.STATUS_SUBMITTED},
-            Application.STATUS_SUBMITTED: {
-                Application.STATUS_UNDER_REVIEW,
-                Application.STATUS_WITHDRAWN,
-            },
-            Application.STATUS_UNDER_REVIEW: {
-                Application.STATUS_APPROVED,
-                Application.STATUS_REJECTED,
-                Application.STATUS_WITHDRAWN,
-            },
+            Application.STATUS_SUBMITTED: {Application.STATUS_UNDER_REVIEW, Application.STATUS_WITHDRAWN},
+            Application.STATUS_UNDER_REVIEW: {Application.STATUS_APPROVED, Application.STATUS_REJECTED, Application.STATUS_WITHDRAWN},
         }
 
-        # Repeating the same already-completed action is deterministic and does
-        # not append a duplicate logical history event.
         if current_status == target_status:
             return application, False
 
         if target_status not in allowed.get(current_status, set()):
-            raise ValidationError(
-                f"Invalid application transition: {current_status} -> {target_status}"
-            )
+            raise ValidationError(f"Invalid application transition: {current_status} -> {target_status}")
 
         if target_status == Application.STATUS_REJECTED and not reason:
             raise ValidationError("Rejection reason required")
@@ -270,22 +244,14 @@ def _transition(
         application._allow_lifecycle_mutation = True
         application.save(
             update_fields=[
-                "status",
-                "submitted_at",
-                "reviewed_at",
-                "decided_at",
-                "rejection_reason",
-                "withdrawal_reason",
-                "updated_by",
-                "updated_at",
+                "status", "submitted_at", "reviewed_at", "decided_at",
+                "rejection_reason", "withdrawal_reason", "updated_by", "updated_at",
             ]
         )
 
         if event_key is None:
             event_key = f"status:{current_status}:{target_status}"
 
-        # Isolate the uniqueness failure in a savepoint so the outer
-        # transaction remains usable for deterministic retry handling.
         try:
             with transaction.atomic():
                 ApplicationEvent.append(
@@ -301,10 +267,7 @@ def _transition(
                     event_key=event_key,
                 )
         except IntegrityError:
-            existing = ApplicationEvent.objects.filter(
-                application=application,
-                event_key=event_key,
-            ).first()
+            existing = ApplicationEvent.objects.filter(application=application, event_key=event_key).first()
             if existing:
                 return application, False
             raise
@@ -313,52 +276,23 @@ def _transition(
 
 
 def submit_application(workspace, application_id, actor):
-    return _transition(
-        workspace,
-        application_id,
-        actor,
-        target_status=Application.STATUS_SUBMITTED,
-    )[0]
+    return _transition(workspace, application_id, actor, target_status=Application.STATUS_SUBMITTED)[0]
 
 
 def review_application(workspace, application_id, actor):
-    return _transition(
-        workspace,
-        application_id,
-        actor,
-        target_status=Application.STATUS_UNDER_REVIEW,
-    )[0]
+    return _transition(workspace, application_id, actor, target_status=Application.STATUS_UNDER_REVIEW)[0]
 
 
 def approve_application(workspace, application_id, actor):
-    # Approval is deliberately isolated: it changes Application workflow state
-    # only. It never creates Tenant, Occupancy, Lease, Invoice, Charge or Payment.
-    return _transition(
-        workspace,
-        application_id,
-        actor,
-        target_status=Application.STATUS_APPROVED,
-    )[0]
+    return _transition(workspace, application_id, actor, target_status=Application.STATUS_APPROVED)[0]
 
 
 def reject_application(workspace, application_id, actor, reason):
-    return _transition(
-        workspace,
-        application_id,
-        actor,
-        target_status=Application.STATUS_REJECTED,
-        reason=reason,
-    )[0]
+    return _transition(workspace, application_id, actor, target_status=Application.STATUS_REJECTED, reason=reason)[0]
 
 
 def withdraw_application(workspace, application_id, actor, reason=""):
-    return _transition(
-        workspace,
-        application_id,
-        actor,
-        target_status=Application.STATUS_WITHDRAWN,
-        reason=reason,
-    )[0]
+    return _transition(workspace, application_id, actor, target_status=Application.STATUS_WITHDRAWN, reason=reason)[0]
 
 
 def get_application_history(workspace, application_id):
