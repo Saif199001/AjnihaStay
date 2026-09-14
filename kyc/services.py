@@ -14,7 +14,7 @@ from leasing.models import Lease
 from tenant.models import Occupancy, Tenant
 from workspaces.models import Membership
 
-from .models import AgreementLink, KycDocument, KycProfile, KycVerificationEvent
+from .models import AgreementLink, KycDocument, KycDocumentEvent, KycProfile, KycVerificationEvent
 from .storage import PrivateStorageError, generate_storage_key
 
 
@@ -65,6 +65,15 @@ def _append_event(*, profile, actor, from_status, to_status, reason="", metadata
     )
 
 
+def _append_document_event(*, document, actor, from_status, to_status, reason="", metadata=None):
+    return KycDocumentEvent.append(
+        workspace=document.workspace, document=document, tenant=document.tenant,
+        from_status=from_status, to_status=to_status, actor=actor,
+        occurred_at=timezone.now(), reason=reason, metadata=metadata,
+        event_key=f"{from_status}:{to_status}:{uuid4().hex}",
+    )
+
+
 def _required_document_types():
     configured = getattr(settings, "KYC_REQUIRED_DOCUMENT_TYPES", KYC_DEFAULT_REQUIRED_DOCUMENT_TYPES)
     return frozenset(str(value).strip().lower() for value in configured if str(value).strip())
@@ -72,8 +81,9 @@ def _required_document_types():
 
 def _document_policy_counts(tenant):
     documents = KycDocument.objects.filter(tenant=tenant, workspace=tenant.workspace)
-    active = documents.exclude(status=KycDocument.STATUS_EXPIRED)
-    return active, active.filter(status=KycDocument.STATUS_VERIFIED)
+    today = timezone.localdate()
+    active = documents.exclude(status=KycDocument.STATUS_EXPIRED).exclude(expires_at__lt=today)
+    return active, active.filter(status=KycDocument.STATUS_VERIFIED).exclude(expires_at=today)
 
 
 def _validate_policy_number(setting_name, default):
@@ -196,8 +206,8 @@ def upload_document(user, workspace, tenant_id, *, document_type, file, content_
         raise ValidationError("Document expiry cannot be before issue date")
     if issued_at and issued_at > date.today():
         raise ValidationError("Document issue date cannot be in the future")
-    if expires_at and expires_at < date.today():
-        raise ValidationError("Expired documents must be reviewed as expired")
+    if expires_at and expires_at <= date.today():
+        raise ValidationError("Document expiry date must be in the future")
     storage = storage or __import__("kyc.storage", fromlist=["CloudinaryPrivateDocumentStorage"]).CloudinaryPrivateDocumentStorage()
     with transaction.atomic():
         tenant = _get_tenant(tenant_id, workspace)
@@ -235,12 +245,16 @@ def review_document(user, workspace, document_id, *, action, reason=""):
                 return document
             if document.status != KycDocument.STATUS_UPLOADED:
                 raise ValidationError("Only uploaded documents can enter review")
+            previous = document.status
             document.status = KycDocument.STATUS_UNDER_REVIEW
         elif action == "verify":
             if document.status == KycDocument.STATUS_VERIFIED:
                 return document
             if document.status != KycDocument.STATUS_UNDER_REVIEW:
                 raise ValidationError("Only documents under review can be verified")
+            if document.expires_at and document.expires_at <= timezone.localdate():
+                raise ValidationError("Expired documents cannot be verified")
+            previous = document.status
             document.status = KycDocument.STATUS_VERIFIED
             document.verified_at = timezone.now()
             document.verified_by = user
@@ -256,6 +270,7 @@ def review_document(user, workspace, document_id, *, action, reason=""):
                 return document
             if document.status not in {KycDocument.STATUS_UPLOADED, KycDocument.STATUS_UNDER_REVIEW}:
                 raise ValidationError("Only uploaded or under-review documents can be rejected")
+            previous = document.status
             document.status = KycDocument.STATUS_REJECTED
             document.rejected_at = timezone.now()
             document.rejected_by = user
@@ -264,6 +279,30 @@ def review_document(user, workspace, document_id, *, action, reason=""):
         else:
             raise ValidationError("Unsupported KYC document review action")
         document.save(_allow_lifecycle_mutation=True)
+        _append_document_event(document=document, actor=user, from_status=previous, to_status=document.status, reason=reason if action == "reject" else "")
+        return document
+
+
+def expire_document(user, workspace, document_id, *, reason="Document validity period ended"):
+    _require_manager(user, workspace)
+    reason = str(reason or "").strip()
+    if len(reason) > 500:
+        raise ValidationError("KYC document expiry reason cannot exceed 500 characters")
+    with transaction.atomic():
+        try:
+            document = KycDocument.objects.select_for_update().get(id=document_id, workspace=workspace)
+        except (KycDocument.DoesNotExist, TypeError, ValueError):
+            raise ValidationError("KYC document not found")
+        if document.status == KycDocument.STATUS_EXPIRED:
+            return document
+        if document.status != KycDocument.STATUS_VERIFIED:
+            raise ValidationError("Only verified documents can expire")
+        if not document.expires_at or document.expires_at > timezone.localdate():
+            raise ValidationError("Document has not reached its expiry date")
+        previous = document.status
+        document.status = KycDocument.STATUS_EXPIRED
+        document.save(_allow_lifecycle_mutation=True)
+        _append_document_event(document=document, actor=user, from_status=previous, to_status=document.status, reason=reason)
         return document
 
 
