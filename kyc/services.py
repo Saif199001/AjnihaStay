@@ -5,42 +5,31 @@ from __future__ import annotations
 from datetime import date
 from uuid import uuid4
 
+from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
 
 from leasing.models import Lease
-from payments.authorization import require_mutation_permission
 from tenant.models import Occupancy, Tenant
 from workspaces.models import Membership
 
 from .models import AgreementLink, KycDocument, KycProfile, KycVerificationEvent
-from .storage import PrivateDocumentStorage, PrivateStorageError, generate_storage_key
+from .storage import PrivateStorageError, generate_storage_key
 
 
-KYC_MANAGER_ROLES = frozenset({
-    Membership.ROLE_OWNER,
-    Membership.ROLE_ADMIN,
-    Membership.ROLE_MANAGER,
-})
-KYC_DOCUMENT_CONTENT_TYPES = frozenset({
-    "application/pdf",
-    "image/jpeg",
-    "image/png",
-})
+KYC_MANAGER_ROLES = frozenset({Membership.ROLE_OWNER, Membership.ROLE_ADMIN, Membership.ROLE_MANAGER})
+KYC_DOCUMENT_CONTENT_TYPES = frozenset({"application/pdf", "image/jpeg", "image/png"})
 KYC_DOCUMENT_MAX_SIZE = 10 * 1024 * 1024
+KYC_DEFAULT_MIN_SUBMISSION_DOCUMENTS = 1
+KYC_DEFAULT_MIN_VERIFIED_DOCUMENTS = 1
+KYC_DEFAULT_REQUIRED_DOCUMENT_TYPES = ()
 
 
 def _require_manager(user, workspace):
     if user is None:
         raise PermissionDenied("KYC mutation requires workspace membership")
-    allowed = Membership.objects.filter(
-        workspace=workspace,
-        user=user,
-        is_active=True,
-        role__in=KYC_MANAGER_ROLES,
-    ).exists()
-    if not allowed:
+    if not Membership.objects.filter(workspace=workspace, user=user, is_active=True, role__in=KYC_MANAGER_ROLES).exists():
         raise PermissionDenied("KYC mutation requires manager-level access")
 
 
@@ -54,8 +43,7 @@ def _get_tenant(tenant_id, workspace):
 def _locked_profile(tenant_id, workspace):
     tenant = _get_tenant(tenant_id, workspace)
     profile, _ = KycProfile.objects.select_for_update().get_or_create(
-        tenant=tenant,
-        defaults={"workspace": workspace, "status": KycProfile.STATUS_UNVERIFIED},
+        tenant=tenant, defaults={"workspace": workspace, "status": KycProfile.STATUS_UNVERIFIED}
     )
     if profile.workspace_id != workspace.id:
         raise ValidationError("KYC profile workspace mismatch")
@@ -63,26 +51,61 @@ def _locked_profile(tenant_id, workspace):
 
 
 def get_or_create_profile(user, workspace, tenant_id):
-    """Return the workspace-scoped KYC profile without changing lifecycle state."""
     _get_tenant(tenant_id, workspace)
     with transaction.atomic():
         return _locked_profile(tenant_id, workspace)
 
 
 def _append_event(*, profile, actor, from_status, to_status, reason="", metadata=None):
-    event_key = f"{from_status}:{to_status}:{uuid4().hex}"
     return KycVerificationEvent.append(
-        workspace=profile.workspace,
-        profile=profile,
-        tenant=profile.tenant,
-        from_status=from_status,
-        to_status=to_status,
-        actor=actor,
-        occurred_at=timezone.now(),
-        reason=reason,
-        metadata=metadata,
-        event_key=event_key,
+        workspace=profile.workspace, profile=profile, tenant=profile.tenant,
+        from_status=from_status, to_status=to_status, actor=actor,
+        occurred_at=timezone.now(), reason=reason, metadata=metadata,
+        event_key=f"{from_status}:{to_status}:{uuid4().hex}",
     )
+
+
+def _required_document_types():
+    configured = getattr(settings, "KYC_REQUIRED_DOCUMENT_TYPES", KYC_DEFAULT_REQUIRED_DOCUMENT_TYPES)
+    return frozenset(str(value).strip().lower() for value in configured if str(value).strip())
+
+
+def _document_policy_counts(tenant):
+    documents = KycDocument.objects.filter(tenant=tenant, workspace=tenant.workspace)
+    active = documents.exclude(status=KycDocument.STATUS_EXPIRED)
+    return active, active.filter(status=KycDocument.STATUS_VERIFIED)
+
+
+def _validate_policy_number(setting_name, default):
+    try:
+        value = int(getattr(settings, setting_name, default))
+    except (TypeError, ValueError):
+        raise ValidationError(f"{setting_name} policy is invalid")
+    if value < 0:
+        raise ValidationError(f"{setting_name} policy is invalid")
+    return value
+
+
+def _validate_submission_documents(tenant):
+    active, _ = _document_policy_counts(tenant)
+    minimum = _validate_policy_number("KYC_MIN_SUBMISSION_DOCUMENTS", KYC_DEFAULT_MIN_SUBMISSION_DOCUMENTS)
+    if active.count() < minimum:
+        raise ValidationError("Required KYC documents must be uploaded before submission")
+    required_types = _required_document_types()
+    present = {value.strip().lower() for value in active.values_list("document_type", flat=True)}
+    if required_types - present:
+        raise ValidationError("Required KYC document types are missing")
+
+
+def _validate_verification_documents(tenant):
+    _, verified = _document_policy_counts(tenant)
+    minimum = _validate_policy_number("KYC_MIN_VERIFIED_DOCUMENTS", KYC_DEFAULT_MIN_VERIFIED_DOCUMENTS)
+    if verified.count() < minimum:
+        raise ValidationError("Required KYC documents must be verified before KYC approval")
+    required_types = _required_document_types()
+    verified_types = {value.strip().lower() for value in verified.values_list("document_type", flat=True)}
+    if required_types - verified_types:
+        raise ValidationError("Required KYC document types must be verified before KYC approval")
 
 
 def submit_kyc(user, workspace, tenant_id):
@@ -93,6 +116,7 @@ def submit_kyc(user, workspace, tenant_id):
             return profile
         if profile.status not in {KycProfile.STATUS_UNVERIFIED, KycProfile.STATUS_REJECTED}:
             raise ValidationError("KYC profile cannot be submitted from its current status")
+        _validate_submission_documents(profile.tenant)
         previous = profile.status
         profile.status = KycProfile.STATUS_PENDING
         profile.verified_at = profile.verified_by = None
@@ -111,6 +135,7 @@ def verify_kyc(user, workspace, tenant_id):
             return profile
         if profile.status != KycProfile.STATUS_PENDING:
             raise ValidationError("Only pending KYC profiles can be verified")
+        _validate_verification_documents(profile.tenant)
         previous = profile.status
         now = timezone.now()
         profile.status = KycProfile.STATUS_VERIFIED
@@ -162,7 +187,6 @@ def _validate_document_file(file, content_type):
 
 
 def upload_document(user, workspace, tenant_id, *, document_type, file, content_type, document_number="", issued_at=None, expires_at=None, storage=None):
-    """Upload a new private KYC document; replacement always creates a new record."""
     _require_manager(user, workspace)
     document_type = str(document_type or "").strip()
     if not document_type or len(document_type) > 50:
@@ -184,17 +208,10 @@ def upload_document(user, workspace, tenant_id, *, document_type, file, content_
             raise
         try:
             document = KycDocument.objects.create(
-                tenant=tenant,
-                workspace=workspace,
-                document_type=document_type,
-                document_number=str(document_number or "").strip(),
-                storage_key=stored.storage_key,
-                content_type=stored.content_type,
-                file_size=size,
-                status=KycDocument.STATUS_UPLOADED,
-                issued_at=issued_at,
-                expires_at=expires_at,
-                uploaded_by=user,
+                tenant=tenant, workspace=workspace, document_type=document_type,
+                document_number=str(document_number or "").strip(), storage_key=stored.storage_key,
+                content_type=stored.content_type, file_size=size, status=KycDocument.STATUS_UPLOADED,
+                issued_at=issued_at, expires_at=expires_at, uploaded_by=user,
             )
         except Exception:
             try:
@@ -268,12 +285,8 @@ def create_agreement_link(user, workspace, *, tenant_id, occupancy_id, agreement
             except (Lease.DoesNotExist, TypeError, ValueError):
                 raise ValidationError("Lease not found for the selected occupancy")
         link, created = AgreementLink.objects.get_or_create(
-            workspace=workspace,
-            tenant=tenant,
-            occupancy=occupancy,
-            lease=lease,
-            agreement_type=agreement_type,
-            reference=str(reference or "").strip(),
+            workspace=workspace, tenant=tenant, occupancy=occupancy, lease=lease,
+            agreement_type=agreement_type, reference=str(reference or "").strip(),
             defaults={"metadata": metadata or {}, "created_by": user},
         )
         if not created and metadata:
