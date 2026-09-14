@@ -203,6 +203,8 @@ def kyc_document_review_api(request, document_id):
     except PermissionDenied as exc:
         return Response({"error": str(exc)}, status=403)
     except ValidationError as exc:
+        if _error(exc) == "KYC document not found":
+            return Response({"error": "KYC document not found"}, status=404)
         return Response({"error": _error(exc)}, status=400)
 
 
@@ -217,6 +219,9 @@ def kyc_document_download_api(request, document_id):
     try:
         stream = storage.open(document.storage_key)
     except PrivateStorageError:
+        return Response({"error": "KYC document is unavailable"}, status=404)
+    except Exception:
+        # Provider/runtime failures must never cross the API boundary or leak secrets.
         return Response({"error": "KYC document is unavailable"}, status=404)
     response = FileResponse(stream, content_type=document.content_type)
     response["Content-Length"] = str(document.file_size)
