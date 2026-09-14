@@ -12,4 +12,5 @@ urlpatterns = [
     path("", include("payments.urls")),
     path("", include("dashboard.urls")),
     path("", include("kyc.urls")),
+    path("", include("applications.urls")),
 ]
