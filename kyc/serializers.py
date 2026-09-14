@@ -39,6 +39,17 @@ class KycDocumentSerializer(serializers.ModelSerializer):
         ]
 
 
+class KycDocumentMetadataSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = KycDocument
+        fields = [
+            "id", "tenant", "workspace", "document_type", "status", "issued_at", "expires_at",
+            "uploaded_by", "uploaded_at", "verified_at", "verified_by", "rejected_at",
+            "rejected_by", "created_at", "updated_at",
+        ]
+        read_only_fields = fields
+
+
 class KycDocumentUploadSerializer(serializers.Serializer):
     document_type = serializers.CharField(max_length=50)
     document_number = serializers.CharField(max_length=100, required=False, allow_blank=True)
