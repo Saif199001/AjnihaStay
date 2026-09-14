@@ -69,6 +69,25 @@ class KycServiceTests(TestCase):
         with self.assertRaises(ValidationError):
             KycProfile.objects.filter(pk=profile.pk).update(status=KycProfile.STATUS_PENDING)
 
+    def test_profile_direct_terminal_creation_is_blocked(self):
+        with self.assertRaises(ValidationError):
+            KycProfile.objects.create(
+                tenant=self.tenant,
+                workspace=self.workspace,
+                status=KycProfile.STATUS_VERIFIED,
+                verified_at=timezone.now(),
+                verified_by=self.manager,
+            )
+        with self.assertRaises(ValidationError):
+            KycProfile.objects.create(
+                tenant=self.tenant,
+                workspace=self.workspace,
+                status=KycProfile.STATUS_REJECTED,
+                rejected_at=timezone.now(),
+                rejected_by=self.manager,
+                rejection_reason="Rejected",
+            )
+
     def test_document_review_requires_valid_transition(self):
         document = KycDocument.objects.create(
             tenant=self.tenant, workspace=self.workspace, document_type="passport",
@@ -81,6 +100,43 @@ class KycServiceTests(TestCase):
         self.assertEqual(document.status, KycDocument.STATUS_VERIFIED)
         self.assertIsNotNone(document.verified_at)
         self.assertEqual(document.verified_by_id, self.manager.id)
+
+    def test_document_direct_lifecycle_creation_is_blocked(self):
+        base = {
+            "tenant": self.tenant,
+            "workspace": self.workspace,
+            "document_type": "passport",
+            "storage_key": "kyc/private/workspace/1/tenant/1/0123456789abcdef0123456789abcdef",
+            "content_type": "application/pdf",
+            "file_size": 100,
+            "uploaded_by": self.manager,
+        }
+        for status in (
+            KycDocument.STATUS_UNDER_REVIEW,
+            KycDocument.STATUS_VERIFIED,
+            KycDocument.STATUS_REJECTED,
+            KycDocument.STATUS_EXPIRED,
+        ):
+            with self.subTest(status=status), self.assertRaises(ValidationError):
+                KycDocument.objects.create(**base, status=status)
+
+    def test_verification_history_cannot_be_created_or_bulk_created_directly(self):
+        profile = get_or_create_profile(self.staff, self.workspace, self.tenant.id)
+        fields = {
+            "workspace": self.workspace,
+            "kyc_profile": profile,
+            "tenant": self.tenant,
+            "from_status": KycProfile.STATUS_UNVERIFIED,
+            "to_status": KycProfile.STATUS_PENDING,
+            "actor": self.manager,
+            "occurred_at": timezone.now(),
+            "event_key": "direct-test",
+        }
+        with self.assertRaises(ValidationError):
+            KycVerificationEvent.objects.create(**fields)
+        with self.assertRaises(ValidationError):
+            KycVerificationEvent.objects.bulk_create([KycVerificationEvent(**fields)])
+        self.assertEqual(KycVerificationEvent.objects.count(), 0)
 
     def test_agreement_link_requires_matching_workspace_and_occupancy(self):
         unit = Unit.objects.create(
