@@ -207,16 +207,9 @@ class KycVerificationEvent(models.Model):
     @classmethod
     def append(cls, *, workspace, profile, tenant, from_status, to_status, actor, occurred_at, reason="", metadata=None, event_key):
         event = cls(
-            workspace=workspace,
-            kyc_profile=profile,
-            tenant=tenant,
-            from_status=from_status,
-            to_status=to_status,
-            actor=actor,
-            occurred_at=occurred_at,
-            reason=reason,
-            metadata=metadata or {},
-            event_key=event_key,
+            workspace=workspace, kyc_profile=profile, tenant=tenant,
+            from_status=from_status, to_status=to_status, actor=actor,
+            occurred_at=occurred_at, reason=reason, metadata=metadata or {}, event_key=event_key,
         )
         event.clean()
         models.Model.save(event, force_insert=True)
@@ -226,9 +219,54 @@ class KycVerificationEvent(models.Model):
         raise ValidationError("KYC verification history is immutable")
 
     class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["kyc_profile", "event_key"], name="kyc_event_profile_key_uniq"),
-        ]
+        constraints = [models.UniqueConstraint(fields=["kyc_profile", "event_key"], name="kyc_event_profile_key_uniq")]
+        indexes = [models.Index(fields=["workspace", "tenant", "occurred_at"])]
+
+
+class KycDocumentEvent(models.Model):
+    workspace = models.ForeignKey("workspaces.Workspace", on_delete=models.PROTECT, related_name="kyc_document_events")
+    document = models.ForeignKey(KycDocument, on_delete=models.PROTECT, related_name="lifecycle_events")
+    tenant = models.ForeignKey("tenant.Tenant", on_delete=models.PROTECT, related_name="kyc_document_events")
+    from_status = models.CharField(max_length=20)
+    to_status = models.CharField(max_length=20)
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="kyc_document_events")
+    occurred_at = models.DateTimeField()
+    reason = models.TextField(blank=True, default="")
+    metadata = models.JSONField(default=dict, blank=True)
+    event_key = models.CharField(max_length=200)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = ImmutableQuerySet.as_manager()
+
+    def clean(self):
+        if self.document_id and self.tenant_id and self.document.tenant_id != self.tenant_id:
+            raise ValidationError("KYC document event and tenant must match")
+        if self.document_id and self.workspace_id and self.document.workspace_id != self.workspace_id:
+            raise ValidationError("KYC document event and workspace must match")
+        if self.tenant_id and self.workspace_id and self.tenant.workspace_id != self.workspace_id:
+            raise ValidationError("KYC document event tenant and workspace must match")
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise ValidationError("KYC document history is immutable")
+        raise ValidationError("KYC document history must be appended through the canonical service")
+
+    @classmethod
+    def append(cls, *, workspace, document, tenant, from_status, to_status, actor, occurred_at, reason="", metadata=None, event_key):
+        event = cls(
+            workspace=workspace, document=document, tenant=tenant,
+            from_status=from_status, to_status=to_status, actor=actor,
+            occurred_at=occurred_at, reason=reason, metadata=metadata or {}, event_key=event_key,
+        )
+        event.clean()
+        models.Model.save(event, force_insert=True)
+        return event
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("KYC document history is immutable")
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["document", "event_key"], name="kyc_doc_event_key_uniq")]
         indexes = [models.Index(fields=["workspace", "tenant", "occurred_at"])]
 
 
@@ -261,7 +299,5 @@ class AgreementLink(models.Model):
         return super().save(*args, **kwargs)
 
     class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["workspace", "tenant", "occupancy", "agreement_type", "reference"], name="agreement_link_logical_uniq"),
-        ]
+        constraints = [models.UniqueConstraint(fields=["workspace", "tenant", "occupancy", "agreement_type", "reference"], name="agreement_link_logical_uniq")]
         indexes = [models.Index(fields=["workspace", "tenant"]), models.Index(fields=["workspace", "occupancy"]), models.Index(fields=["workspace", "lease"])]
