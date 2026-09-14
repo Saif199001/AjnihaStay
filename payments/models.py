@@ -1,6 +1,6 @@
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.db.models import F, Q, Sum
 
 from payments.utils import generate_invoice_number
@@ -232,8 +232,44 @@ class PaymentAllocation(models.Model):
                 raise ValidationError(
                     "Payment allocation payment, invoice and amount cannot be changed after creation"
                 )
-        self.clean()
-        super().save(*args, **kwargs)
+            self.clean()
+            return super().save(*args, **kwargs)
+
+        # Direct ORM creation must enforce the same capacity/outstanding invariants
+        # as the canonical allocation service. The payment is locked first, then the
+        # invoice, matching allocation_service.py and preventing concurrent races.
+        with transaction.atomic():
+            payment = type(self).payment.field.remote_field.model.objects.select_for_update().get(
+                pk=self.payment_id
+            )
+            invoice = type(self).invoice.field.remote_field.model.objects.select_for_update().get(
+                pk=self.invoice_id
+            )
+            self.payment = payment
+            self.invoice = invoice
+            self.clean()
+
+            if payment.invoice_id and payment.invoice_id != invoice.pk:
+                raise ValidationError(
+                    "A legacy invoice-linked payment can only be allocated to its linked invoice"
+                )
+
+            allocated_total = (
+                type(self).objects.filter(payment_id=payment.pk)
+                .aggregate(total=Sum("amount"))["total"]
+                or 0
+            )
+            reserved_credit = payment.reserved_credit_amount
+            if allocated_total + reserved_credit + self.amount > payment.amount:
+                raise ValidationError("Allocation exceeds payment amount")
+
+            from .adjustment_service import calculate_invoice_financial_position
+
+            position = calculate_invoice_financial_position(invoice)
+            if self.amount > position["outstanding"]:
+                raise ValidationError("Allocation exceeds invoice remaining amount")
+
+            return super().save(*args, **kwargs)
 
     @property
     def workspace_id(self):
