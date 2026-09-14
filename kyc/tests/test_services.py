@@ -1,7 +1,9 @@
 from datetime import timedelta
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import IntegrityError
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -35,7 +37,7 @@ class KycServiceTests(TestCase):
     def _uploaded_document(self, document_type="passport", expires_at=None):
         return KycDocument.objects.create(
             tenant=self.tenant, workspace=self.workspace, document_type=document_type,
-            storage_key="kyc/private/workspace/1/tenant/1/0123456789abcdef0123456789abcdef",
+            storage_key=f"kyc/private/workspace/{self.workspace.id}/tenant/{self.tenant.id}/0123456789abcdef0123456789abcdef",
             content_type="application/pdf", file_size=100, uploaded_by=self.manager,
             expires_at=expires_at,
         )
@@ -125,17 +127,27 @@ class KycServiceTests(TestCase):
         self.assertEqual(document.status, KycDocument.STATUS_VERIFIED)
         self.assertIsNotNone(document.verified_at)
         self.assertEqual(document.verified_by_id, self.manager.id)
-        self.assertEqual(KycDocumentEvent.objects.filter(document=document).count(), 2)
+        self.assertEqual(KycDocumentEvent.objects.filter(document=document).count(), 3)
 
     def test_document_direct_lifecycle_creation_is_blocked(self):
         base = {
             "tenant": self.tenant, "workspace": self.workspace, "document_type": "passport",
-            "storage_key": "kyc/private/workspace/1/tenant/1/0123456789abcdef0123456789abcdef",
+            "storage_key": f"kyc/private/workspace/{self.workspace.id}/tenant/{self.tenant.id}/0123456789abcdef0123456789abcdef",
             "content_type": "application/pdf", "file_size": 100, "uploaded_by": self.manager,
         }
         for status in (KycDocument.STATUS_UNDER_REVIEW, KycDocument.STATUS_VERIFIED, KycDocument.STATUS_REJECTED, KycDocument.STATUS_EXPIRED):
             with self.subTest(status=status), self.assertRaises(ValidationError):
                 KycDocument.objects.create(**base, status=status)
+
+    def test_document_audit_fields_cannot_be_mutated_directly(self):
+        document = self._uploaded_document(expires_at=timezone.localdate() + timedelta(days=10))
+        document.expires_at = timezone.localdate() + timedelta(days=20)
+        with self.assertRaises(ValidationError):
+            document.save()
+        with self.assertRaises(ValidationError):
+            KycDocument.objects.filter(pk=document.pk).update(expires_at=timezone.localdate() + timedelta(days=20))
+        document.refresh_from_db()
+        self.assertEqual(document.expires_at, timezone.localdate() + timedelta(days=10))
 
     def test_verification_history_cannot_be_created_or_bulk_created_directly(self):
         profile = get_or_create_profile(self.staff, self.workspace, self.tenant.id)
@@ -152,10 +164,14 @@ class KycServiceTests(TestCase):
 
     def test_document_history_is_immutable_and_canonical(self):
         document = self._uploaded_document()
-        review_document(self.manager, self.workspace, document.id, action="under_review")
-        events = list(KycDocumentEvent.objects.filter(document=document))
+        events = list(KycDocumentEvent.objects.filter(document=document).order_by("id"))
         self.assertEqual(len(events), 1)
-        event = events[0]
+        self.assertEqual(events[0].from_status, "")
+        self.assertEqual(events[0].to_status, KycDocument.STATUS_UPLOADED)
+        review_document(self.manager, self.workspace, document.id, action="under_review")
+        events = list(KycDocumentEvent.objects.filter(document=document).order_by("id"))
+        self.assertEqual(len(events), 2)
+        event = events[-1]
         with self.assertRaises(ValidationError):
             event.save()
         with self.assertRaises(ValidationError):
@@ -173,30 +189,47 @@ class KycServiceTests(TestCase):
             KycDocumentEvent.objects.bulk_create([KycDocumentEvent(**fields)])
 
     def test_document_expiry_requires_verified_document_and_expiry_date(self):
-        document = self._uploaded_document(expires_at=timezone.localdate())
+        today = timezone.localdate()
+        document = self._uploaded_document(expires_at=today)
         review_document(self.manager, self.workspace, document.id, action="under_review")
         with self.assertRaises(ValidationError):
             review_document(self.manager, self.workspace, document.id, action="verify")
 
-        future = timezone.localdate() + timedelta(days=1)
+        future = today + timedelta(days=1)
         document = self._uploaded_document("pan", expires_at=future)
         review_document(self.manager, self.workspace, document.id, action="under_review")
         review_document(self.manager, self.workspace, document.id, action="verify")
-        KycDocument.objects.filter(pk=document.pk).update(expires_at=timezone.localdate())
-        document.refresh_from_db()
-        document = expire_document(self.manager, self.workspace, document.id)
-        self.assertEqual(document.status, KycDocument.STATUS_EXPIRED)
-        self.assertEqual(KycDocumentEvent.objects.filter(document=document).count(), 3)
-        self.assertEqual(expire_document(self.manager, self.workspace, document.id).status, KycDocument.STATUS_EXPIRED)
+        with patch("kyc.services.timezone.localdate", return_value=future):
+            document = expire_document(self.manager, self.workspace, document.id)
+            self.assertEqual(document.status, KycDocument.STATUS_EXPIRED)
+            self.assertEqual(KycDocumentEvent.objects.filter(document=document).count(), 4)
+            self.assertEqual(expire_document(self.manager, self.workspace, document.id).status, KycDocument.STATUS_EXPIRED)
 
     def test_expired_document_is_not_accepted_for_kyc_verification(self):
-        document = self._uploaded_document(expires_at=timezone.localdate() + timedelta(days=1))
+        today = timezone.localdate()
+        document = self._uploaded_document(expires_at=today + timedelta(days=1))
         submit_kyc(self.manager, self.workspace, self.tenant.id)
         review_document(self.manager, self.workspace, document.id, action="under_review")
         review_document(self.manager, self.workspace, document.id, action="verify")
-        KycDocument.objects.filter(pk=document.pk).update(expires_at=timezone.localdate())
-        with self.assertRaises(ValidationError):
-            verify_kyc(self.manager, self.workspace, self.tenant.id)
+        with patch("kyc.services.timezone.localdate", return_value=today + timedelta(days=1)):
+            with self.assertRaises(ValidationError):
+                verify_kyc(self.manager, self.workspace, self.tenant.id)
+
+    def test_agreement_link_duplicate_is_idempotent(self):
+        unit = Unit.objects.create(property=self._property(), unit_type="room", unit_number="K1", rent=Decimal("10000.00"))
+        occupancy = Occupancy.objects.create(tenant=self.tenant, unit=unit, allotted_by=self.owner, rent=Decimal("10000.00"), check_in_date=timezone.localdate(), next_due_date=timezone.localdate())
+        first = create_agreement_link(self.manager, self.workspace, tenant_id=self.tenant.id, occupancy_id=occupancy.id, agreement_type="rental_agreement", reference="AGR-1")
+        second = create_agreement_link(self.manager, self.workspace, tenant_id=self.tenant.id, occupancy_id=occupancy.id, agreement_type="rental_agreement", reference="AGR-1")
+        self.assertEqual(first.pk, second.pk)
+        self.assertEqual(AgreementLink.objects.count(), 1)
+
+        duplicate = AgreementLink(
+            workspace=self.workspace, tenant=self.tenant, occupancy=occupancy,
+            agreement_type="rental_agreement", reference="AGR-1", created_by=self.manager,
+        )
+        with self.assertRaises(IntegrityError):
+            with self.captureOnCommitCallbacks(execute=True):
+                duplicate.save()
 
     def test_agreement_link_requires_matching_workspace_and_occupancy(self):
         unit = Unit.objects.create(property=self._property(), unit_type="room", unit_number="K1", rent=Decimal("10000.00"))
