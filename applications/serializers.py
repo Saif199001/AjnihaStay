@@ -3,14 +3,29 @@ from rest_framework import serializers
 from .models import Applicant, Application, ApplicationEvent
 
 
-class ApplicantSerializer(serializers.ModelSerializer):
+class StrictModelSerializer(serializers.ModelSerializer):
+    """Reject client fields that are outside the declared API contract."""
+
+    def to_internal_value(self, data):
+        if not hasattr(data, "keys"):
+            return super().to_internal_value(data)
+        declared = set(self.fields.keys())
+        unknown = sorted(set(data.keys()) - declared)
+        if unknown:
+            raise serializers.ValidationError(
+                {"non_field_errors": [f"Unknown field(s): {', '.join(unknown)}"]}
+            )
+        return super().to_internal_value(data)
+
+
+class ApplicantSerializer(StrictModelSerializer):
     class Meta:
         model = Applicant
         fields = ["id", "full_name", "phone", "email", "address", "created_at", "updated_at"]
         read_only_fields = ["id", "created_at", "updated_at"]
 
 
-class ApplicationSerializer(serializers.ModelSerializer):
+class ApplicationSerializer(StrictModelSerializer):
     applicant_name = serializers.CharField(source="applicant.full_name", read_only=True)
     property_name = serializers.CharField(source="property.name", read_only=True)
 
