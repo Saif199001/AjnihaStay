@@ -4,6 +4,7 @@ from io import BytesIO
 from unittest.mock import patch
 
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, transaction
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -152,7 +153,7 @@ class KycServiceTests(TestCase):
     def test_document_upload_records_initial_history_event(self):
         document = upload_document(
             self.manager, self.workspace, self.tenant.id,
-            document_type="passport", file=BytesIO(b"document"), content_type="application/pdf",
+            document_type="passport", file=SimpleUploadedFile("document.pdf", b"document", content_type="application/pdf"), content_type="application/pdf",
             storage=FakePrivateStorage(),
         )
         events = list(KycDocumentEvent.objects.filter(document=document).order_by("id"))
