@@ -60,29 +60,14 @@ def generate_recurring_billing_occurrence(
             billing_start=start,
             billing_end=period_end,
             due_date=start,
+            ledger_event_type="recurring_invoice_generated",
+            ledger_event_key=f"recurring-invoice:{charge.pk}:generated",
+            ledger_metadata={
+                "billing_schedule_id": locked.pk,
+                "billing_date": str(start),
+                "charge_id": charge.pk,
+            },
         )
-        if created:
-            # Recurring invoices use their specialized lifecycle event rather
-            # than creating a second generic invoice_created ledger event.
-            # The canonical invoice transition accepts the event identity via
-            # its data contract, but the invoice has already been created above.
-            # The event must therefore be emitted here only when this occurrence
-            # actually created a new invoice.
-            from .ledger_service import post_ledger_event
-            post_ledger_event(
-                user,
-                workspace,
-                event_type="recurring_invoice_generated",
-                event_key=f"recurring-invoice:{invoice.pk}:generated",
-                occurred_at=invoice.created_at,
-                amount=invoice.total_amount,
-                invoice=invoice,
-                occupancy=locked.occupancy,
-                metadata={
-                    "billing_schedule_id": locked.pk,
-                    "billing_date": str(start),
-                },
-            )
         return {
             "charge": charge,
             "invoice": invoice,
