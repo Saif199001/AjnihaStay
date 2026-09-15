@@ -35,5 +35,5 @@ def remove_policies(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("leasing", "0006_lease_contract_version")]
+    dependencies = [("leasing", "0006_lease_lifecycle_event_key")]
     operations = [migrations.RunPython(install_policies, remove_policies)]
