@@ -50,17 +50,19 @@ def generate_invoice_for_occupancy(
     ledger_event_type="invoice_created",
     ledger_event_key=None,
     ledger_metadata=None,
+    rent_amount=None,
+    charges_amount=None,
+    allow_same_day_period=False,
 ):
-    """Generate one canonical invoice for an occupancy billing period.
-
-    Invoice creation is delegated to the canonical financial transition
-    service, with an explicit lifecycle event contract for recurring billing.
-    """
+    """Generate one canonical invoice for an occupancy billing period."""
     billing_start = _parse_date(billing_start, "billing start date")
     billing_end = _parse_date(billing_end, "billing end date")
     due_date = _parse_date(due_date or billing_start, "due date")
 
-    if billing_end <= billing_start:
+    if allow_same_day_period:
+        if billing_end < billing_start:
+            raise ValidationError("Billing end date must not be before billing start date")
+    elif billing_end <= billing_start:
         raise ValidationError("Billing end date must be after billing start date")
     if ledger_event_type not in {"invoice_created", "recurring_invoice_generated"}:
         raise ValidationError("Invalid invoice ledger event type")
@@ -85,14 +87,22 @@ def generate_invoice_for_occupancy(
         if existing_invoice:
             return existing_invoice, False
 
-        charges_amount = (
-            Charge.objects.filter(
-                occupancy=occupancy,
-                charge_date__gte=billing_start,
-                charge_date__lt=billing_end,
-            ).aggregate(total=Sum("amount"))["total"]
-            or Decimal("0")
-        )
+        if charges_amount is None:
+            charges_amount = (
+                Charge.objects.filter(
+                    occupancy=occupancy,
+                    charge_date__gte=billing_start,
+                    charge_date__lt=billing_end,
+                ).aggregate(total=Sum("amount"))["total"]
+                or Decimal("0")
+            )
+        else:
+            charges_amount = Decimal(str(charges_amount))
+
+        if rent_amount is None:
+            rent_amount = occupancy.rent
+        else:
+            rent_amount = Decimal(str(rent_amount))
 
         try:
             with transaction.atomic():
@@ -103,7 +113,7 @@ def generate_invoice_for_occupancy(
                         "occupancy": occupancy.id,
                         "billing_start": billing_start,
                         "billing_end": billing_end,
-                        "rent_amount": occupancy.rent,
+                        "rent_amount": rent_amount,
                         "charges_amount": charges_amount,
                         "due_date": due_date,
                         "ledger_event_type": ledger_event_type,
