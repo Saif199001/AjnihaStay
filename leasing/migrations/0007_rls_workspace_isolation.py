@@ -3,8 +3,10 @@ from django.db import migrations
 
 PROTECTED_TABLES = (
     "leasing_lease",
-    "leasing_leasecontractversion",
     "leasing_leaselifecycleevent",
+    "leasing_leasenotice",
+    "leasing_leaserenewal",
+    "leasing_leasecontractversion",
 )
 
 
