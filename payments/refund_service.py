@@ -1,4 +1,4 @@
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
@@ -7,6 +7,7 @@ from django.db.models import Sum
 from workspaces.models import Membership
 
 from .models import Payment
+from .money import normalize_money
 from .refund_models import PaymentRefund
 
 
@@ -34,13 +35,7 @@ def _is_authorized(user, workspace):
 
 
 def _parse_amount(value):
-    try:
-        amount = Decimal(value)
-    except (TypeError, ValueError, InvalidOperation):
-        raise ValidationError("Invalid refund amount")
-    if amount <= 0:
-        raise ValidationError("Refund amount must be greater than zero")
-    return amount.quantize(Decimal("0.01"))
+    return normalize_money(value, "refund")
 
 
 def _get_payment_for_workspace(payment_value, workspace):
