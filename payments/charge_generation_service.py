@@ -31,8 +31,21 @@ def _next_run_date(current_date, frequency, anchor_day=None):
     raise ValidationError("Unsupported billing frequency")
 
 
-def generate_charge_from_schedule(user, workspace, schedule, charge_date=None):
-    """Generate one idempotent recurring charge and advance its schedule atomically."""
+def generate_charge_from_schedule(
+    user,
+    workspace,
+    schedule,
+    charge_date=None,
+    *,
+    post_ledger=True,
+):
+    """Generate one idempotent recurring charge and advance its schedule atomically.
+
+    The canonical recurring invoice orchestrator can suppress the charge-level
+    ledger append until the invoice exists, allowing that immutable event to
+    retain its canonical invoice relationship. Direct callers retain the
+    historical default of posting the charge ledger event immediately.
+    """
     require_mutation_permission(user, workspace)
     if charge_date is None:
         raise ValidationError("Charge date is required")
@@ -87,6 +100,7 @@ def generate_charge_from_schedule(user, workspace, schedule, charge_date=None):
             charge_date=charge_date,
             update_invoice=False,
             billing_schedule=schedule,
+            post_ledger=post_ledger,
         )
 
         schedule.next_run_date = _next_run_date(
