@@ -6,18 +6,54 @@ Phase 1 uses PostgreSQL Row-Level Security as a second tenant-isolation boundary
 
 The API resolves an active workspace membership first. Workspace permissions then bind `app.workspace_id` for the current PostgreSQL transaction. PostgreSQL policies use that setting to filter workspace-owned domain rows.
 
-The protected tables are:
+The production protected-table inventory is:
 
-- properties_property
-- properties_propertyimage
-- unit_unit
-- unit_unitimage
-- unit_subunit
-- tenant_tenant
-- tenant_occupancy
-- tenant_charge
-- payments_invoice
-- payments_payment
+### Property / inventory / tenant
+
+- `properties_property`
+- `properties_propertyimage`
+- `unit_unit`
+- `unit_unitimage`
+- `unit_subunit`
+- `tenant_tenant`
+- `tenant_occupancy`
+- `tenant_charge`
+
+### Financial domain
+
+- `payments_invoice`
+- `payments_payment`
+- `payments_paymentallocation`
+- `payments_billingschedule`
+- `payments_advancecredit`
+- `payments_advancecreditapplication`
+- `payments_financialadjustment`
+- `payments_finalsettlement`
+- `payments_financialledgerentry`
+
+### Applications
+
+- `applications_applicant`
+- `applications_application`
+- `applications_applicationevent`
+
+### KYC
+
+- `kyc_kycprofile`
+- `kyc_kycdocument`
+- `kyc_kycverificationevent`
+- `kyc_kycdocumentevent`
+- `kyc_agreementlink`
+
+### Leasing
+
+- `leasing_lease`
+- `leasing_leaselifecycleevent`
+- `leasing_leasenotice`
+- `leasing_leaserenewal`
+- `leasing_leasecontractversion`
+
+Every table above is workspace-scoped either by a direct `workspace_id` or through an explicit workspace-owned relationship. Policies must fail closed when the workspace context is missing.
 
 `ATOMIC_REQUESTS` is enabled when `DB_RLS_ENABLED=true`, so the transaction-local workspace setting remains active for the complete API view. PostgreSQL `set_config(..., true)` makes the setting transaction-local.
 
@@ -29,7 +65,7 @@ Application code should still establish workspace context before querying protec
 
 ## Activation
 
-RLS policies are installed by migration but remain disabled until the deployment is explicitly activated.
+RLS policies are installed by the relevant application migrations and remain disabled until deployment is explicitly activated.
 
 1. Set `DB_RLS_ENABLED=true` in the application environment.
 2. Run migrations.
@@ -41,17 +77,15 @@ python manage.py enable_workspace_rls
 
 4. Restart the application.
 
-The runtime database role must have permission to alter the tables during activation. The command uses `FORCE ROW LEVEL SECURITY`, which also subjects the table owner to the policies.
+The activation command covers the complete production protected-table inventory above and uses `FORCE ROW LEVEL SECURITY`.
+
+The runtime database role must have permission to alter the tables during activation. The normal application database role must remain a non-bypass role; granting `BYPASSRLS` is not an acceptable workaround.
 
 ## Django Admin
 
 Django Admin is a platform-level administrative surface, not a workspace-scoped customer API. When `FORCE ROW LEVEL SECURITY` is enabled, a database role without RLS bypass privileges cannot safely perform unrestricted cross-workspace Admin operations.
 
-The normal application database role must remain a non-bypass role so RLS remains a real defense-in-depth boundary. Granting `BYPASSRLS` to that role is explicitly not an acceptable workaround.
-
-Therefore the RLS-protected customer domain models are intentionally **not registered in Django Admin** on this phase-1 application path. This prevents an administrator request from accidentally becoming an unrestricted cross-workspace domain query under forced RLS.
-
-`Workspace` and `Membership` remain available in Django Admin because they are platform-level control-plane records and are not protected by the customer-domain RLS policies.
+Therefore the RLS-protected customer domain models are intentionally **not registered in Django Admin** on this phase-1 application path. `Workspace` and `Membership` remain available in Django Admin because they are platform-level control-plane records.
 
 A future dedicated platform-admin surface may use a separately designed privileged database role/connection with explicit audit controls. That is a separate architecture task and must not weaken the normal application connection.
 
@@ -63,7 +97,8 @@ The RLS test suite verifies:
 - a selected workspace exposes only its own rows;
 - a wrong workspace context cannot expose another workspace's rows;
 - protected customer domain models are not registered in Django Admin;
-- workspace permission resolution binds the selected workspace before protected API work.
+- workspace permission resolution binds the selected workspace before protected API work;
+- the extended application/KYC/leasing/financial inventory has a fail-closed policy after migrations.
 
 ## Emergency rollback
 
