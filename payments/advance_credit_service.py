@@ -1,4 +1,4 @@
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -10,17 +10,12 @@ from .adjustment_service import calculate_invoice_financial_position
 from .allocation_service import get_payment_available_allocation_amount
 from .authorization import require_mutation_permission
 from .models import AdvanceCredit, AdvanceCreditApplication, Invoice, Payment
+from .money import normalize_money
 from .services import recalculate_invoice_state
 
 
 def _positive_decimal(value, field_name):
-    try:
-        amount = Decimal(value)
-    except (TypeError, ValueError, InvalidOperation):
-        raise ValidationError(f"Invalid {field_name} amount")
-    if not amount.is_finite() or amount <= 0:
-        raise ValidationError(f"{field_name.capitalize()} amount must be greater than zero")
-    return amount
+    return normalize_money(value, field_name)
 
 
 def _positive_id(value, field_name):
