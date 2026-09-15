@@ -50,7 +50,6 @@ def generate_recurring_billing_occurrence(user, workspace, schedule, occurrence_
             billing_end=period_end,
             due_date=start,
             ledger_event_type="recurring_invoice_generated",
-            ledger_event_key=f"recurring-invoice:{locked.pk}:{start.isoformat()}",
             ledger_metadata={
                 "billing_schedule_id": locked.pk,
                 "billing_date": str(start),
