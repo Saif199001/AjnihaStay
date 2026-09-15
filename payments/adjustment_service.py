@@ -1,23 +1,16 @@
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Sum
 
-from .authorization import MUTATION_ROLES, require_mutation_permission
+from .authorization import require_mutation_permission
 from .models import AdvanceCreditApplication, FinancialAdjustment, Invoice, PaymentAllocation
+from .money import normalize_money
 
 
 def _positive_decimal(value, field_name):
-    try:
-        amount = Decimal(value)
-    except (TypeError, ValueError, InvalidOperation):
-        raise ValidationError(f"Invalid {field_name} amount")
-    if not amount.is_finite() or amount <= 0:
-        raise ValidationError(f"{field_name.capitalize()} amount must be greater than zero")
-    if amount != amount.quantize(Decimal("0.01")):
-        raise ValidationError(f"{field_name.capitalize()} amount cannot have more than two decimal places")
-    return amount
+    return normalize_money(value, field_name)
 
 
 def _positive_id(value, field_name):
