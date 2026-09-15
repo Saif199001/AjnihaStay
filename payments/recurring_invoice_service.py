@@ -18,8 +18,6 @@ def generate_invoice_from_schedule(user, workspace, schedule, billing_date=None,
         workspace,
         schedule,
         occurrence_date=billing_date,
+        due_date=due_date,
     )
-    invoice = result["invoice"]
-    if due_date is not None and invoice.due_date != due_date:
-        raise ValidationError("Recurring invoice due date is controlled by the canonical billing period")
-    return invoice
+    return result["invoice"]
