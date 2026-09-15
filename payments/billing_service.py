@@ -66,11 +66,22 @@ def get_billing_schedule(schedule_id, workspace):
 
 def update_billing_schedule(user, workspace, schedule_id, data):
     require_mutation_permission(user, workspace)
-    schedule = get_billing_schedule(schedule_id, workspace)
-    if "occupancy" in data:
-        occupancy = _get_occupancy(data.get("occupancy"), workspace)
-        schedule.occupancy = occupancy
-    for field in ("frequency", "amount", "next_run_date", "anchor_day", "active"):
-        if field in data:
-            setattr(schedule, field, data[field])
-    return _save_schedule(schedule)
+    try:
+        with transaction.atomic():
+            schedule = BillingSchedule.objects.select_for_update().select_related(
+                "occupancy", "occupancy__tenant"
+            ).get(
+                id=schedule_id,
+                occupancy__tenant__workspace=workspace,
+            )
+            if "occupancy" in data:
+                schedule.occupancy = _get_occupancy(data.get("occupancy"), workspace)
+            for field in ("frequency", "amount", "next_run_date", "anchor_day", "active"):
+                if field in data:
+                    setattr(schedule, field, data[field])
+            schedule.save()
+            return schedule
+    except BillingSchedule.DoesNotExist:
+        raise ValidationError("Billing schedule not found")
+    except IntegrityError:
+        raise ValidationError("An active billing schedule already exists for this occupancy")
