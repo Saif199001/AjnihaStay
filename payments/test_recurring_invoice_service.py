@@ -91,6 +91,7 @@ class RecurringInvoiceGenerationTests(TestCase):
     def test_daily_schedule_uses_one_day_billing_period(self):
         self.schedule.frequency = "daily"
         self.schedule.next_run_date = date(2026, 9, 10)
+        self.schedule.anchor_day = None
         self.schedule.save()
 
         invoice = generate_invoice_from_schedule(
