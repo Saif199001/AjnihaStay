@@ -129,6 +129,13 @@ class Occupancy(models.Model):
 class Charge(models.Model):
     CHARGE_TYPES = (("electricity", "Electricity"), ("food", "Food"), ("maintenance", "Maintenance"), ("laundry", "Laundry"), ("custom", "Custom"))
     occupancy = models.ForeignKey(Occupancy, on_delete=models.PROTECT, related_name="charges")
+    billing_schedule = models.ForeignKey(
+        "payments.BillingSchedule",
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True,
+        related_name="charges",
+    )
     charge_type = models.CharField(max_length=50, choices=CHARGE_TYPES)
     description = models.CharField(max_length=255, blank=True, null=True)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
@@ -140,6 +147,9 @@ class Charge(models.Model):
             raise ValidationError("Charge amount must be greater than zero")
         if self.occupancy_id and self.charge_date < self.occupancy.check_in_date:
             raise ValidationError("Charge date cannot be before occupancy check-in date")
+        if self.billing_schedule_id:
+            if self.billing_schedule.occupancy_id != self.occupancy_id:
+                raise ValidationError("Billing schedule must belong to the charge occupancy")
 
     def save(self, *args, **kwargs):
         self.clean()
@@ -149,4 +159,11 @@ class Charge(models.Model):
         return f"{self.charge_type} - {self.amount}"
 
     class Meta:
-        constraints = [models.CheckConstraint(condition=Q(amount__gt=0), name="charge_amount_positive")]
+        constraints = [
+            models.CheckConstraint(condition=Q(amount__gt=0), name="charge_amount_positive"),
+            models.UniqueConstraint(
+                fields=["billing_schedule", "charge_date"],
+                condition=Q(billing_schedule__isnull=False),
+                name="charge_schedule_date_unique",
+            ),
+        ]
