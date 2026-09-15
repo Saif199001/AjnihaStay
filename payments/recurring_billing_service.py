@@ -7,6 +7,7 @@ from .authorization import require_mutation_permission
 from .billing_models import BillingSchedule
 from .charge_generation_service import _next_run_date, generate_charge_from_schedule
 from .invoice_generation_service import generate_invoice_for_occupancy
+from .ledger_service import post_ledger_event
 
 
 DEFAULT_MAX_CATCH_UP = 12
@@ -90,7 +91,16 @@ def generate_recurring_billing_occurrence(
                 raise ValidationError("Inactive billing schedule cannot generate an invoice")
             if start != locked.next_run_date:
                 raise ValidationError("Billing date must match the billing schedule next run date")
-            charge = charge_generator(user, workspace, locked, charge_date=start)
+            if charge_generator is generate_charge_from_schedule:
+                charge = charge_generator(
+                    user,
+                    workspace,
+                    locked,
+                    charge_date=start,
+                    post_ledger=False,
+                )
+            else:
+                charge = charge_generator(user, workspace, locked, charge_date=start)
 
         invoice, created = generate_invoice_for_occupancy(
             user,
@@ -108,6 +118,25 @@ def generate_recurring_billing_occurrence(
             rent_amount=0,
             charges_amount=charge.amount,
             allow_same_day_period=True,
+        )
+
+        # The charge ledger event is appended only after the invoice exists, so
+        # the immutable event carries the canonical invoice relationship.
+        post_ledger_event(
+            user,
+            workspace,
+            event_type="charge_generated",
+            event_key=f"charge:{charge.pk}:generated",
+            occurred_at=charge.created_at,
+            amount=charge.amount,
+            invoice=invoice,
+            occupancy=locked.occupancy,
+            metadata={
+                "charge_id": charge.pk,
+                "charge_type": charge.charge_type,
+                "billing_schedule_id": locked.pk,
+                "billing_date": str(start),
+            },
         )
         return {
             "charge": charge,
