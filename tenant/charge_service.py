@@ -75,17 +75,11 @@ def create_charge(
     update_invoice=True,
     invoice=None,
     billing_schedule=None,
-    post_ledger_event=True,
+    post_ledger=True,
 ):
-    """Create a workspace-scoped charge, optionally updating an active invoice atomically.
-
-    ``post_ledger_event=False`` is reserved for a higher-level financial
-    orchestration that must create the charge event only after the final
-    invoice relationship exists. This keeps the charge mutation canonical
-    while preserving the ledger's append-only semantics.
-    """
+    """Create a workspace-scoped charge and optionally append its ledger event."""
     from payments.authorization import require_mutation_permission
-    from payments.ledger_service import post_ledger_event
+    from payments.ledger_service import post_ledger_event as append_ledger_event
 
     require_mutation_permission(user, workspace)
     charge_date = _date_value(charge_date, "charge date")
@@ -155,8 +149,8 @@ def create_charge(
             target_invoice.total_amount = target_invoice.rent_amount + target_invoice.charges_amount
             target_invoice.save()
 
-        if post_ledger_event:
-            post_ledger_event(
+        if post_ledger:
+            append_ledger_event(
                 user,
                 workspace,
                 event_type="charge_generated",
