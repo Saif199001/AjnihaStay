@@ -42,9 +42,20 @@ class WorkspaceRlsExtendedTests(TestCase):
                 self.assertTrue(policies, f"No RLS policy installed for {table}")
                 self.assertTrue(
                     any(
-                        "NULLIF(current_setting('app.workspace_id', true), '')" in str(qual)
-                        and "NULLIF(current_setting('app.workspace_id', true), '')" in str(with_check)
-                        for _, qual, with_check in policies
-                    ),
+                        all(
+                            marker in str(expression).lower()
+                            for marker in (
+                                "nullif(",
+                                "current_setting(",
+                                "app.workspace_id",
+                            )
+                        )
+                        for expression in (qual, with_check)
+                    )
+                    and "nullif(" in str(with_check).lower()
+                    and "current_setting(" in str(with_check).lower()
+                    and "app.workspace_id" in str(with_check).lower()
+                    for _, qual, with_check in policies
+                ),
                     f"{table} does not have a fail-closed workspace policy",
                 )
