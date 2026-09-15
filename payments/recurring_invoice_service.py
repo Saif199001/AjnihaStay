@@ -6,7 +6,14 @@ one authoritative atomic charge + invoice orchestration boundary.
 
 from django.core.exceptions import ValidationError
 
+from .charge_generation_service import generate_charge_from_schedule
 from .recurring_billing_service import generate_recurring_billing_occurrence
+
+
+# Compatibility seam for existing callers/tests. The canonical orchestration
+# remains in recurring_billing_service; this is dependency injection, not a
+# second financial implementation.
+create_charge = generate_charge_from_schedule
 
 
 def generate_invoice_from_schedule(user, workspace, schedule, billing_date=None, due_date=None):
@@ -19,5 +26,6 @@ def generate_invoice_from_schedule(user, workspace, schedule, billing_date=None,
         schedule,
         occurrence_date=billing_date,
         due_date=due_date,
+        charge_generator=create_charge,
     )
     return result["invoice"]
