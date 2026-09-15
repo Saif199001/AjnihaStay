@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -13,7 +13,15 @@ DEFAULT_MAX_CATCH_UP = 12
 MAX_CATCH_UP = 100
 
 
-def generate_recurring_billing_occurrence(user, workspace, schedule, occurrence_date=None, due_date=None):
+def generate_recurring_billing_occurrence(
+    user,
+    workspace,
+    schedule,
+    occurrence_date=None,
+    due_date=None,
+    *,
+    charge_generator=generate_charge_from_schedule,
+):
     """Atomically generate the charge and invoice for one recurring occurrence."""
     require_mutation_permission(user, workspace)
     with transaction.atomic():
@@ -27,24 +35,31 @@ def generate_recurring_billing_occurrence(user, workspace, schedule, occurrence_
             id=schedule_id, occupancy__tenant__workspace=workspace
         )
 
+        if not locked.active:
+            raise ValidationError("Inactive billing schedule cannot generate an invoice")
+
         start = occurrence_date or locked.next_run_date
         if isinstance(start, str):
             try:
                 start = date.fromisoformat(start)
             except ValueError:
-                raise ValidationError("Invalid occurrence date")
+                raise ValidationError("Invalid billing date")
+        if start != locked.next_run_date:
+            raise ValidationError("Billing date must match the billing schedule next run date")
+
         if due_date is not None and isinstance(due_date, str):
             try:
                 due_date = date.fromisoformat(due_date)
             except ValueError:
                 raise ValidationError("Invalid due date")
 
-        period_end = _next_run_date(start, locked.frequency, locked.anchor_day)
+        next_run = _next_run_date(start, locked.frequency, locked.anchor_day)
+        period_end = start if locked.frequency == "daily" else next_run - timedelta(days=1)
         if locked.occupancy.check_out_date:
             period_end = min(period_end, locked.occupancy.check_out_date)
 
-        charge = generate_charge_from_schedule(user, workspace, locked, charge_date=start)
-        if period_end <= start:
+        charge = charge_generator(user, workspace, locked, charge_date=start)
+        if period_end < start:
             raise ValidationError("Recurring billing period has no valid end date")
         if due_date is not None and due_date < start:
             raise ValidationError("Recurring invoice due date cannot be before billing date")
@@ -55,13 +70,16 @@ def generate_recurring_billing_occurrence(user, workspace, schedule, occurrence_
             locked.occupancy,
             billing_start=start,
             billing_end=period_end,
-            due_date=due_date or start,
+            due_date=due_date or period_end,
             ledger_event_type="recurring_invoice_generated",
             ledger_metadata={
                 "billing_schedule_id": locked.pk,
                 "billing_date": str(start),
                 "charge_id": charge.pk,
             },
+            rent_amount=0,
+            charges_amount=charge.amount,
+            allow_same_day_period=True,
         )
         return {
             "charge": charge,
