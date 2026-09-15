@@ -1,4 +1,4 @@
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -6,19 +6,12 @@ from django.db import transaction
 from .adjustment_service import calculate_invoice_financial_position
 from .authorization import require_mutation_permission
 from .models import Invoice, Payment, PaymentAllocation
+from .money import normalize_money
 from .services import get_payment_available_allocation_amount
 
 
 def _decimal_amount(value):
-    try:
-        amount = Decimal(value)
-    except (TypeError, ValueError, InvalidOperation):
-        raise ValidationError("Invalid allocation amount")
-    if not amount.is_finite():
-        raise ValidationError("Invalid allocation amount")
-    if amount <= 0:
-        raise ValidationError("Allocation amount must be greater than zero")
-    return amount
+    return normalize_money(value, "allocation")
 
 
 def _normalize_allocations(allocations):
