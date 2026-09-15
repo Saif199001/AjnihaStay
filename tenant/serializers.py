@@ -35,12 +35,18 @@ class OccupancySerializer(serializers.ModelSerializer):
 
 
 class TenantSerializer(serializers.ModelSerializer):
-    occupancies = OccupancySerializer(many=True, read_only=True)
+    """Safe tenant representation; legacy ID documents are never serialized."""
 
     class Meta:
         model = Tenant
-        fields = "__all__"
-        read_only_fields = ["id", "owner", "workspace", "created_at", "updated_at"]
+        fields = [
+            "id", "owner", "workspace", "full_name", "phone", "email", "profile_photo",
+            "nationality", "id_proof_type", "id_number", "permanent_address", "district",
+            "state", "pin_code", "emergency_contact", "created_at", "updated_at", "occupancies",
+        ]
+        read_only_fields = ["id", "owner", "workspace", "created_at", "updated_at", "occupancies"]
+
+    occupancies = OccupancySerializer(many=True, read_only=True)
 
     def validate_phone(self, value):
         if len(value) < 10:

@@ -4,7 +4,9 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from payments.models import Invoice
+from payments.authorization import require_mutation_permission
 from unit.models import SubUnit, Unit
+from .charge_service import create_charge as create_charge_engine
 from .models import Charge, Occupancy, Tenant
 
 
@@ -22,6 +24,7 @@ def _billing_value(data, field_name, default, allowed_values):
 
 
 def create_tenant(user, workspace, data, files):
+    require_mutation_permission(user, workspace)
     if not data.get("full_name"):
         raise ValidationError("Full name required")
     if not data.get("phone"):
@@ -46,6 +49,7 @@ def create_tenant(user, workspace, data, files):
 
 
 def create_occupancy(user, workspace, data):
+    require_mutation_permission(user, workspace)
     with transaction.atomic():
         tenant_value = data.get("tenant")
         tenant_id = tenant_value.id if isinstance(tenant_value, Tenant) else tenant_value
@@ -124,13 +128,21 @@ def create_occupancy(user, workspace, data):
             deposit_paid=data.get("deposit_paid") or False,
         )
 
-        Invoice.objects.create(
-            occupancy=occupancy,
-            billing_start=data.get("check_in_date"),
-            billing_end=data.get("next_due_date"),
-            rent_amount=data.get("rent"),
-            charges_amount=Decimal(data.get("charges_amount") or 0),
-            due_date=data.get("next_due_date"),
+        # Initial invoice creation must use the canonical financial service so
+        # every invoice has the same authorization and immutable ledger path.
+        from payments.services import create_invoice
+
+        create_invoice(
+            user,
+            workspace,
+            {
+                "occupancy": occupancy.id,
+                "billing_start": data.get("check_in_date"),
+                "billing_end": data.get("next_due_date"),
+                "rent_amount": data.get("rent"),
+                "charges_amount": Decimal(data.get("charges_amount") or 0),
+                "due_date": data.get("next_due_date"),
+            },
         )
         return occupancy
 
@@ -140,36 +152,16 @@ def get_tenants(workspace):
 
 
 def create_charge(user, workspace, data):
-    with transaction.atomic():
-        occupancy_value = data.get("occupancy")
-        if isinstance(occupancy_value, Occupancy):
-            occupancy_id = occupancy_value.id
-        else:
-            occupancy_id = occupancy_value
-
-        try:
-            occupancy = Occupancy.objects.select_related("tenant").get(
-                id=occupancy_id, tenant__workspace=workspace
-            )
-        except (Occupancy.DoesNotExist, TypeError, ValueError):
-            raise ValidationError("Occupancy not found")
-
-        invoice = occupancy.invoices.select_for_update().filter(status="pending").last()
-        if not invoice:
-            raise ValidationError("No active invoice found")
-
-        charge = Charge.objects.create(
-            occupancy=occupancy,
-            charge_type=data.get("charge_type"),
-            description=data.get("description"),
-            amount=data.get("amount"),
-            charge_date=data.get("charge_date"),
-        )
-
-        invoice.charges_amount += charge.amount
-        invoice.total_amount = invoice.rent_amount + invoice.charges_amount
-        invoice.save()
-        return charge
+    """Compatibility wrapper around the canonical charge engine."""
+    return create_charge_engine(
+        user,
+        workspace,
+        occupancy=data.get("occupancy"),
+        charge_type=data.get("charge_type"),
+        description=data.get("description"),
+        amount=data.get("amount"),
+        charge_date=data.get("charge_date"),
+    )
 
 
 def _optional_positive_id(value, field_name):

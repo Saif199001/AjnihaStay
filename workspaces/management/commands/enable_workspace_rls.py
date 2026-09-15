@@ -17,6 +17,22 @@ TABLES = (
     "payments_billingschedule",
     "payments_advancecredit",
     "payments_advancecreditapplication",
+    "payments_financialadjustment",
+    "payments_finalsettlement",
+    "payments_financialledgerentry",
+    "applications_applicant",
+    "applications_application",
+    "applications_applicationevent",
+    "kyc_kycprofile",
+    "kyc_kycdocument",
+    "kyc_kycverificationevent",
+    "kyc_kycdocumentevent",
+    "kyc_agreementlink",
+    "leasing_lease",
+    "leasing_leaselifecycleevent",
+    "leasing_leasenotice",
+    "leasing_leaserenewal",
+    "leasing_leasecontractversion",
 )
 
 

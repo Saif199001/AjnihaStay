@@ -1,0 +1,247 @@
+from decimal import Decimal, InvalidOperation
+
+from django.core.exceptions import ValidationError
+from django.db import transaction
+from django.utils import timezone
+
+from payments.authorization import require_mutation_permission
+
+from .lifecycle_event_service import append_lifecycle_event
+from .lifecycle_models import LeaseContractVersion, LeaseLifecycleEvent, LeaseRenewal
+from .models import Lease
+
+
+def _require_manager(user, workspace):
+    require_mutation_permission(user, workspace)
+
+
+def _decimal(value, field_name):
+    try:
+        parsed = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        raise ValidationError(f"Invalid {field_name}")
+    if parsed < 0:
+        raise ValidationError(f"{field_name} cannot be negative")
+    if parsed.as_tuple().exponent < -2:
+        raise ValidationError(f"{field_name} must have at most 2 decimal places")
+    return parsed
+
+
+def _get_locked_source_lease(lease_id, workspace):
+    try:
+        return Lease.objects.select_for_update().get(id=lease_id, workspace=workspace)
+    except (Lease.DoesNotExist, TypeError, ValueError):
+        raise ValidationError("Lease not found")
+
+
+def _require_renewable_source(lease):
+    if lease.status not in {Lease.STATUS_ACTIVE, Lease.STATUS_EXPIRED}:
+        raise ValidationError("Only active or expired leases can be renewed")
+
+
+def _overlaps(start_date, end_date, periods):
+    return any(start_date <= existing_end and end_date >= existing_start for existing_start, existing_end in periods)
+
+
+def _ensure_base_contract_version(lease):
+    """Guarantee a version-1 snapshot for legacy/directly-created Lease rows."""
+    base = (
+        LeaseContractVersion.objects.select_for_update()
+        .filter(lease=lease, version_number=1)
+        .first()
+    )
+    if base:
+        return base
+
+    return LeaseContractVersion.objects.create(
+        lease=lease,
+        workspace=lease.workspace,
+        version_number=1,
+        start_date=lease.start_date,
+        end_date=lease.end_date,
+        rent_amount=lease.rent_amount,
+        security_deposit=lease.security_deposit,
+        notice_period_days=lease.notice_period_days,
+        terms=dict(lease.terms or {}),
+        agreement_reference=lease.agreement_reference,
+        created_by=lease.created_by,
+    )
+
+
+def create_renewal(user, workspace, source_lease_id, data):
+    """Create a draft renewal through the canonical P1.5 mutation boundary."""
+    _require_manager(user, workspace)
+    data = dict(data or {})
+
+    with transaction.atomic():
+        source_lease = _get_locked_source_lease(source_lease_id, workspace)
+        _require_renewable_source(source_lease)
+
+        start_date = data.get("start_date")
+        end_date = data.get("end_date")
+        if not start_date or not end_date:
+            raise ValidationError("Renewal start and end dates are required")
+        if end_date < start_date:
+            raise ValidationError("Renewal end date cannot be before start date")
+
+        renewal_number = data.get("renewal_number")
+        if renewal_number is None:
+            latest = (
+                LeaseRenewal.objects.filter(source_lease=source_lease)
+                .order_by("-renewal_number")
+                .values_list("renewal_number", flat=True)
+                .first()
+            )
+            renewal_number = (latest or 0) + 1
+        if not isinstance(renewal_number, int) or isinstance(renewal_number, bool) or renewal_number < 1:
+            raise ValidationError("Renewal number must be a positive integer")
+
+        periods = [(source_lease.start_date, source_lease.end_date)]
+        periods.extend(
+            LeaseRenewal.objects.filter(source_lease=source_lease)
+            .exclude(status=LeaseRenewal.STATUS_CANCELLED)
+            .values_list("start_date", "end_date")
+        )
+        if _overlaps(start_date, end_date, periods):
+            raise ValidationError("Renewal contractual period overlaps an existing lease period")
+
+        allowed = {
+            "renewal_number",
+            "start_date",
+            "end_date",
+            "rent_amount",
+            "security_deposit",
+            "notice_period_days",
+            "terms",
+            "agreement_reference",
+        }
+        unknown = set(data) - allowed
+        if unknown:
+            raise ValidationError(f"Unsupported renewal fields: {sorted(unknown)}")
+
+        renewal = LeaseRenewal(
+            workspace=workspace,
+            source_lease=source_lease,
+            renewal_number=renewal_number,
+            start_date=start_date,
+            end_date=end_date,
+            rent_amount=_decimal(data.get("rent_amount", source_lease.rent_amount), "Rent amount"),
+            security_deposit=_decimal(
+                data.get("security_deposit", source_lease.security_deposit),
+                "Security deposit",
+            ),
+            notice_period_days=data.get("notice_period_days", source_lease.notice_period_days),
+            terms=data.get("terms") if data.get("terms") is not None else dict(source_lease.terms or {}),
+            agreement_reference=data.get("agreement_reference", source_lease.agreement_reference),
+            created_by=user,
+        )
+        renewal.save()
+        return renewal
+
+
+def confirm_renewal(user, workspace, renewal_id):
+    """Confirm a draft renewal and materialize its immutable successor version atomically."""
+    _require_manager(user, workspace)
+
+    with transaction.atomic():
+        try:
+            renewal = (
+                LeaseRenewal.objects.select_for_update()
+                .select_related("source_lease")
+                .get(id=renewal_id, workspace=workspace)
+            )
+        except (LeaseRenewal.DoesNotExist, TypeError, ValueError):
+            raise ValidationError("Renewal not found")
+
+        if renewal.status == LeaseRenewal.STATUS_CONFIRMED:
+            return renewal
+        if renewal.status != LeaseRenewal.STATUS_DRAFT:
+            raise ValidationError("Only draft renewals can be confirmed")
+
+        source_lease = _get_locked_source_lease(renewal.source_lease_id, workspace)
+        _require_renewable_source(source_lease)
+        predecessor = (
+            LeaseContractVersion.objects.select_for_update()
+            .filter(lease=source_lease)
+            .order_by("-version_number")
+            .first()
+        )
+        if predecessor is None:
+            predecessor = _ensure_base_contract_version(source_lease)
+
+        successor = LeaseContractVersion.objects.create(
+            lease=source_lease,
+            workspace=workspace,
+            version_number=predecessor.version_number + 1,
+            predecessor=predecessor,
+            start_date=renewal.start_date,
+            end_date=renewal.end_date,
+            rent_amount=renewal.rent_amount,
+            security_deposit=renewal.security_deposit,
+            notice_period_days=renewal.notice_period_days,
+            terms=dict(renewal.terms or {}),
+            agreement_reference=renewal.agreement_reference,
+            created_by=renewal.created_by,
+        )
+
+        renewal.status = LeaseRenewal.STATUS_CONFIRMED
+        renewal.confirmed_at = timezone.now()
+        renewal.successor_version = successor
+        renewal.save(_allow_lifecycle_mutation=True)
+        append_lifecycle_event(
+            lease=source_lease,
+            event_type=LeaseLifecycleEvent.EVENT_RENEWED,
+            actor=user,
+            occurred_at=renewal.confirmed_at,
+            effective_date=successor.start_date,
+            metadata={
+                "renewal_id": renewal.id,
+                "renewal_number": renewal.renewal_number,
+                "successor_version_id": successor.id,
+                "successor_version_number": successor.version_number,
+            },
+            event_key=f"renewal:{renewal.id}",
+        )
+        return renewal
+
+
+def cancel_renewal(user, workspace, renewal_id):
+    """Cancel a draft renewal atomically and record the lifecycle transition."""
+    _require_manager(user, workspace)
+
+    with transaction.atomic():
+        try:
+            renewal = (
+                LeaseRenewal.objects.select_for_update()
+                .select_related("source_lease")
+                .get(id=renewal_id, workspace=workspace)
+            )
+        except (LeaseRenewal.DoesNotExist, TypeError, ValueError):
+            raise ValidationError("Renewal not found")
+
+        if renewal.status == LeaseRenewal.STATUS_CANCELLED:
+            return renewal
+        if renewal.status != LeaseRenewal.STATUS_DRAFT:
+            raise ValidationError("Only draft renewals can be cancelled")
+
+        source_lease = _get_locked_source_lease(renewal.source_lease_id, workspace)
+        previous_status = renewal.status
+        renewal.status = LeaseRenewal.STATUS_CANCELLED
+        renewal.cancelled_at = timezone.now()
+        renewal.save(_allow_lifecycle_mutation=True)
+        append_lifecycle_event(
+            lease=source_lease,
+            event_type=LeaseLifecycleEvent.EVENT_RENEWED,
+            actor=user,
+            occurred_at=renewal.cancelled_at,
+            effective_date=renewal.start_date,
+            metadata={
+                "renewal_id": renewal.id,
+                "renewal_number": renewal.renewal_number,
+                "from_status": previous_status,
+                "to_status": renewal.status,
+                "action": "cancelled",
+            },
+            event_key=f"renewal:{renewal.id}:cancelled",
+        )
+        return renewal

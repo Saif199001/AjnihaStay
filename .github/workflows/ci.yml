@@ -68,3 +68,14 @@ jobs:
 
       - name: Django system checks
         run: python manage.py check
+
+      - name: Django production security checks
+        run: >-
+          DEBUG=0
+          SECURE_SSL_REDIRECT=true
+          SESSION_COOKIE_SECURE=true
+          CSRF_COOKIE_SECURE=true
+          SECURE_HSTS_SECONDS=31536000
+          SECURE_HSTS_INCLUDE_SUBDOMAINS=true
+          SECURE_HSTS_PRELOAD=true
+          python manage.py check --deploy --fail-level WARNING

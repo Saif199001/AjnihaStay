@@ -76,13 +76,12 @@ class ChargeGenerationServiceTests(TestCase):
         self.assertEqual(self.occupancy.invoices.count(), 0)
         self.assertEqual(self.occupancy.charges.count(), 1)
 
-    def test_generation_does_not_advance_schedule(self):
-        original_date = self.schedule.next_run_date
+    def test_generation_advances_schedule(self):
         generate_charge_from_schedule(
             self.owner, self.workspace, self.schedule, date(2026, 10, 1)
         )
         self.schedule.refresh_from_db()
-        self.assertEqual(self.schedule.next_run_date, original_date)
+        self.assertEqual(self.schedule.next_run_date, date(2026, 11, 1))
 
     def test_inactive_schedule_is_rejected(self):
         self.schedule.active = False
@@ -121,7 +120,7 @@ class ChargeGenerationServiceTests(TestCase):
     def test_charge_after_check_out_is_rejected(self):
         self.occupancy.check_out_date = date(2026, 9, 30)
         self.occupancy.save()
-        with self.assertRaisesMessage(ValidationError, "Charge date cannot be after occupancy check-out date"):
+        with self.assertRaisesMessage(ValidationError, "Charge date cannot be on or after occupancy check-out date"):
             generate_charge_from_schedule(
                 self.owner, self.workspace, self.schedule, date(2026, 10, 1)
             )
