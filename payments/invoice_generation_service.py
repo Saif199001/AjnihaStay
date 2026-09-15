@@ -46,11 +46,15 @@ def generate_invoice_for_occupancy(
     billing_start,
     billing_end,
     due_date=None,
+    *,
+    ledger_event_type="invoice_created",
+    ledger_event_key=None,
+    ledger_metadata=None,
 ):
     """Generate one canonical invoice for an occupancy billing period.
 
     Invoice creation is delegated to the canonical financial transition
-    service, so recurring billing cannot bypass authorization or ledger truth.
+    service, with an explicit lifecycle event contract for recurring billing.
     """
     billing_start = _parse_date(billing_start, "billing start date")
     billing_end = _parse_date(billing_end, "billing end date")
@@ -58,6 +62,10 @@ def generate_invoice_for_occupancy(
 
     if billing_end <= billing_start:
         raise ValidationError("Billing end date must be after billing start date")
+    if ledger_event_type not in {"invoice_created", "recurring_invoice_generated"}:
+        raise ValidationError("Invalid invoice ledger event type")
+    if ledger_event_type == "recurring_invoice_generated" and not ledger_event_key:
+        raise ValidationError("Recurring invoice ledger event key is required")
 
     with transaction.atomic():
         occupancy = _resolve_occupancy(occupancy, workspace)
@@ -100,10 +108,12 @@ def generate_invoice_for_occupancy(
                         "rent_amount": occupancy.rent,
                         "charges_amount": charges_amount,
                         "due_date": due_date,
+                        "ledger_event_type": ledger_event_type,
+                        "ledger_event_key": ledger_event_key,
+                        "ledger_metadata": ledger_metadata or {},
                     },
                 )
         except IntegrityError:
-            # Concurrent generation is resolved by the DB period identity.
             invoice = Invoice.objects.get(
                 occupancy=occupancy,
                 billing_start=billing_start,
