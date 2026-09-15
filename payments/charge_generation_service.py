@@ -53,8 +53,6 @@ def generate_charge_from_schedule(user, workspace, schedule, charge_date=None):
         except BillingSchedule.DoesNotExist:
             raise ValidationError("Billing schedule not found")
 
-        # A committed occurrence is the durable retry/idempotency key.  A retry
-        # after the cursor was advanced must return the original occurrence.
         existing = Charge.objects.filter(
             billing_schedule=schedule,
             charge_date=charge_date,
@@ -72,8 +70,10 @@ def generate_charge_from_schedule(user, workspace, schedule, charge_date=None):
             raise ValidationError("Inactive occupancy cannot generate a charge")
         if charge_date < occupancy.check_in_date:
             raise ValidationError("Charge date cannot be before occupancy check-in date")
-        if occupancy.check_out_date and charge_date > occupancy.check_out_date:
-            raise ValidationError("Charge date cannot be after occupancy check-out date")
+        if occupancy.check_out_date and charge_date >= occupancy.check_out_date:
+            schedule.active = False
+            schedule.save(update_fields=["active", "updated_at"])
+            raise ValidationError("Charge date cannot be on or after occupancy check-out date")
         if charge_date != schedule.next_run_date:
             raise ValidationError("Charge date must match the billing schedule next run date")
 
@@ -94,7 +94,7 @@ def generate_charge_from_schedule(user, workspace, schedule, charge_date=None):
             schedule.frequency,
             schedule.anchor_day,
         )
-        if occupancy.check_out_date and schedule.next_run_date > occupancy.check_out_date:
+        if occupancy.check_out_date and schedule.next_run_date >= occupancy.check_out_date:
             schedule.active = False
         schedule.save(update_fields=["next_run_date", "active", "updated_at"])
         return charge
