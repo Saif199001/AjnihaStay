@@ -9,14 +9,7 @@ from tenant.models import Charge
 from .final_settlement import FinalSettlement
 from .late_fee_models import LateFee
 from .ledger_models import FinancialLedgerEntry
-from .models import (
-    AdvanceCredit,
-    AdvanceCreditApplication,
-    FinancialAdjustment,
-    Invoice,
-    Payment,
-    PaymentAllocation,
-)
+from .models import AdvanceCredit, AdvanceCreditApplication, FinancialAdjustment, Invoice, Payment, PaymentAllocation
 from .refund_models import PaymentRefund
 
 ZERO = Decimal("0.00")
@@ -29,11 +22,23 @@ def _finding(kind, event_type, event_key, detail, **extra):
     return result
 
 
+def _is_recurring_invoice(invoice):
+    return Charge.objects.filter(
+        occupancy_id=invoice.occupancy_id,
+        billing_schedule__isnull=False,
+        charge_date__gte=invoice.billing_start,
+        charge_date__lt=invoice.billing_end,
+    ).exists()
+
+
 def _expected_for_workspace(workspace):
     expected = []
 
     for invoice in Invoice.objects.filter(occupancy__tenant__workspace=workspace).select_related("occupancy"):
-        expected.append(("invoice_created", f"invoice:{invoice.pk}:created", invoice.total_amount, invoice.pk, _UNSET, invoice.occupancy_id))
+        if _is_recurring_invoice(invoice):
+            expected.append(("recurring_invoice_generated", f"recurring-invoice:{invoice.pk}:generated", invoice.total_amount, invoice.pk, _UNSET, invoice.occupancy_id))
+        else:
+            expected.append(("invoice_created", f"invoice:{invoice.pk}:created", invoice.total_amount, invoice.pk, _UNSET, invoice.occupancy_id))
 
     for payment in Payment.objects.filter(workspace=workspace).select_related("invoice__occupancy"):
         expected.append(("payment_recorded", f"payment:{payment.pk}:recorded", payment.amount, payment.invoice_id or _UNSET, payment.pk, payment.invoice.occupancy_id if payment.invoice_id else _UNSET))
@@ -78,6 +83,8 @@ def _source_exists(event):
     key = event.event_key
     try:
         if event.event_type == "invoice_created" and key.startswith("invoice:"):
+            return Invoice.objects.filter(pk=int(key.split(":")[1]), occupancy__tenant__workspace=event.workspace).exists()
+        if event.event_type == "recurring_invoice_generated" and key.startswith("recurring-invoice:"):
             return Invoice.objects.filter(pk=int(key.split(":")[1]), occupancy__tenant__workspace=event.workspace).exists()
         if event.event_type == "payment_recorded" and key.startswith("payment:"):
             return Payment.objects.filter(pk=int(key.split(":")[1]), workspace=event.workspace).exists()
