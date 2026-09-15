@@ -5,6 +5,7 @@ from django.db import transaction
 
 from payments.models import Invoice
 from unit.models import SubUnit, Unit
+from .authorization import require_mutation_permission
 from .charge_service import create_charge as create_charge_engine
 from .models import Charge, Occupancy, Tenant
 
@@ -23,6 +24,7 @@ def _billing_value(data, field_name, default, allowed_values):
 
 
 def create_tenant(user, workspace, data, files):
+    require_mutation_permission(user, workspace)
     if not data.get("full_name"):
         raise ValidationError("Full name required")
     if not data.get("phone"):
@@ -47,6 +49,7 @@ def create_tenant(user, workspace, data, files):
 
 
 def create_occupancy(user, workspace, data):
+    require_mutation_permission(user, workspace)
     with transaction.atomic():
         tenant_value = data.get("tenant")
         tenant_id = tenant_value.id if isinstance(tenant_value, Tenant) else tenant_value
@@ -125,13 +128,21 @@ def create_occupancy(user, workspace, data):
             deposit_paid=data.get("deposit_paid") or False,
         )
 
-        Invoice.objects.create(
-            occupancy=occupancy,
-            billing_start=data.get("check_in_date"),
-            billing_end=data.get("next_due_date"),
-            rent_amount=data.get("rent"),
-            charges_amount=Decimal(data.get("charges_amount") or 0),
-            due_date=data.get("next_due_date"),
+        # Initial invoice creation must use the canonical financial service so
+        # every invoice has the same authorization and immutable ledger path.
+        from payments.services import create_invoice
+
+        create_invoice(
+            user,
+            workspace,
+            {
+                "occupancy": occupancy.id,
+                "billing_start": data.get("check_in_date"),
+                "billing_end": data.get("next_due_date"),
+                "rent_amount": data.get("rent"),
+                "charges_amount": Decimal(data.get("charges_amount") or 0),
+                "due_date": data.get("next_due_date"),
+            },
         )
         return occupancy
 
