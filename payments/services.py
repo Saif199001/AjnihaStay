@@ -1,9 +1,7 @@
 from decimal import Decimal, InvalidOperation
-
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Sum
-
 from .adjustment_service import calculate_invoice_financial_position
 from .authorization import require_mutation_permission
 from .ledger_service import post_ledger_event
@@ -27,6 +25,18 @@ def create_invoice(user, workspace, data):
     if rent_amount < 0 or charges_amount < 0:
         raise ValidationError("Invoice amounts cannot be negative")
 
+    ledger_event_type = data.get("ledger_event_type", "invoice_created")
+    ledger_event_key = data.get("ledger_event_key")
+    ledger_metadata = data.get("ledger_metadata") or {}
+    allowed_ledger_event_types = {"invoice_created", "recurring_invoice_generated"}
+    if ledger_event_type not in allowed_ledger_event_types:
+        raise ValidationError("Invalid invoice ledger event type")
+    if ledger_event_type == "invoice_created":
+        ledger_event_key = ledger_event_key or None
+    else:
+        if not ledger_event_key:
+            raise ValidationError("Recurring invoice ledger event key is required")
+
     with transaction.atomic():
         invoice = Invoice.objects.create(
             occupancy=occupancy,
@@ -39,13 +49,13 @@ def create_invoice(user, workspace, data):
         post_ledger_event(
             user,
             workspace,
-            event_type="invoice_created",
-            event_key=f"invoice:{invoice.pk}:created",
+            event_type=ledger_event_type,
+            event_key=ledger_event_key or f"invoice:{invoice.pk}:created",
             occurred_at=invoice.created_at,
             amount=invoice.total_amount,
             invoice=invoice,
             occupancy=occupancy,
-            metadata={"invoice_number": invoice.invoice_number},
+            metadata={"invoice_number": invoice.invoice_number, **ledger_metadata},
         )
         return invoice
 
@@ -144,11 +154,7 @@ def record_payment(user, workspace, data):
             reference_id=data.get("reference_id"),
             notes=data.get("notes") or "",
         )
-        allocation = PaymentAllocation.objects.create(
-            payment=payment,
-            invoice=invoice,
-            amount=amount,
-        )
+        allocation = PaymentAllocation.objects.create(payment=payment, invoice=invoice, amount=amount)
 
         recalculate_invoice_state(invoice)
 
@@ -179,61 +185,3 @@ def record_payment(user, workspace, data):
 
 def create_payment(user, workspace, data):
     return record_payment(user, workspace, data)
-
-
-def _optional_positive_id(value, field_name):
-    if value in (None, ""):
-        return None
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        raise ValidationError(f"Invalid {field_name} ID")
-    if parsed <= 0:
-        raise ValidationError(f"Invalid {field_name} ID")
-    return parsed
-
-
-def get_payments(invoice_id, workspace):
-    invoice_id = _optional_positive_id(invoice_id, "invoice")
-    return Payment.objects.filter(
-        invoice_id=invoice_id,
-        invoice__occupancy__tenant__workspace=workspace,
-    ).select_related("invoice").order_by("-created_at")
-
-
-def calculate_final_settlement(occupancy_id, workspace):
-    with transaction.atomic():
-        try:
-            occupancy = Occupancy.objects.select_for_update().select_related(
-                "tenant", "unit"
-            ).get(
-                id=occupancy_id,
-                tenant__workspace=workspace,
-            )
-        except Occupancy.DoesNotExist:
-            raise ValidationError("Occupancy not found")
-
-        invoices = list(occupancy.invoices.select_for_update().order_by("id"))
-        total_rent = sum((invoice.rent_amount or Decimal("0") for invoice in invoices), Decimal("0"))
-        total_charges = sum((invoice.charges_amount or Decimal("0") for invoice in invoices), Decimal("0"))
-        total_amount = total_rent + total_charges
-        total_paid = sum(
-            (calculate_invoice_financial_position(invoice)["settlement"] for invoice in invoices),
-            Decimal("0"),
-        )
-        total_due = sum(
-            (calculate_invoice_financial_position(invoice)["outstanding"] for invoice in invoices),
-            Decimal("0"),
-        )
-        security_deposit = occupancy.security_deposit or Decimal("0")
-
-        return {
-            "tenant": occupancy.tenant.full_name,
-            "unit": occupancy.unit.unit_number,
-            "total_rent": total_rent,
-            "total_charges": total_charges,
-            "total_paid": total_paid,
-            "total_due": total_due,
-            "security_deposit": security_deposit,
-            "final_balance": total_due - security_deposit,
-        }
