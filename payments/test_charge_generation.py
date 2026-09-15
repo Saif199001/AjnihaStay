@@ -5,8 +5,7 @@ from django.core.exceptions import ValidationError
 from django.test import TestCase
 
 from accounts.models import User
-from properties.models import Property
-from tenant.models import Occupancy, Tenant
+from properties.models import Occupancy, Tenant
 from unit.models import Unit
 from workspaces.models import Membership, Workspace
 
@@ -120,7 +119,7 @@ class ChargeGenerationServiceTests(TestCase):
     def test_charge_after_check_out_is_rejected(self):
         self.occupancy.check_out_date = date(2026, 9, 30)
         self.occupancy.save()
-        with self.assertRaisesMessage(ValidationError, "Charge date cannot be after occupancy check-out date"):
+        with self.assertRaisesMessage(ValidationError, "Charge date cannot be on or after occupancy check-out date"):
             generate_charge_from_schedule(
                 self.owner, self.workspace, self.schedule, date(2026, 10, 1)
             )
