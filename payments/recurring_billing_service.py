@@ -13,12 +13,7 @@ DEFAULT_MAX_CATCH_UP = 12
 MAX_CATCH_UP = 100
 
 
-def generate_recurring_billing_occurrence(
-    user,
-    workspace,
-    schedule,
-    occurrence_date=None,
-):
+def generate_recurring_billing_occurrence(user, workspace, schedule, occurrence_date=None):
     """Atomically generate the charge and invoice for one recurring occurrence."""
     require_mutation_permission(user, workspace)
     with transaction.atomic():
@@ -28,9 +23,9 @@ def generate_recurring_billing_occurrence(
         except (TypeError, ValueError):
             raise ValidationError("Billing schedule not found")
 
-        locked = BillingSchedule.objects.select_for_update().select_related(
-            "occupancy__tenant"
-        ).get(id=schedule_id, occupancy__tenant__workspace=workspace)
+        locked = BillingSchedule.objects.select_for_update().select_related("occupancy__tenant").get(
+            id=schedule_id, occupancy__tenant__workspace=workspace
+        )
 
         start = occurrence_date or locked.next_run_date
         if isinstance(start, str):
@@ -43,13 +38,7 @@ def generate_recurring_billing_occurrence(
         if locked.occupancy.check_out_date:
             period_end = min(period_end, locked.occupancy.check_out_date)
 
-        charge = generate_charge_from_schedule(
-            user,
-            workspace,
-            locked,
-            charge_date=start,
-        )
-
+        charge = generate_charge_from_schedule(user, workspace, locked, charge_date=start)
         if period_end <= start:
             raise ValidationError("Recurring billing period has no valid end date")
 
@@ -61,7 +50,6 @@ def generate_recurring_billing_occurrence(
             billing_end=period_end,
             due_date=start,
             ledger_event_type="recurring_invoice_generated",
-            ledger_event_key=f"recurring-invoice:{charge.pk}:generated",
             ledger_metadata={
                 "billing_schedule_id": locked.pk,
                 "billing_date": str(start),
@@ -77,19 +65,8 @@ def generate_recurring_billing_occurrence(
         }
 
 
-def generate_due_recurring_billing(
-    user,
-    workspace,
-    schedule,
-    as_of_date=None,
-    catch_up=True,
-    max_occurrences=DEFAULT_MAX_CATCH_UP,
-):
-    """Process due recurring occurrences without requiring a worker.
-
-    Catch-up is explicit and bounded. Each occurrence is independently
-    transactional; a failed occurrence never advances its schedule cursor.
-    """
+def generate_due_recurring_billing(user, workspace, schedule, as_of_date=None, catch_up=True, max_occurrences=DEFAULT_MAX_CATCH_UP):
+    """Process due recurring occurrences with explicit bounded catch-up."""
     require_mutation_permission(user, workspace)
     as_of_date = as_of_date or date.today()
     if isinstance(as_of_date, str):
@@ -114,15 +91,7 @@ def generate_due_recurring_billing(
         ).select_related("occupancy").first()
         if not schedule_row or schedule_row.next_run_date > as_of_date:
             break
-
-        results.append(
-            generate_recurring_billing_occurrence(
-                user,
-                workspace,
-                schedule_row,
-            )
-        )
+        results.append(generate_recurring_billing_occurrence(user, workspace, schedule_row))
         if not catch_up:
             break
-
     return results
