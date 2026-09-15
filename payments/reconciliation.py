@@ -103,7 +103,16 @@ def _source_exists(event):
                 return False
             return model.objects.filter(pk=int(key.split(":")[1]), **{workspace_field: event.workspace}).exists()
         if event.event_type.startswith("refund_") and key.startswith("refund:"):
-            return PaymentRefund.objects.filter(pk=int(key.split(":")[1]), workspace=event.workspace).exists()
+            refund = PaymentRefund.objects.filter(pk=int(key.split(":")[1]), workspace=event.workspace).first()
+            if refund is None:
+                return False
+            expected_status = {
+                "refund_requested": "requested",
+                "refund_processing": "processing",
+                "refund_succeeded": "succeeded",
+                "refund_failed": "failed",
+            }.get(event.event_type)
+            return expected_status == refund.status
     except (ValueError, IndexError, TypeError):
         return False
     return False
@@ -137,6 +146,8 @@ def ledger_reconciliation_report(*, workspace):
 
     for event in events:
         if not _source_exists(event):
-            findings.append(_finding("orphan_event", event.event_type, event.event_key, "Ledger event has no matching canonical source in this workspace."))
+            kind = "relationship_mismatch" if event.event_type.startswith("refund_") else "orphan_event"
+            detail = "Ledger refund event status does not match the canonical refund state." if kind == "relationship_mismatch" else "Ledger event has no matching canonical source in this workspace."
+            findings.append(_finding(kind, event.event_type, event.event_key, detail))
 
     return {"workspace_id": workspace.pk, "ok": not findings, "finding_count": len(findings), "findings": findings}
