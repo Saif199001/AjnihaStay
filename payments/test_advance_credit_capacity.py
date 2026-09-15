@@ -93,7 +93,7 @@ class AdvanceCreditPaymentCapacityTests(TestCase):
         )
 
         allocation = allocate_payment(
-            None,
+            self.owner,
             self.workspace,
             self.payment,
             [{"invoice": self.invoice.id, "amount": "6000"}],
@@ -106,7 +106,7 @@ class AdvanceCreditPaymentCapacityTests(TestCase):
             "Allocation exceeds payment amount",
         ):
             allocate_payment(
-                None,
+                self.owner,
                 self.workspace,
                 self.payment,
                 [{"invoice": self.invoice.id, "amount": "1"}],

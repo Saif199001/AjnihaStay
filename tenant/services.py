@@ -5,6 +5,7 @@ from django.db import transaction
 
 from payments.models import Invoice
 from unit.models import SubUnit, Unit
+from .charge_service import create_charge as create_charge_engine
 from .models import Charge, Occupancy, Tenant
 
 
@@ -140,36 +141,16 @@ def get_tenants(workspace):
 
 
 def create_charge(user, workspace, data):
-    with transaction.atomic():
-        occupancy_value = data.get("occupancy")
-        if isinstance(occupancy_value, Occupancy):
-            occupancy_id = occupancy_value.id
-        else:
-            occupancy_id = occupancy_value
-
-        try:
-            occupancy = Occupancy.objects.select_related("tenant").get(
-                id=occupancy_id, tenant__workspace=workspace
-            )
-        except (Occupancy.DoesNotExist, TypeError, ValueError):
-            raise ValidationError("Occupancy not found")
-
-        invoice = occupancy.invoices.select_for_update().filter(status="pending").last()
-        if not invoice:
-            raise ValidationError("No active invoice found")
-
-        charge = Charge.objects.create(
-            occupancy=occupancy,
-            charge_type=data.get("charge_type"),
-            description=data.get("description"),
-            amount=data.get("amount"),
-            charge_date=data.get("charge_date"),
-        )
-
-        invoice.charges_amount += charge.amount
-        invoice.total_amount = invoice.rent_amount + invoice.charges_amount
-        invoice.save()
-        return charge
+    """Compatibility wrapper around the canonical charge engine."""
+    return create_charge_engine(
+        user,
+        workspace,
+        occupancy=data.get("occupancy"),
+        charge_type=data.get("charge_type"),
+        description=data.get("description"),
+        amount=data.get("amount"),
+        charge_date=data.get("charge_date"),
+    )
 
 
 def _optional_positive_id(value, field_name):

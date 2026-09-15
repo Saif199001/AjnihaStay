@@ -1,7 +1,9 @@
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 
 from tenant.models import Occupancy
 
+from .authorization import require_mutation_permission
 from .billing_models import BillingSchedule
 
 
@@ -23,17 +25,27 @@ def _get_occupancy(occupancy_value, workspace):
         raise ValidationError("Occupancy not found")
 
 
+def _save_schedule(schedule):
+    try:
+        with transaction.atomic():
+            schedule.save()
+    except IntegrityError:
+        raise ValidationError("An active billing schedule already exists for this occupancy")
+    return schedule
+
+
 def create_billing_schedule(user, workspace, data):
+    require_mutation_permission(user, workspace)
     occupancy = _get_occupancy(data.get("occupancy"), workspace)
     schedule = BillingSchedule(
         occupancy=occupancy,
         frequency=data.get("frequency"),
         amount=data.get("amount"),
         next_run_date=data.get("next_run_date"),
+        anchor_day=data.get("anchor_day"),
         active=data.get("active", True),
     )
-    schedule.save()
-    return schedule
+    return _save_schedule(schedule)
 
 
 def get_billing_schedules(workspace):
@@ -53,12 +65,12 @@ def get_billing_schedule(schedule_id, workspace):
 
 
 def update_billing_schedule(user, workspace, schedule_id, data):
+    require_mutation_permission(user, workspace)
     schedule = get_billing_schedule(schedule_id, workspace)
     if "occupancy" in data:
         occupancy = _get_occupancy(data.get("occupancy"), workspace)
         schedule.occupancy = occupancy
-    for field in ("frequency", "amount", "next_run_date", "active"):
+    for field in ("frequency", "amount", "next_run_date", "anchor_day", "active"):
         if field in data:
             setattr(schedule, field, data[field])
-    schedule.save()
-    return schedule
+    return _save_schedule(schedule)

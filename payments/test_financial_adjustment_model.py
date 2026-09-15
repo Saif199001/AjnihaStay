@@ -129,6 +129,22 @@ class FinancialAdjustmentModelTests(TestCase):
         with self.assertRaisesMessage(ValidationError, "Adjustment reason is required"):
             adjustment.full_clean()
 
+    def test_database_rejects_whitespace_only_reason(self):
+        with self.assertRaises(IntegrityError):
+            FinancialAdjustment.objects.bulk_create(
+                [
+                    FinancialAdjustment(
+                        workspace=self.workspace,
+                        invoice=self.invoice,
+                        adjustment_type=FinancialAdjustment.TYPE_CREDIT,
+                        amount=Decimal("500.00"),
+                        reason="   ",
+                        idempotency_key="ADJ-DB-REASON",
+                        created_by=self.owner,
+                    )
+                ]
+            )
+
     def test_cross_workspace_invoice_is_rejected(self):
         other_owner = User.objects.create_user("adjustment-other@example.com", "StrongPass123!")
         other_workspace = Workspace.objects.create(

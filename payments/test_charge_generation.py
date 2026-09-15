@@ -76,13 +76,12 @@ class ChargeGenerationServiceTests(TestCase):
         self.assertEqual(self.occupancy.invoices.count(), 0)
         self.assertEqual(self.occupancy.charges.count(), 1)
 
-    def test_generation_does_not_advance_schedule(self):
-        original_date = self.schedule.next_run_date
+    def test_generation_advances_schedule(self):
         generate_charge_from_schedule(
             self.owner, self.workspace, self.schedule, date(2026, 10, 1)
         )
         self.schedule.refresh_from_db()
-        self.assertEqual(self.schedule.next_run_date, original_date)
+        self.assertEqual(self.schedule.next_run_date, date(2026, 11, 1))
 
     def test_inactive_schedule_is_rejected(self):
         self.schedule.active = False

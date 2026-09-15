@@ -31,7 +31,7 @@ class PaymentAllocationServiceTests(TestCase):
         self.payment = Payment.objects.create(workspace=self.workspace, invoice=None, amount=Decimal("10000.00"), payment_method="bank", payment_date=date(2026, 9, 6))
 
     def test_allocates_one_payment_across_multiple_invoices(self):
-        allocations = allocate_payment(None, self.workspace, self.payment, [{"invoice": self.invoice_a.id, "amount": "6000"}, {"invoice": self.invoice_b.id, "amount": "4000"}])
+        allocations = allocate_payment(self.owner, self.workspace, self.payment, [{"invoice": self.invoice_a.id, "amount": "6000"}, {"invoice": self.invoice_b.id, "amount": "4000"}])
         self.assertEqual(len(allocations), 2)
         self.assertEqual(self.payment.allocations.aggregate(total=Sum("amount"))["total"], Decimal("10000"))
         self.assertEqual(Invoice.objects.get(id=self.invoice_a.id).status, "paid")
@@ -39,22 +39,22 @@ class PaymentAllocationServiceTests(TestCase):
         self.assertEqual(self.payment.unallocated_amount, Decimal("0"))
 
     def test_accepts_invoice_instance(self):
-        allocation = allocate_payment(None, self.workspace, self.payment, [{"invoice": self.invoice_a, "amount": "1000"}])[0]
+        allocation = allocate_payment(self.owner, self.workspace, self.payment, [{"invoice": self.invoice_a, "amount": "1000"}])[0]
         self.assertEqual(allocation.invoice_id, self.invoice_a.id)
 
     def test_rejects_payment_over_allocation(self):
         with self.assertRaisesMessage(ValidationError, "Allocation exceeds payment amount"):
-            allocate_payment(None, self.workspace, self.payment, [{"invoice": self.invoice_a.id, "amount": "10001"}])
+            allocate_payment(self.owner, self.workspace, self.payment, [{"invoice": self.invoice_a.id, "amount": "10001"}])
         self.assertEqual(PaymentAllocation.objects.count(), 0)
 
     def test_rejects_invoice_over_allocation(self):
         with self.assertRaisesMessage(ValidationError, "Allocation exceeds invoice remaining amount"):
-            allocate_payment(None, self.workspace, self.payment, [{"invoice": self.invoice_a.id, "amount": "6001"}])
+            allocate_payment(self.owner, self.workspace, self.payment, [{"invoice": self.invoice_a.id, "amount": "6001"}])
         self.assertEqual(PaymentAllocation.objects.count(), 0)
 
     def test_rejects_duplicate_invoice_entries(self):
         with self.assertRaisesMessage(ValidationError, "An invoice may only appear once in an allocation request"):
-            allocate_payment(None, self.workspace, self.payment, [{"invoice": self.invoice_a.id, "amount": "1000"}, {"invoice": self.invoice_a.id, "amount": "1000"}])
+            allocate_payment(self.owner, self.workspace, self.payment, [{"invoice": self.invoice_a.id, "amount": "1000"}, {"invoice": self.invoice_a.id, "amount": "1000"}])
         self.assertEqual(PaymentAllocation.objects.count(), 0)
 
     def test_rejects_cross_workspace_invoice(self):
@@ -64,60 +64,60 @@ class PaymentAllocationServiceTests(TestCase):
         other_occupancy = Occupancy.objects.create(tenant=other_tenant, unit=other_unit, allotted_by=self.other_owner, rent=Decimal("1000.00"), check_in_date=date(2026, 1, 1), next_due_date=date(2026, 2, 1), billing_type="arrears", billing_cycle="monthly")
         other_invoice = Invoice.objects.create(occupancy=other_occupancy, billing_start=date(2026, 1, 1), billing_end=date(2026, 1, 31), rent_amount=Decimal("1000.00"), charges_amount=Decimal("0.00"), due_date=date(2026, 2, 5))
         with self.assertRaisesMessage(ValidationError, "One or more invoices were not found"):
-            allocate_payment(None, self.workspace, self.payment, [{"invoice": other_invoice.id, "amount": "1000"}])
+            allocate_payment(self.owner, self.workspace, self.payment, [{"invoice": other_invoice.id, "amount": "1000"}])
         self.assertEqual(PaymentAllocation.objects.count(), 0)
 
     def test_rejects_cross_workspace_payment(self):
         other_payment = Payment.objects.create(workspace=self.other_workspace, invoice=None, amount=Decimal("1000"), payment_method="bank", payment_date=date(2026, 9, 6))
         with self.assertRaisesMessage(ValidationError, "Payment not found"):
-            allocate_payment(None, self.workspace, other_payment, [{"invoice": self.invoice_a.id, "amount": "1000"}])
+            allocate_payment(self.owner, self.workspace, other_payment, [{"invoice": self.invoice_a.id, "amount": "1000"}])
         self.assertEqual(PaymentAllocation.objects.count(), 0)
 
     def test_rejects_empty_and_malformed_requests(self):
         with self.assertRaisesMessage(ValidationError, "At least one invoice allocation is required"):
-            allocate_payment(None, self.workspace, self.payment, [])
+            allocate_payment(self.owner, self.workspace, self.payment, [])
         with self.assertRaisesMessage(ValidationError, "Invalid allocation entry"):
-            allocate_payment(None, self.workspace, self.payment, [None])
+            allocate_payment(self.owner, self.workspace, self.payment, [None])
 
     def test_rejects_invalid_ids_and_amounts(self):
         for invoice_id in (None, 0, -1, "bad"):
             with self.subTest(invoice_id=invoice_id), self.assertRaises(ValidationError):
-                allocate_payment(None, self.workspace, self.payment, [{"invoice": invoice_id, "amount": "1000"}])
+                allocate_payment(self.owner, self.workspace, self.payment, [{"invoice": invoice_id, "amount": "1000"}])
         for amount in ("0", "-1", "bad", "NaN", "Infinity"):
             with self.subTest(amount=amount), self.assertRaises(ValidationError):
-                allocate_payment(None, self.workspace, self.payment, [{"invoice": self.invoice_a.id, "amount": amount}])
+                allocate_payment(self.owner, self.workspace, self.payment, [{"invoice": self.invoice_a.id, "amount": amount}])
 
     def test_rejects_missing_payment_and_invoice(self):
         with self.assertRaisesMessage(ValidationError, "Payment not found"):
-            allocate_payment(None, self.workspace, 999999, [{"invoice": self.invoice_a.id, "amount": "1000"}])
+            allocate_payment(self.owner, self.workspace, 999999, [{"invoice": self.invoice_a.id, "amount": "1000"}])
         with self.assertRaisesMessage(ValidationError, "One or more invoices were not found"):
-            allocate_payment(None, self.workspace, self.payment, [{"invoice": 999999, "amount": "1000"}])
+            allocate_payment(self.owner, self.workspace, self.payment, [{"invoice": 999999, "amount": "1000"}])
 
     def test_payment_capacity_accounts_for_existing_allocations(self):
-        allocate_payment(None, self.workspace, self.payment, [{"invoice": self.invoice_a.id, "amount": "6000"}])
+        allocate_payment(self.owner, self.workspace, self.payment, [{"invoice": self.invoice_a.id, "amount": "6000"}])
         with self.assertRaisesMessage(ValidationError, "Allocation exceeds payment amount"):
-            allocate_payment(None, self.workspace, self.payment, [{"invoice": self.invoice_b.id, "amount": "4001"}])
+            allocate_payment(self.owner, self.workspace, self.payment, [{"invoice": self.invoice_b.id, "amount": "4001"}])
         self.assertEqual(self.payment.unallocated_amount, Decimal("4000"))
         self.assertEqual(PaymentAllocation.objects.count(), 1)
 
     def test_invoice_capacity_is_enforced_across_payments(self):
-        allocate_payment(None, self.workspace, self.payment, [{"invoice": self.invoice_a.id, "amount": "6000"}])
+        allocate_payment(self.owner, self.workspace, self.payment, [{"invoice": self.invoice_a.id, "amount": "6000"}])
         second = Payment.objects.create(workspace=self.workspace, invoice=None, amount=Decimal("1000"), payment_method="cash", payment_date=date(2026, 9, 6))
         with self.assertRaisesMessage(ValidationError, "Allocation exceeds invoice remaining amount"):
-            allocate_payment(None, self.workspace, second, [{"invoice": self.invoice_a.id, "amount": "1"}])
+            allocate_payment(self.owner, self.workspace, second, [{"invoice": self.invoice_a.id, "amount": "1"}])
         self.assertEqual(self.invoice_a.allocations.aggregate(total=Sum("amount"))["total"], Decimal("6000"))
 
     def test_incremental_allocation_reaches_exact_boundaries(self):
-        allocate_payment(None, self.workspace, self.payment, [{"invoice": self.invoice_a.id, "amount": "2500"}])
-        allocate_payment(None, self.workspace, self.payment, [{"invoice": self.invoice_a, "amount": "3500"}])
+        allocate_payment(self.owner, self.workspace, self.payment, [{"invoice": self.invoice_a.id, "amount": "2500"}])
+        allocate_payment(self.owner, self.workspace, self.payment, [{"invoice": self.invoice_a, "amount": "3500"}])
         self.invoice_a.refresh_from_db()
         self.assertEqual(self.invoice_a.paid_amount, Decimal("6000"))
         self.assertEqual(self.invoice_a.status, "paid")
-        allocate_payment(None, self.workspace, self.payment, [{"invoice": self.invoice_b.id, "amount": "4000"}])
+        allocate_payment(self.owner, self.workspace, self.payment, [{"invoice": self.invoice_b.id, "amount": "4000"}])
         self.assertEqual(self.payment.unallocated_amount, Decimal("0"))
 
     def test_multi_invoice_partial_allocation_updates_each_invoice(self):
-        allocate_payment(None, self.workspace, self.payment, [{"invoice": self.invoice_a.id, "amount": "3000"}, {"invoice": self.invoice_b.id, "amount": "2000"}])
+        allocate_payment(self.owner, self.workspace, self.payment, [{"invoice": self.invoice_a.id, "amount": "3000"}, {"invoice": self.invoice_b.id, "amount": "2000"}])
         self.invoice_a.refresh_from_db()
         self.invoice_b.refresh_from_db()
         self.assertEqual(self.invoice_a.paid_amount, Decimal("3000"))
@@ -128,14 +128,14 @@ class PaymentAllocationServiceTests(TestCase):
 
     def test_rejected_multi_invoice_request_is_atomic(self):
         with self.assertRaises(ValidationError):
-            allocate_payment(None, self.workspace, self.payment, [{"invoice": self.invoice_a.id, "amount": "1000"}, {"invoice": 999999, "amount": "1000"}])
+            allocate_payment(self.owner, self.workspace, self.payment, [{"invoice": self.invoice_a.id, "amount": "1000"}, {"invoice": 999999, "amount": "1000"}])
         self.assertEqual(PaymentAllocation.objects.count(), 0)
         self.invoice_a.refresh_from_db()
         self.assertEqual(self.invoice_a.paid_amount, Decimal("0"))
         self.assertEqual(self.invoice_a.status, "pending")
 
     def test_allocation_rows_are_immutable_after_creation(self):
-        allocation = allocate_payment(None, self.workspace, self.payment, [{"invoice": self.invoice_a.id, "amount": "1000"}])[0]
+        allocation = allocate_payment(self.owner, self.workspace, self.payment, [{"invoice": self.invoice_a.id, "amount": "1000"}])[0]
         allocation.amount = Decimal("2000")
         with self.assertRaisesMessage(ValidationError, "Payment allocation payment, invoice and amount cannot be changed after creation"):
             allocation.save()
@@ -143,13 +143,13 @@ class PaymentAllocationServiceTests(TestCase):
         self.assertEqual(allocation.amount, Decimal("1000"))
 
     def test_payment_amount_and_invoice_remain_unchanged(self):
-        allocate_payment(None, self.workspace, self.payment, [{"invoice": self.invoice_a.id, "amount": "1000"}])
+        allocate_payment(self.owner, self.workspace, self.payment, [{"invoice": self.invoice_a.id, "amount": "1000"}])
         self.payment.refresh_from_db()
         self.assertEqual(self.payment.amount, Decimal("10000"))
         self.assertIsNone(self.payment.invoice_id)
 
     def test_invoice_terms_cannot_change_after_allocation(self):
-        allocate_payment(None, self.workspace, self.payment, [{"invoice": self.invoice_a.id, "amount": "1000"}])
+        allocate_payment(self.owner, self.workspace, self.payment, [{"invoice": self.invoice_a.id, "amount": "1000"}])
         self.invoice_a.refresh_from_db()
         self.invoice_a.rent_amount = Decimal("7000.00")
         with self.assertRaisesMessage(
