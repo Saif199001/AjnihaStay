@@ -174,14 +174,14 @@ class P011CLedgerIntegrationTests(TestCase):
             occupancy=self.occupancy,
             frequency="monthly",
             amount=Decimal("10000.00"),
-            next_run_date=date(2026, 9, 30),
+            next_run_date=date(2026, 9, 29),
             active=True,
         )
         invoice = generate_invoice_from_schedule(
             self.owner,
             self.workspace,
             schedule,
-            billing_date=date(2026, 9, 30),
+            billing_date=date(2026, 9, 29),
         )
         entry = self.ledger(f"recurring-invoice:{invoice.pk}:generated")
         self.assertEqual(entry.event_type, "recurring_invoice_generated")
