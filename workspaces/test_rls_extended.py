@@ -16,6 +16,9 @@ NEW_WORKSPACE_TABLES = (
     "leasing_leasenotice",
     "leasing_leaserenewal",
     "leasing_leasecontractversion",
+    "payments_financialadjustment",
+    "payments_finalsettlement",
+    "payments_financialledgerentry",
 )
 
 
