@@ -13,7 +13,7 @@ DEFAULT_MAX_CATCH_UP = 12
 MAX_CATCH_UP = 100
 
 
-def generate_recurring_billing_occurrence(user, workspace, schedule, occurrence_date=None):
+def generate_recurring_billing_occurrence(user, workspace, schedule, occurrence_date=None, due_date=None):
     """Atomically generate the charge and invoice for one recurring occurrence."""
     require_mutation_permission(user, workspace)
     with transaction.atomic():
@@ -33,6 +33,11 @@ def generate_recurring_billing_occurrence(user, workspace, schedule, occurrence_
                 start = date.fromisoformat(start)
             except ValueError:
                 raise ValidationError("Invalid occurrence date")
+        if due_date is not None and isinstance(due_date, str):
+            try:
+                due_date = date.fromisoformat(due_date)
+            except ValueError:
+                raise ValidationError("Invalid due date")
 
         period_end = _next_run_date(start, locked.frequency, locked.anchor_day)
         if locked.occupancy.check_out_date:
@@ -41,6 +46,8 @@ def generate_recurring_billing_occurrence(user, workspace, schedule, occurrence_
         charge = generate_charge_from_schedule(user, workspace, locked, charge_date=start)
         if period_end <= start:
             raise ValidationError("Recurring billing period has no valid end date")
+        if due_date is not None and due_date < start:
+            raise ValidationError("Recurring invoice due date cannot be before billing date")
 
         invoice, created = generate_invoice_for_occupancy(
             user,
@@ -48,7 +55,7 @@ def generate_recurring_billing_occurrence(user, workspace, schedule, occurrence_
             locked.occupancy,
             billing_start=start,
             billing_end=period_end,
-            due_date=start,
+            due_date=due_date or start,
             ledger_event_type="recurring_invoice_generated",
             ledger_metadata={
                 "billing_schedule_id": locked.pk,
