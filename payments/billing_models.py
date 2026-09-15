@@ -6,10 +6,7 @@ from django.db.models import Q
 class BillingSchedule(models.Model):
     """Durable recurring-billing configuration for an occupancy."""
 
-    FREQUENCY_CHOICES = (
-        ("daily", "Daily"),
-        ("monthly", "Monthly"),
-    )
+    FREQUENCY_CHOICES = (("daily", "Daily"), ("monthly", "Monthly"))
 
     occupancy = models.ForeignKey(
         "tenant.Occupancy",
@@ -36,7 +33,7 @@ class BillingSchedule(models.Model):
             raise ValidationError("Daily billing schedules cannot have a monthly anchor day")
         if self.next_run_date < self.occupancy.check_in_date:
             raise ValidationError("Next run date cannot be before occupancy check-in date")
-        if self.occupancy_id and self.occupancy.check_out_date and self.next_run_date > self.occupancy.check_out_date:
+        if self.occupancy_id and self.occupancy.check_out_date and self.next_run_date >= self.occupancy.check_out_date:
             self.active = False
         if self.occupancy_id and not self.occupancy.is_active and self.active:
             raise ValidationError("Inactive occupancy cannot have an active billing schedule")
