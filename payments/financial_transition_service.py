@@ -1,9 +1,8 @@
 """Canonical financial mutation boundary for AjnihaStay.
 
 Public domain services remain backward-compatible entry points, but new financial
-commands should enter through this module. The module deliberately delegates to
-existing transactional implementations until each bounded transition is migrated
-into this service in later P0 milestones.
+commands should enter through this module. Recurring billing deliberately routes
+through the single atomic recurring-billing orchestration boundary.
 """
 
 from enum import Enum
@@ -67,8 +66,14 @@ def execute_transition(transition, *, user, workspace, **payload):
         from .charge_generation_service import generate_charge_from_schedule
         return generate_charge_from_schedule(user, workspace, payload["schedule"], payload["charge_date"])
     if transition is FinancialTransition.GENERATE_RECURRING_INVOICE:
-        from .recurring_invoice_service import generate_invoice_from_schedule
-        return generate_invoice_from_schedule(user, workspace, payload["schedule"], payload.get("billing_date"), payload.get("due_date"))
+        from .recurring_billing_service import generate_recurring_billing_occurrence
+        result = generate_recurring_billing_occurrence(
+            user,
+            workspace,
+            payload["schedule"],
+            occurrence_date=payload.get("billing_date"),
+        )
+        return result["invoice"]
     if transition is FinancialTransition.REFRESH_INVOICE_LIFECYCLE:
         from .invoice_lifecycle_service import refresh_invoice_lifecycle
         return refresh_invoice_lifecycle(payload["invoice_id"], workspace, as_of=payload.get("as_of"))
