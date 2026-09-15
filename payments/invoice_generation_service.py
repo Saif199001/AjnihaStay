@@ -1,13 +1,14 @@
 from datetime import date
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Sum
 
 from tenant.models import Charge, Occupancy
 
 from .models import Invoice
+from .services import create_invoice
 
 
 def _parse_date(value, field_name):
@@ -48,11 +49,9 @@ def generate_invoice_for_occupancy(
 ):
     """Generate one canonical invoice for an occupancy billing period.
 
-    This service owns invoice creation only. It never creates payments,
-    allocations, or advances recurring-billing cursors.
+    Invoice creation is delegated to the canonical financial transition
+    service, so recurring billing cannot bypass authorization or ledger truth.
     """
-    del user  # Kept in the contract for future audit attribution.
-
     billing_start = _parse_date(billing_start, "billing start date")
     billing_end = _parse_date(billing_end, "billing end date")
     due_date = _parse_date(due_date or billing_start, "due date")
@@ -89,12 +88,27 @@ def generate_invoice_for_occupancy(
             or Decimal("0")
         )
 
-        invoice = Invoice.objects.create(
-            occupancy=occupancy,
-            billing_start=billing_start,
-            billing_end=billing_end,
-            rent_amount=occupancy.rent,
-            charges_amount=charges_amount,
-            due_date=due_date,
-        )
+        try:
+            with transaction.atomic():
+                invoice = create_invoice(
+                    user,
+                    workspace,
+                    {
+                        "occupancy": occupancy.id,
+                        "billing_start": billing_start,
+                        "billing_end": billing_end,
+                        "rent_amount": occupancy.rent,
+                        "charges_amount": charges_amount,
+                        "due_date": due_date,
+                    },
+                )
+        except IntegrityError:
+            # Concurrent generation is resolved by the DB period identity.
+            invoice = Invoice.objects.get(
+                occupancy=occupancy,
+                billing_start=billing_start,
+                billing_end=billing_end,
+            )
+            return invoice, False
+
         return invoice, True
