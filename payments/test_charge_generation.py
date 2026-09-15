@@ -5,7 +5,8 @@ from django.core.exceptions import ValidationError
 from django.test import TestCase
 
 from accounts.models import User
-from properties.models import Occupancy, Tenant
+from properties.models import Property
+from tenant.models import Occupancy, Tenant
 from unit.models import Unit
 from workspaces.models import Membership, Workspace
 
