@@ -1,5 +1,5 @@
 from django.db import connection
-from django.test import SimpleTestCase
+from django.test import TestCase
 
 
 NEW_WORKSPACE_TABLES = (
@@ -19,7 +19,7 @@ NEW_WORKSPACE_TABLES = (
 )
 
 
-class WorkspaceRlsExtendedTests(SimpleTestCase):
+class WorkspaceRlsExtendedTests(TestCase):
     def test_new_workspace_tables_have_fail_closed_policies(self):
         if connection.vendor != "postgresql":
             self.skipTest("Workspace RLS is PostgreSQL-specific")
@@ -31,8 +31,8 @@ class WorkspaceRlsExtendedTests(SimpleTestCase):
                     SELECT policyname, qual, with_check
                     FROM pg_policies
                     WHERE schemaname = current_schema() AND tablename = %s
-                    """
-                    , [table]
+                    """,
+                    [table],
                 )
                 policies = cursor.fetchall()
 
