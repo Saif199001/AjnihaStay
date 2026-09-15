@@ -58,6 +58,7 @@ class Invoice(models.Model):
             models.CheckConstraint(condition=Q(paid_amount__gte=0), name="invoice_paid_non_negative"),
             models.CheckConstraint(condition=Q(total_amount__isnull=True) | Q(total_amount__gte=0), name="invoice_total_non_negative"),
             models.CheckConstraint(condition=Q(total_amount__isnull=True) | Q(paid_amount__lte=F("total_amount")), name="invoice_paid_lte_total"),
+            models.UniqueConstraint(fields=["occupancy", "billing_start", "billing_end"], name="invoice_occupancy_billing_period_uniq"),
         ]
 
 
