@@ -64,8 +64,6 @@ def generate_invoice_for_occupancy(
         raise ValidationError("Billing end date must be after billing start date")
     if ledger_event_type not in {"invoice_created", "recurring_invoice_generated"}:
         raise ValidationError("Invalid invoice ledger event type")
-    if ledger_event_type == "recurring_invoice_generated" and not ledger_event_key:
-        raise ValidationError("Recurring invoice ledger event key is required")
 
     with transaction.atomic():
         occupancy = _resolve_occupancy(occupancy, workspace)
