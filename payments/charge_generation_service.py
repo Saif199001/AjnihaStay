@@ -5,6 +5,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from tenant.charge_service import create_charge
+from tenant.models import Charge
 
 from .authorization import require_mutation_permission
 from .billing_models import BillingSchedule
@@ -19,19 +20,19 @@ def _charge_date(value):
         raise ValidationError("Invalid charge date")
 
 
-def _next_run_date(current_date, frequency):
+def _next_run_date(current_date, frequency, anchor_day=None):
     if frequency == "daily":
-        return current_date.fromordinal(current_date.toordinal() + 1)
+        return date.fromordinal(current_date.toordinal() + 1)
     if frequency == "monthly":
         year = current_date.year + (1 if current_date.month == 12 else 0)
         month = 1 if current_date.month == 12 else current_date.month + 1
-        day = min(current_date.day, monthrange(year, month)[1])
+        day = min(anchor_day or current_date.day, monthrange(year, month)[1])
         return date(year, month, day)
     raise ValidationError("Unsupported billing frequency")
 
 
 def generate_charge_from_schedule(user, workspace, schedule, charge_date=None):
-    """Generate exactly the next recurring charge for a workspace-scoped schedule."""
+    """Generate one idempotent recurring charge and advance its schedule atomically."""
     require_mutation_permission(user, workspace)
     if charge_date is None:
         raise ValidationError("Charge date is required")
@@ -48,18 +49,26 @@ def generate_charge_from_schedule(user, workspace, schedule, charge_date=None):
         try:
             schedule = BillingSchedule.objects.select_for_update().select_related(
                 "occupancy__tenant"
-            ).get(
-                id=schedule_id,
-                occupancy__tenant__workspace=workspace,
-            )
+            ).get(id=schedule_id, occupancy__tenant__workspace=workspace)
         except BillingSchedule.DoesNotExist:
             raise ValidationError("Billing schedule not found")
+
+        # A committed occurrence is the durable retry/idempotency key.  A retry
+        # after the cursor was advanced must return the original occurrence.
+        existing = Charge.objects.filter(
+            billing_schedule=schedule,
+            charge_date=charge_date,
+        ).first()
+        if existing:
+            return existing
 
         if not schedule.active:
             raise ValidationError("Inactive billing schedule cannot generate a charge")
 
         occupancy = schedule.occupancy
         if not occupancy.is_active:
+            schedule.active = False
+            schedule.save(update_fields=["active", "updated_at"])
             raise ValidationError("Inactive occupancy cannot generate a charge")
         if charge_date < occupancy.check_in_date:
             raise ValidationError("Charge date cannot be before occupancy check-in date")
@@ -79,6 +88,13 @@ def generate_charge_from_schedule(user, workspace, schedule, charge_date=None):
             update_invoice=False,
             billing_schedule=schedule,
         )
-        schedule.next_run_date = _next_run_date(schedule.next_run_date, schedule.frequency)
-        schedule.save(update_fields=["next_run_date", "updated_at"])
+
+        schedule.next_run_date = _next_run_date(
+            schedule.next_run_date,
+            schedule.frequency,
+            schedule.anchor_day,
+        )
+        if occupancy.check_out_date and schedule.next_run_date > occupancy.check_out_date:
+            schedule.active = False
+        schedule.save(update_fields=["next_run_date", "active", "updated_at"])
         return charge
