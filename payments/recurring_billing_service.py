@@ -50,8 +50,6 @@ def generate_recurring_billing_occurrence(
             charge_date=start,
         )
 
-        # A terminal checkout boundary cannot produce an invoice period with
-        # zero length; the charge service rejects such an occurrence first.
         if period_end <= start:
             raise ValidationError("Recurring billing period has no valid end date")
 
@@ -63,6 +61,28 @@ def generate_recurring_billing_occurrence(
             billing_end=period_end,
             due_date=start,
         )
+        if created:
+            # Recurring invoices use their specialized lifecycle event rather
+            # than creating a second generic invoice_created ledger event.
+            # The canonical invoice transition accepts the event identity via
+            # its data contract, but the invoice has already been created above.
+            # The event must therefore be emitted here only when this occurrence
+            # actually created a new invoice.
+            from .ledger_service import post_ledger_event
+            post_ledger_event(
+                user,
+                workspace,
+                event_type="recurring_invoice_generated",
+                event_key=f"recurring-invoice:{invoice.pk}:generated",
+                occurred_at=invoice.created_at,
+                amount=invoice.total_amount,
+                invoice=invoice,
+                occupancy=locked.occupancy,
+                metadata={
+                    "billing_schedule_id": locked.pk,
+                    "billing_date": str(start),
+                },
+            )
         return {
             "charge": charge,
             "invoice": invoice,
