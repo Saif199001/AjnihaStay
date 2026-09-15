@@ -27,7 +27,11 @@ def _bounded_limit(value, default):
 
 def _canonical_workspace_financial_rows(workspace):
     """Return invoice financial positions from the canonical immutable components."""
-    invoices = list(Invoice.objects.filter(occupancy__tenant__workspace=workspace).only("id", "total_amount", "due_date"))
+    invoices = list(
+        Invoice.objects.filter(occupancy__tenant__workspace=workspace).only(
+            "id", "total_amount", "rent_amount", "charges_amount", "due_date", "billing_start", "billing_end"
+        )
+    )
     if not invoices:
         return []
 
@@ -72,6 +76,10 @@ def _canonical_workspace_financial_rows(workspace):
             "settlement": settlement,
             "outstanding": outstanding,
             "due_date": invoice.due_date,
+            "billing_start": invoice.billing_start,
+            "billing_end": invoice.billing_end,
+            "rent_amount": invoice.rent_amount or Decimal("0"),
+            "charges_amount": invoice.charges_amount or Decimal("0"),
         })
     return rows
 
@@ -124,14 +132,16 @@ def get_dashboard_data(workspace, *, period_start=None, period_end=None, upcomin
     available_subunits = total_subunits - occupied_subunits
     active_tenants = Tenant.objects.filter(workspace=workspace, occupancies__in=current_occupancies).distinct().count()
 
-    period_invoices = Invoice.objects.filter(occupancy__tenant__workspace=workspace, billing_start__lte=period_end, billing_end__gte=period_start)
-    period_totals = period_invoices.aggregate(invoiced=Sum("total_amount"), rent=Sum("rent_amount"), charges=Sum("charges_amount"))
-    period_invoiced = period_totals["invoiced"] or Decimal("0")
-    period_rent = period_totals["rent"] or Decimal("0")
-    period_charges = period_totals["charges"] or Decimal("0")
+    financial_rows = _canonical_workspace_financial_rows(workspace)
+    period_rows = [
+        row for row in financial_rows
+        if row["billing_start"] <= period_end and row["billing_end"] >= period_start
+    ]
+    period_invoiced = sum((row["gross_receivable"] for row in period_rows), Decimal("0"))
+    period_rent = sum((row["rent_amount"] for row in period_rows), Decimal("0"))
+    period_charges = sum((row["charges_amount"] for row in period_rows), Decimal("0"))
     period_collected = PaymentAllocation.objects.filter(payment__workspace=workspace, invoice__occupancy__tenant__workspace=workspace, payment__payment_date__gte=period_start, payment__payment_date__lte=period_end).aggregate(total=Sum("amount"))["total"] or Decimal("0")
 
-    financial_rows = _canonical_workspace_financial_rows(workspace)
     outstanding = sum((row["outstanding"] for row in financial_rows), Decimal("0"))
     overdue = sum((row["outstanding"] for row in financial_rows if row["due_date"] < today and row["outstanding"] > 0), Decimal("0"))
 
