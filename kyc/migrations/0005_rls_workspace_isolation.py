@@ -5,6 +5,7 @@ PROTECTED_TABLES = (
     "kyc_kycprofile",
     "kyc_kycdocument",
     "kyc_kycverificationevent",
+    "kyc_kycdocumentevent",
     "kyc_agreementlink",
 )
 
@@ -37,5 +38,5 @@ def disable_rls(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("kyc", "0004_kyc_document_events")]
+    dependencies = [("kyc", "0004_align_document_event_index_name")]
     operations = [migrations.RunPython(enable_rls, disable_rls)]
