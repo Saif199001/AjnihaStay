@@ -43,19 +43,22 @@ class WorkspaceRlsExtendedTests(TestCase):
                 self.assertTrue(
                     any(
                         all(
-                            marker in str(expression).lower()
+                            marker in str(qual).lower()
                             for marker in (
                                 "nullif(",
                                 "current_setting(",
                                 "app.workspace_id",
                             )
                         )
-                        for expression in (qual, with_check)
-                    )
-                    and "nullif(" in str(with_check).lower()
-                    and "current_setting(" in str(with_check).lower()
-                    and "app.workspace_id" in str(with_check).lower()
-                    for _, qual, with_check in policies
-                ),
+                        and all(
+                            marker in str(with_check).lower()
+                            for marker in (
+                                "nullif(",
+                                "current_setting(",
+                                "app.workspace_id",
+                            )
+                        )
+                        for _, qual, with_check in policies
+                    ),
                     f"{table} does not have a fail-closed workspace policy",
                 )
