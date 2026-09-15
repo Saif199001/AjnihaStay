@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
@@ -40,9 +40,12 @@ class P012CPeriodAgingRegressionTests(TestCase):
         )
         self.as_of = date(2026, 9, 30)
 
-    def invoice(self, *, due_date, amount="100.00"):
+    def invoice(self, *, due_date, amount="100.00", period_offset=0):
+        offset = timedelta(days=period_offset)
         return Invoice.objects.create(
-            occupancy=self.occupancy, billing_start=date(2026, 9, 1), billing_end=date(2026, 9, 30),
+            occupancy=self.occupancy,
+            billing_start=date(2026, 9, 1) + offset,
+            billing_end=date(2026, 9, 30) + offset,
             rent_amount=Decimal(amount), charges_amount=Decimal("0.00"), due_date=due_date,
         )
 
@@ -54,7 +57,10 @@ class P012CPeriodAgingRegressionTests(TestCase):
             "61_90": date(2026, 7, 2),
             "90_plus": date(2026, 7, 1),
         }
-        invoices = {bucket: self.invoice(due_date=due) for bucket, due in cases.items()}
+        invoices = {
+            bucket: self.invoice(due_date=due, period_offset=index)
+            for index, (bucket, due) in enumerate(cases.items())
+        }
         report = aging_report(workspace=self.workspace, as_of=self.as_of)
         self.assertEqual(report["invoice_count"], 5)
         for bucket, invoice in invoices.items():
