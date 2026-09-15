@@ -22,7 +22,11 @@ def generate_recurring_billing_occurrence(
     *,
     charge_generator=generate_charge_from_schedule,
 ):
-    """Atomically generate the charge and invoice for one recurring occurrence."""
+    """Atomically generate one recurring charge and invoice.
+
+    An occurrence is identified by billing schedule plus occurrence date.
+    Replaying a committed occurrence returns its existing financial records.
+    """
     require_mutation_permission(user, workspace)
     with transaction.atomic():
         schedule_id = getattr(schedule, "id", schedule)
@@ -30,39 +34,63 @@ def generate_recurring_billing_occurrence(
             schedule_id = int(schedule_id)
         except (TypeError, ValueError):
             raise ValidationError("Billing schedule not found")
+        if schedule_id <= 0:
+            raise ValidationError("Billing schedule not found")
 
-        locked = BillingSchedule.objects.select_for_update().select_related("occupancy__tenant").get(
-            id=schedule_id, occupancy__tenant__workspace=workspace
-        )
-
-        if not locked.active:
-            raise ValidationError("Inactive billing schedule cannot generate an invoice")
+        try:
+            locked = BillingSchedule.objects.select_for_update().select_related(
+                "occupancy__tenant"
+            ).get(id=schedule_id, occupancy__tenant__workspace=workspace)
+        except BillingSchedule.DoesNotExist as exc:
+            raise ValidationError("Billing schedule not found") from exc
 
         start = occurrence_date or locked.next_run_date
         if isinstance(start, str):
             try:
                 start = date.fromisoformat(start)
-            except ValueError:
-                raise ValidationError("Invalid billing date")
-        if start != locked.next_run_date:
-            raise ValidationError("Billing date must match the billing schedule next run date")
+            except ValueError as exc:
+                raise ValidationError("Invalid billing date") from exc
+        if not isinstance(start, date):
+            raise ValidationError("Invalid billing date")
 
         if due_date is not None and isinstance(due_date, str):
             try:
                 due_date = date.fromisoformat(due_date)
-            except ValueError:
-                raise ValidationError("Invalid due date")
+            except ValueError as exc:
+                raise ValidationError("Invalid due date") from exc
 
         next_run = _next_run_date(start, locked.frequency, locked.anchor_day)
         period_end = start if locked.frequency == "daily" else next_run - timedelta(days=1)
         if locked.occupancy.check_out_date:
             period_end = min(period_end, locked.occupancy.check_out_date)
-
-        charge = charge_generator(user, workspace, locked, charge_date=start)
         if period_end < start:
             raise ValidationError("Recurring billing period has no valid end date")
         if due_date is not None and due_date < start:
             raise ValidationError("Recurring invoice due date cannot be before billing date")
+
+        existing_charge = locked.charges.filter(charge_date=start).first()
+        existing_invoice = locked.occupancy.invoices.filter(
+            billing_start=start,
+            billing_end=period_end,
+        ).first()
+
+        if existing_charge and existing_invoice:
+            return {
+                "charge": existing_charge,
+                "invoice": existing_invoice,
+                "invoice_created": False,
+                "billing_start": start,
+                "billing_end": period_end,
+            }
+
+        if existing_charge:
+            charge = existing_charge
+        else:
+            if not locked.active:
+                raise ValidationError("Inactive billing schedule cannot generate an invoice")
+            if start != locked.next_run_date:
+                raise ValidationError("Billing date must match the billing schedule next run date")
+            charge = charge_generator(user, workspace, locked, charge_date=start)
 
         invoice, created = generate_invoice_for_occupancy(
             user,
