@@ -55,6 +55,7 @@ class BillingScheduleSerializer(serializers.ModelSerializer):
             "frequency",
             "amount",
             "next_run_date",
+            "anchor_day",
             "active",
             "created_at",
             "updated_at",
