@@ -31,21 +31,8 @@ def _next_run_date(current_date, frequency, anchor_day=None):
     raise ValidationError("Unsupported billing frequency")
 
 
-def generate_charge_from_schedule(
-    user,
-    workspace,
-    schedule,
-    charge_date=None,
-    *,
-    post_ledger=True,
-):
-    """Generate one idempotent recurring charge and advance its schedule atomically.
-
-    ``post_ledger`` is disabled only by the canonical recurring billing
-    orchestrator so the charge ledger event can be appended after the invoice
-    exists and therefore retain the immutable invoice relationship. All other
-    callers retain the historical default of posting the charge ledger event.
-    """
+def generate_charge_from_schedule(user, workspace, schedule, charge_date=None):
+    """Generate one idempotent recurring charge and advance its schedule atomically."""
     require_mutation_permission(user, workspace)
     if charge_date is None:
         raise ValidationError("Charge date is required")
@@ -110,18 +97,4 @@ def generate_charge_from_schedule(
         if occupancy.check_out_date and schedule.next_run_date >= occupancy.check_out_date:
             schedule.active = False
         schedule.save(update_fields=["next_run_date", "active", "updated_at"])
-
-        if post_ledger:
-            from payments.ledger_service import post_ledger_event
-
-            post_ledger_event(
-                user,
-                workspace,
-                event_type="charge_generated",
-                event_key=f"charge:{charge.pk}:generated",
-                occurred_at=charge.created_at,
-                amount=charge.amount,
-                occupancy=occupancy,
-                metadata={"charge_id": charge.pk, "charge_type": charge.charge_type},
-            )
         return charge
