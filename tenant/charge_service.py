@@ -74,6 +74,7 @@ def create_charge(
     description=None,
     update_invoice=True,
     invoice=None,
+    billing_schedule=None,
 ):
     """Create a workspace-scoped charge, optionally updating a specific active invoice atomically."""
     from payments.authorization import require_mutation_permission
@@ -91,6 +92,25 @@ def create_charge(
             raise ValidationError("Charge date cannot be before occupancy check-in date")
         if occupancy.check_out_date and charge_date > occupancy.check_out_date:
             raise ValidationError("Charge date cannot be after occupancy check-out date")
+
+        schedule_obj = None
+        if billing_schedule is not None:
+            from payments.billing_models import BillingSchedule
+
+            schedule_id = getattr(billing_schedule, "id", billing_schedule)
+            try:
+                schedule_id = int(schedule_id)
+            except (TypeError, ValueError):
+                raise ValidationError("Billing schedule not found")
+            if schedule_id <= 0:
+                raise ValidationError("Billing schedule not found")
+            try:
+                schedule_obj = BillingSchedule.objects.select_for_update().get(
+                    id=schedule_id,
+                    occupancy=occupancy,
+                )
+            except BillingSchedule.DoesNotExist:
+                raise ValidationError("Billing schedule not found")
 
         target_invoice = None
         if update_invoice:
@@ -117,6 +137,7 @@ def create_charge(
 
         charge = Charge.objects.create(
             occupancy=occupancy,
+            billing_schedule=schedule_obj,
             charge_type=charge_type,
             amount=amount,
             charge_date=charge_date,
