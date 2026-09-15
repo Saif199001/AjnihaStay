@@ -30,7 +30,7 @@ TABLES = (
     "kyc_agreementlink",
     "leasing_lease",
     "leasing_leaselifecycleevent",
-    "leasing_leasnotice",
+    "leasing_leasenotice",
     "leasing_leaserenewal",
     "leasing_leasecontractversion",
 )
