@@ -1,4 +1,4 @@
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -8,6 +8,7 @@ from .adjustment_service import calculate_invoice_financial_position
 from .authorization import require_mutation_permission
 from .ledger_service import post_ledger_event
 from .models import AdvanceCredit, Invoice, Payment, PaymentAllocation
+from .money import normalize_money
 from tenant.models import Occupancy
 
 
@@ -18,14 +19,8 @@ def create_invoice(user, workspace, data):
     except Occupancy.DoesNotExist:
         raise ValidationError("Occupancy not found")
 
-    try:
-        rent_amount = Decimal(data.get("rent_amount"))
-        charges_amount = Decimal(data.get("charges_amount") or 0)
-    except (TypeError, ValueError, InvalidOperation):
-        raise ValidationError("Invalid invoice amount")
-
-    if rent_amount < 0 or charges_amount < 0:
-        raise ValidationError("Invoice amounts cannot be negative")
+    rent_amount = normalize_money(data.get("rent_amount"), "invoice rent", allow_zero=True)
+    charges_amount = normalize_money(data.get("charges_amount") or 0, "invoice charges", allow_zero=True)
 
     ledger_event_type = data.get("ledger_event_type", "invoice_created")
     ledger_event_key = data.get("ledger_event_key")
@@ -136,13 +131,7 @@ def record_payment(user, workspace, data):
         except Invoice.DoesNotExist:
             raise ValidationError("Invoice not found")
 
-        try:
-            amount = Decimal(data.get("amount"))
-        except (TypeError, ValueError, InvalidOperation):
-            raise ValidationError("Invalid payment amount")
-
-        if amount <= 0:
-            raise ValidationError("Payment amount must be greater than zero")
+        amount = normalize_money(data.get("amount"), "payment")
 
         position = calculate_invoice_financial_position(invoice)
         if amount > position["outstanding"]:
