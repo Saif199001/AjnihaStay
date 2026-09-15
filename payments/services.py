@@ -34,8 +34,7 @@ def create_invoice(user, workspace, data):
     if ledger_event_type == "invoice_created":
         ledger_event_key = ledger_event_key or None
     else:
-        if not ledger_event_key:
-            raise ValidationError("Recurring invoice ledger event key is required")
+        ledger_event_key = ledger_event_key or "__invoice_generated__"
 
     with transaction.atomic():
         invoice = Invoice.objects.create(
@@ -46,6 +45,8 @@ def create_invoice(user, workspace, data):
             charges_amount=charges_amount,
             due_date=data.get("due_date"),
         )
+        if ledger_event_type == "recurring_invoice_generated" and ledger_event_key == "__invoice_generated__":
+            ledger_event_key = f"recurring-invoice:{invoice.pk}:generated"
         post_ledger_event(
             user,
             workspace,
@@ -61,9 +62,7 @@ def create_invoice(user, workspace, data):
 
 
 def get_invoices(workspace):
-    return Invoice.objects.filter(
-        occupancy__tenant__workspace=workspace
-    ).select_related("occupancy", "occupancy__tenant")
+    return Invoice.objects.filter(occupancy__tenant__workspace=workspace).select_related("occupancy", "occupancy__tenant")
 
 
 def get_invoice(invoice_id, workspace):
@@ -74,18 +73,11 @@ def get_invoice(invoice_id, workspace):
 
 
 def get_invoice_allocated_amount(invoice):
-    return (
-        PaymentAllocation.objects.filter(invoice=invoice)
-        .aggregate(total=Sum("amount"))["total"]
-        or Decimal("0")
-    )
+    return PaymentAllocation.objects.filter(invoice=invoice).aggregate(total=Sum("amount"))["total"] or Decimal("0")
 
 
 def get_invoice_credit_applied_amount(invoice):
-    return (
-        invoice.advance_credit_applications.aggregate(total=Sum("amount"))["total"]
-        or Decimal("0")
-    )
+    return invoice.advance_credit_applications.aggregate(total=Sum("amount"))["total"] or Decimal("0")
 
 
 def get_invoice_settled_amount(invoice):
@@ -93,29 +85,18 @@ def get_invoice_settled_amount(invoice):
 
 
 def get_payment_reserved_credit_amount(payment):
-    return (
-        AdvanceCredit.objects.filter(source_payment=payment)
-        .aggregate(total=Sum("original_amount"))["total"]
-        or Decimal("0")
-    )
+    return AdvanceCredit.objects.filter(source_payment=payment).aggregate(total=Sum("original_amount"))["total"] or Decimal("0")
 
 
 def get_payment_available_allocation_amount(payment):
-    allocated = (
-        PaymentAllocation.objects.filter(payment=payment)
-        .aggregate(total=Sum("amount"))["total"]
-        or Decimal("0")
-    )
+    allocated = PaymentAllocation.objects.filter(payment=payment).aggregate(total=Sum("amount"))["total"] or Decimal("0")
     reserved_credit = get_payment_reserved_credit_amount(payment)
     return max(payment.amount - allocated - reserved_credit, Decimal("0"))
 
 
 def recalculate_invoice_state(invoice):
     position = calculate_invoice_financial_position(invoice)
-    Invoice.objects.filter(id=invoice.id).update(
-        paid_amount=position["settlement"],
-        status=position["status"],
-    )
+    Invoice.objects.filter(id=invoice.id).update(paid_amount=position["settlement"], status=position["status"])
     invoice.paid_amount = position["settlement"]
     invoice.status = position["status"]
     return invoice
@@ -127,9 +108,7 @@ def record_payment(user, workspace, data):
         invoice_value = data.get("invoice")
         invoice_id = getattr(invoice_value, "id", invoice_value)
         try:
-            invoice = Invoice.objects.select_for_update().select_related(
-                "occupancy__tenant"
-            ).get(id=invoice_id, occupancy__tenant__workspace=workspace)
+            invoice = Invoice.objects.select_for_update().select_related("occupancy__tenant").get(id=invoice_id, occupancy__tenant__workspace=workspace)
         except Invoice.DoesNotExist:
             raise ValidationError("Invoice not found")
 
@@ -137,7 +116,6 @@ def record_payment(user, workspace, data):
             amount = Decimal(data.get("amount"))
         except (TypeError, ValueError, InvalidOperation):
             raise ValidationError("Invalid payment amount")
-
         if amount <= 0:
             raise ValidationError("Payment amount must be greater than zero")
 
@@ -155,29 +133,16 @@ def record_payment(user, workspace, data):
             notes=data.get("notes") or "",
         )
         allocation = PaymentAllocation.objects.create(payment=payment, invoice=invoice, amount=amount)
-
         recalculate_invoice_state(invoice)
 
         post_ledger_event(
-            user,
-            workspace,
-            event_type="payment_recorded",
-            event_key=f"payment:{payment.pk}:recorded",
-            occurred_at=payment.created_at,
-            amount=payment.amount,
-            invoice=invoice,
-            payment=payment,
+            user, workspace, event_type="payment_recorded", event_key=f"payment:{payment.pk}:recorded",
+            occurred_at=payment.created_at, amount=payment.amount, invoice=invoice, payment=payment,
             metadata={"payment_id": payment.pk},
         )
         post_ledger_event(
-            user,
-            workspace,
-            event_type="payment_allocated",
-            event_key=f"payment-allocation:{allocation.pk}:created",
-            occurred_at=payment.created_at,
-            amount=allocation.amount,
-            invoice=invoice,
-            payment=payment,
+            user, workspace, event_type="payment_allocated", event_key=f"payment-allocation:{allocation.pk}:created",
+            occurred_at=payment.created_at, amount=allocation.amount, invoice=invoice, payment=payment,
             metadata={"allocation_id": allocation.pk},
         )
         return payment
