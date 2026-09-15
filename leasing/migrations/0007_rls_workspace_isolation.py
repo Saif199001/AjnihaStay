@@ -10,33 +10,30 @@ PROTECTED_TABLES = (
 )
 
 
-def enable_rls(apps, schema_editor):
+def install_policies(apps, schema_editor):
+    if schema_editor.connection.vendor != "postgresql":
+        return
     with schema_editor.connection.cursor() as cursor:
         for table in PROTECTED_TABLES:
-            cursor.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
-            cursor.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
-            cursor.execute(f"DROP POLICY IF EXISTS {table}_workspace_isolation ON {table}")
+            policy_name = f"workspace_isolation_{table}"
+            cursor.execute(f"DROP POLICY IF EXISTS {policy_name} ON {table}")
             cursor.execute(
                 f"""
-                CREATE POLICY {table}_workspace_isolation ON {table}
-                USING (
-                    workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::bigint
-                )
-                WITH CHECK (
-                    workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::bigint
-                )
+                CREATE POLICY {policy_name} ON {table}
+                USING (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::bigint)
+                WITH CHECK (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::bigint)
                 """
             )
 
 
-def disable_rls(apps, schema_editor):
+def remove_policies(apps, schema_editor):
+    if schema_editor.connection.vendor != "postgresql":
+        return
     with schema_editor.connection.cursor() as cursor:
         for table in PROTECTED_TABLES:
-            cursor.execute(f"DROP POLICY IF EXISTS {table}_workspace_isolation ON {table}")
-            cursor.execute(f"ALTER TABLE {table} NO FORCE ROW LEVEL SECURITY")
-            cursor.execute(f"ALTER TABLE {table} DISABLE ROW LEVEL SECURITY")
+            cursor.execute(f"DROP POLICY IF EXISTS workspace_isolation_{table} ON {table}")
 
 
 class Migration(migrations.Migration):
     dependencies = [("leasing", "0006_lease_contract_version")]
-    operations = [migrations.RunPython(enable_rls, disable_rls)]
+    operations = [migrations.RunPython(install_policies, remove_policies)]
