@@ -75,8 +75,13 @@ def _create_charge_record(
     update_invoice=True,
     invoice=None,
     billing_schedule=None,
+    post_ledger=True,
 ):
-    """Persist a validated charge record; orchestration stays in domain services."""
+    """Persist a validated charge record; optionally post its ledger event.
+
+    Financial orchestration may suppress the lower-level ledger event and post
+    the canonical event after all required linked records exist.
+    """
     from payments.ledger_service import post_ledger_event
 
     target_invoice = None
@@ -115,17 +120,18 @@ def _create_charge_record(
         target_invoice.total_amount = target_invoice.rent_amount + target_invoice.charges_amount
         target_invoice.save()
 
-    post_ledger_event(
-        user,
-        workspace,
-        event_type="charge_generated",
-        event_key=f"charge:{charge.pk}:generated",
-        occurred_at=charge.created_at,
-        amount=charge.amount,
-        invoice=target_invoice,
-        occupancy=occupancy,
-        metadata={"charge_id": charge.pk, "charge_type": charge.charge_type},
-    )
+    if post_ledger:
+        post_ledger_event(
+            user,
+            workspace,
+            event_type="charge_generated",
+            event_key=f"charge:{charge.pk}:generated",
+            occurred_at=charge.created_at,
+            amount=charge.amount,
+            invoice=target_invoice,
+            occupancy=occupancy,
+            metadata={"charge_id": charge.pk, "charge_type": charge.charge_type},
+        )
     return charge
 
 
@@ -141,6 +147,7 @@ def create_charge(
     update_invoice=True,
     invoice=None,
     billing_schedule=None,
+    post_ledger=True,
 ):
     """Create a workspace-scoped non-recurring charge."""
     from payments.authorization import require_mutation_permission
@@ -173,6 +180,7 @@ def create_charge(
             description=description,
             update_invoice=update_invoice,
             invoice=invoice,
+            post_ledger=post_ledger,
         )
 
 
