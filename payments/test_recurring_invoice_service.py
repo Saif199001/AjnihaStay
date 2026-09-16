@@ -148,7 +148,7 @@ class RecurringInvoiceGenerationTests(TestCase):
                 billing_date=date(2026, 9, 1),
             )
 
-    @patch("payments.recurring_invoice_service.create_charge")
+    @patch("payments.recurring_billing_service.create_charge")
     def test_invoice_and_schedule_are_atomic_when_charge_creation_fails(self, create_charge_mock):
         create_charge_mock.side_effect = ValidationError("charge failed")
 
@@ -163,3 +163,26 @@ class RecurringInvoiceGenerationTests(TestCase):
         self.assertEqual(Invoice.objects.filter(occupancy=self.occupancy).count(), 0)
         self.schedule.refresh_from_db()
         self.assertEqual(self.schedule.next_run_date, date(2026, 9, 1))
+
+    def test_retry_of_existing_recurring_invoice_is_idempotent(self):
+        first = generate_invoice_from_schedule(
+            self.owner,
+            self.workspace,
+            self.schedule,
+            billing_date=date(2026, 9, 1),
+        )
+        self.schedule.refresh_from_db()
+        next_run_date = self.schedule.next_run_date
+
+        second = generate_invoice_from_schedule(
+            self.owner,
+            self.workspace,
+            self.schedule,
+            billing_date=date(2026, 9, 1),
+        )
+
+        self.assertEqual(second.pk, first.pk)
+        self.assertEqual(Invoice.objects.filter(occupancy=self.occupancy).count(), 1)
+        self.assertEqual(Charge.objects.filter(occupancy=self.occupancy).count(), 1)
+        self.schedule.refresh_from_db()
+        self.assertEqual(self.schedule.next_run_date, next_run_date)
