@@ -6,7 +6,7 @@ from django.db.models import Sum
 
 from tenant.models import Occupancy, Tenant
 
-from .adjustment_service import calculate_invoice_financial_position
+from .adjustment_service import calculate_invoice_financial_position, get_payment_refund_impacts
 from .allocation_service import get_payment_available_allocation_amount
 from .authorization import require_mutation_permission
 from .models import AdvanceCredit, AdvanceCreditApplication, Invoice, Payment
@@ -111,9 +111,11 @@ def get_advance_credit_applied_amount(credit):
 
 
 def get_advance_credit_available_amount(credit):
-    """Return the credit balance derived from immutable applications."""
+    """Return credit available after applications and successful refunds of unused credit."""
+    applied = get_advance_credit_applied_amount(credit)
+    refund_impact = get_payment_refund_impacts(credit.source_payment)
     return max(
-        credit.original_amount - get_advance_credit_applied_amount(credit),
+        credit.original_amount - applied - refund_impact["unallocated_refund"],
         Decimal("0"),
     )
 
