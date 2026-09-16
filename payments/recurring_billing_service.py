@@ -52,9 +52,7 @@ def _get_locked_schedule(schedule, workspace):
 
 def _validate_schedule_run(schedule, run_date, *, action):
     if not schedule.active:
-        raise ValidationError(
-            f"Inactive billing schedule cannot generate a {action}"
-        )
+        raise ValidationError(f"Inactive billing schedule cannot generate a {action}")
 
     occupancy = schedule.occupancy
     if not occupancy.is_active:
@@ -93,12 +91,11 @@ def generate_recurring_charge(user, workspace, schedule, charge_date=None):
 
     with transaction.atomic():
         schedule = _get_locked_schedule(schedule, workspace)
-        occupancy = _validate_schedule_run(schedule, charge_date, action="charge")
-
         existing = schedule.charges.filter(charge_date=charge_date).first()
         if existing:
             return existing
 
+        occupancy = _validate_schedule_run(schedule, charge_date, action="charge")
         charge = create_charge(
             user,
             workspace,
@@ -130,22 +127,21 @@ def generate_recurring_invoice(
 
     with transaction.atomic():
         schedule = _get_locked_schedule(schedule, workspace)
-        occupancy = _validate_schedule_run(schedule, billing_date, action="billing")
+        occupancy = schedule.occupancy
+        existing_invoice = Invoice.objects.filter(
+            occupancy=occupancy,
+            billing_start=billing_date,
+        ).first()
+        if existing_invoice:
+            return existing_invoice
 
+        occupancy = _validate_schedule_run(schedule, billing_date, action="billing")
         next_run_date = _next_run_date(schedule.next_run_date, schedule.frequency)
         billing_end = next_run_date - timedelta(days=1)
         if occupancy.check_out_date:
             billing_end = min(billing_end, occupancy.check_out_date)
         if billing_end < billing_date:
             raise ValidationError("Recurring billing period has no active occupancy days")
-
-        existing_invoice = Invoice.objects.filter(
-            occupancy=occupancy,
-            billing_start=billing_date,
-            billing_end=billing_end,
-        ).first()
-        if existing_invoice:
-            return existing_invoice
 
         invoice = Invoice.objects.create(
             occupancy=occupancy,
