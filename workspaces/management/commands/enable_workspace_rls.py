@@ -39,18 +39,22 @@ POLICIES = {table: f"{WORKSPACE_FUNCTION}('{table}', id)" for table in TABLES}
 
 
 def find_unexpected_policies(cursor):
-    """Return authoritative-table policies that are outside the locked policy contract."""
-    expected = {f"workspace_isolation_{table}" for table in TABLES}
+    """Return authoritative-table policies that are outside the locked per-table contract."""
+    table_names = [table.split(".")[-1] for table in TABLES]
+    placeholders = ", ".join(["%s"] * len(table_names))
     cursor.execute(
         "SELECT tablename, policyname "
         "FROM pg_policies "
         "WHERE schemaname = 'public' "
-        "AND tablename = ANY(%s) "
+        f"AND tablename IN ({placeholders}) "
         "ORDER BY tablename, policyname",
-        [[table.split(".")[-1] for table in TABLES]],
+        table_names,
     )
+    expected = {table.split(".")[-1]: f"workspace_isolation_{table}" for table in TABLES}
     return sorted(
-        (table, policy) for table, policy in cursor.fetchall() if policy not in expected
+        (table, policy)
+        for table, policy in cursor.fetchall()
+        if policy != expected[table]
     )
 
 
