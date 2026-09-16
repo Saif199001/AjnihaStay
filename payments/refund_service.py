@@ -132,14 +132,10 @@ def _reconcile_refunded_payment_invoices(payment, workspace):
     from .adjustment_service import calculate_invoice_financial_position
     from .models import AdvanceCredit, Invoice
 
-    invoice_ids = set(
-        payment.allocations.values_list("invoice_id", flat=True)
-    )
+    invoice_ids = set(payment.allocations.values_list("invoice_id", flat=True))
     credit = AdvanceCredit.objects.filter(source_payment=payment).first()
     if credit is not None:
-        invoice_ids.update(
-            credit.applications.values_list("invoice_id", flat=True)
-        )
+        invoice_ids.update(credit.applications.values_list("invoice_id", flat=True))
 
     invoices = Invoice.objects.select_for_update().filter(
         id__in=invoice_ids,
@@ -201,7 +197,7 @@ def transition_payment_refund(*, user, workspace, refund, status, failure_reason
         from .ledger_service import post_ledger_event
         event_type_by_status = {
             PaymentRefund.STATUS_PROCESSING: "refund_processing",
-            PaymentRefund.STATUS.SUCCEEDED if False else PaymentRefund.STATUS_SUCCEEDED: "refund_succeeded",
+            PaymentRefund.STATUS_SUCCEEDED: "refund_succeeded",
             PaymentRefund.STATUS_FAILED: "refund_failed",
         }
         post_ledger_event(
