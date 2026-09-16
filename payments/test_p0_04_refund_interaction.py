@@ -4,6 +4,7 @@ from decimal import Decimal
 from django.test import TestCase
 
 from accounts.models import User
+from payments.ledger_models import FinancialLedgerEntry
 from payments.models import AdvanceCredit, AdvanceCreditApplication, Invoice, PaymentAllocation
 from payments.refund_service import request_payment_refund, transition_payment_refund
 from payments.services import record_payment
@@ -184,6 +185,14 @@ class P004RefundInteractionTests(TestCase):
         )
         self.assertEqual(application.amount, Decimal("1000.00"))
         self.assertEqual(remaining, Decimal("0.00"))
+
+        ledger_entry = FinancialLedgerEntry.objects.get(
+            event_type="advance_credit_applied",
+            event_key=f"advance-credit-application:{application.pk}:created",
+        )
+        self.assertIsNone(ledger_entry.payment_id)
+        self.assertEqual(ledger_entry.invoice_id, second_invoice.id)
+        self.assertEqual(ledger_entry.metadata["source_payment_id"], payment.id)
 
         self.refund_successfully(payment, Decimal("10500.00"))
 
