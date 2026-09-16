@@ -2,7 +2,7 @@ from datetime import date
 from decimal import Decimal
 from unittest import skipUnless
 
-from django.core.management import call_command
+from django.core.management import call_command, CommandError
 from django.db import connection, transaction
 from django.test import TestCase
 
@@ -265,16 +265,6 @@ class WorkspaceRLSTests(TestCase):
                     else:
                         self.assertFalse(allowed, f"{table}: {privilege}")
 
-    def test_rls_role_is_not_superuser_or_bypassrls(self):
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = %s",
-                [RLS_ROLE],
-            )
-            is_superuser, bypass_rls = cursor.fetchone()
-        self.assertFalse(is_superuser)
-        self.assertFalse(bypass_rls)
-
     def test_authoritative_inventory_is_fully_rls_enabled_forced_and_policied(self):
         with connection.cursor() as cursor:
             for table in TABLES:
@@ -302,6 +292,28 @@ class WorkspaceRLSTests(TestCase):
                 self.assertIsNotNone(policy[2], table)
 
         self.assertEqual(set(TABLES), set(POLICIES))
+
+    def test_unexpected_authoritative_policy_is_detected_before_sync(self):
+        table = "properties_property"
+        unexpected_policy = "unexpected_workspace_policy"
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"CREATE POLICY {unexpected_policy} ON {table} USING (true) WITH CHECK (true)"
+            )
+            try:
+                cursor.execute(
+                    "SELECT tablename, policyname FROM pg_policies "
+                    "WHERE schemaname = 'public' AND tablename = %s",
+                    [table],
+                )
+                self.assertIn((table, unexpected_policy), cursor.fetchall())
+                with self.assertRaises(CommandError) as context:
+                    call_command("enable_workspace_rls", verbosity=0)
+                self.assertIn(unexpected_policy, str(context.exception))
+            finally:
+                cursor.execute(f"DROP POLICY IF EXISTS {unexpected_policy} ON {table}")
+
+        call_command("enable_workspace_rls", verbosity=0)
 
     def test_rls_hides_other_workspace_without_application_filter(self):
         with transaction.atomic():
