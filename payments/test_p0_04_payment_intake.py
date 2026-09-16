@@ -1,7 +1,7 @@
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
-from django.test import TestCase
 
 from payments.advance_credit_service import get_advance_credit_available_amount
 from payments.models import AdvanceCredit, PaymentAllocation
@@ -89,21 +89,24 @@ class P004PaymentIntakeTests(AdvanceCreditServiceTests):
         self.assertFalse(serializer.is_valid())
         self.assertIn("tenant", serializer.errors)
 
-    def test_invoice_overpayment_is_atomic_when_advance_credit_creation_fails(self):
-        # A second credit for the same source payment is impossible, so force
-        # a tenant validation failure before the transaction can commit.
-        with self.assertRaisesMessage(ValidationError, "Advance credit tenant must match the payment invoice tenant"):
-            record_payment(
-                self.owner,
-                self.workspace,
-                {
-                    "invoice": self.invoice.id,
-                    "amount": "12500.00",
-                    "tenant": self.tenant.id + 999999,
-                    "payment_method": "bank",
-                    "payment_date": self.payment.payment_date,
-                },
-            )
+    def test_overpayment_is_atomic_when_credit_creation_fails(self):
+        with patch(
+            "payments.advance_credit_service.create_advance_credit",
+            side_effect=ValidationError("forced advance credit failure"),
+        ):
+            with self.assertRaisesMessage(ValidationError, "forced advance credit failure"):
+                record_payment(
+                    self.owner,
+                    self.workspace,
+                    {
+                        "invoice": self.invoice.id,
+                        "amount": "12500.00",
+                        "payment_method": "bank",
+                        "payment_date": self.payment.payment_date,
+                    },
+                )
         self.invoice.refresh_from_db()
         self.assertEqual(self.invoice.paid_amount, Decimal("0.00"))
         self.assertEqual(self.invoice.status, "pending")
+        self.assertEqual(PaymentAllocation.objects.count(), 0)
+        self.assertEqual(self.payment.__class__.objects.count(), 1)
