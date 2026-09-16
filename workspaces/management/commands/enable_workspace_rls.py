@@ -148,6 +148,9 @@ class Command(BaseCommand):
                 cursor.execute(
                     f"ALTER FUNCTION {WORKSPACE_FUNCTION}(text, bigint) OWNER TO {RLS_FUNCTION_OWNER}"
                 )
+                for table in TABLES:
+                    cursor.execute(f"GRANT SELECT ON TABLE {table} TO {RLS_FUNCTION_OWNER}")
+
                 cursor.execute(
                     f"REVOKE ALL ON FUNCTION {WORKSPACE_FUNCTION}(text, bigint) FROM PUBLIC"
                 )
