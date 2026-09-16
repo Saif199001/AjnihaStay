@@ -130,7 +130,14 @@ def record_payment(user, workspace, data):
         if amount <= 0:
             raise ValidationError("Payment amount must be greater than zero")
 
-        payment = Payment.objects.create(
+        # The canonical intake service is the only path allowed to accept an
+        # invoice-linked receipt whose received amount exceeds the invoice.
+        # Payment.clean() continues to reject such a payment when created or
+        # edited directly, preserving the model-level invariant for all other
+        # callers.  The full received amount remains on the single Payment;
+        # settlement is represented separately by PaymentAllocation and any
+        # remainder by AdvanceCredit.
+        payment = Payment(
             workspace=workspace,
             invoice=invoice,
             amount=amount,
@@ -139,6 +146,8 @@ def record_payment(user, workspace, data):
             reference_id=data.get("reference_id"),
             notes=data.get("notes") or "",
         )
+        payment._allow_canonical_overpayment = True
+        payment.save(force_insert=True)
 
         settled_amount = Decimal("0")
         advance_amount = amount
@@ -165,7 +174,7 @@ def record_payment(user, workspace, data):
                 user,
                 workspace,
                 {
-                    "payment": payment,
+                    "payment": payment.pk,
                     "tenant": tenant_id,
                     "occupancy": occupancy_id,
                     "amount": advance_amount,
