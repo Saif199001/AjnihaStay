@@ -17,6 +17,12 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
 
 class PaymentSerializer(serializers.ModelSerializer):
+    # These fields are used only when receiving a pure advance payment.
+    # They are not persisted on Payment; the canonical service creates the
+    # corresponding AdvanceCredit against the supplied tenant/occupancy.
+    tenant = serializers.IntegerField(min_value=1, required=False, write_only=True)
+    occupancy = serializers.IntegerField(min_value=1, required=False, allow_null=True, write_only=True)
+
     class Meta:
         model = Payment
         fields = "__all__"
@@ -27,6 +33,8 @@ class PaymentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Amount must be positive")
         if data.get("payment_date") > date.today():
             raise serializers.ValidationError("Invalid payment date")
+        if data.get("invoice") in (None, "") and not data.get("tenant"):
+            raise serializers.ValidationError({"tenant": "Tenant is required for a pure advance payment"})
         return data
 
 
