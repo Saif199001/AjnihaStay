@@ -183,8 +183,11 @@ def apply_advance_credit(user, workspace, data):
             occurred_at=application.created_at,
             amount=application.amount,
             invoice=invoice,
-            payment=credit.source_payment,
             occupancy=invoice.occupancy,
-            metadata={"advance_credit_id": credit.pk, "application_id": application.pk},
+            metadata={
+                "advance_credit_id": credit.pk,
+                "application_id": application.pk,
+                "source_payment_id": credit.source_payment_id,
+            },
         )
         return application, get_advance_credit_available_amount(credit), invoice
