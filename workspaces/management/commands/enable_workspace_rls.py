@@ -2,6 +2,9 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import connection, transaction
 
 
+# Authoritative inventory of tables that carry a direct workspace_id FK.
+# Policy creation is migration-owned; this command is the deployment-time
+# safety net that guarantees RLS remains ENABLED + FORCED on every table.
 TABLES = (
     "properties_property",
     "properties_propertyimage",
@@ -17,6 +20,17 @@ TABLES = (
     "payments_billingschedule",
     "payments_advancecredit",
     "payments_advancecreditapplication",
+    "payments_financialadjustment",
+    "payments_paymentrefund",
+    "payments_financialledgerentry",
+    "leasing_lease",
+    "applications_applicant",
+    "applications_application",
+    "applications_applicationevent",
+    "kyc_kycprofile",
+    "kyc_kycdocument",
+    "kyc_kycverificationevent",
+    "kyc_agreementlink",
 )
 
 
@@ -33,4 +47,8 @@ class Command(BaseCommand):
                     cursor.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
                     cursor.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
 
-        self.stdout.write(self.style.SUCCESS("Workspace row-level security enabled and forced."))
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Workspace row-level security enabled and forced for {len(TABLES)} tables."
+            )
+        )
