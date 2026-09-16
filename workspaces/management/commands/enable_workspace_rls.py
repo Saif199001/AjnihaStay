@@ -30,6 +30,7 @@ TABLES = (
     "kyc_kycprofile",
     "kyc_kycdocument",
     "kyc_kycverificationevent",
+    "kyc_kycdocumentevent",
     "kyc_agreementlink",
 )
 
