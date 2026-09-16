@@ -110,11 +110,8 @@ class AdvanceCreditSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_available_amount(self, obj):
-        applied = sum(
-            (application.amount for application in obj.applications.all()),
-            Decimal("0"),
-        )
-        return f"{max(obj.original_amount - applied, Decimal('0')):.2f}"
+        from .advance_credit_service import get_advance_credit_available_amount
+        return f"{get_advance_credit_available_amount(obj):.2f}"
 
 
 class AdvanceCreditInvoiceSerializer(InvoiceSerializer):
