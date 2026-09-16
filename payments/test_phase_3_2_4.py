@@ -8,7 +8,7 @@ from django.db.models import Sum
 from django.test import TransactionTestCase
 
 from accounts.models import User
-from payments.models import Invoice, Payment
+from payments.models import AdvanceCredit, Invoice, Payment
 from payments.services import record_payment
 from properties.models import Property
 from tenant.models import Occupancy, Tenant
@@ -58,6 +58,7 @@ class CanonicalFinancialConcurrencyTests(TransactionTestCase):
             check_in_date=date(2026, 9, 1),
             next_due_date=date(2026, 10, 1),
         )
+        self.occupancy = occupancy
         self.invoice = Invoice.objects.create(
             occupancy=occupancy,
             billing_start=date(2026, 9, 1),
@@ -75,7 +76,7 @@ class CanonicalFinancialConcurrencyTests(TransactionTestCase):
             "payment_date": date(2026, 9, 6),
         }
 
-    def test_concurrent_payments_cannot_over_allocate_invoice(self):
+    def test_concurrent_payments_settle_invoice_and_preserve_excess_as_advance(self):
         barrier = Barrier(2)
         outcomes = []
 
@@ -99,18 +100,14 @@ class CanonicalFinancialConcurrencyTests(TransactionTestCase):
 
         self.assertFalse(first.is_alive())
         self.assertFalse(second.is_alive())
-        self.assertEqual(
-            sorted(outcome[0] for outcome in outcomes),
-            ["rejected", "success"],
-        )
-
-        successful_amounts = [amount for outcome, amount in outcomes if outcome == "success"]
-        self.assertEqual(len(successful_amounts), 1)
-        successful_amount = successful_amounts[0]
-        self.assertIn(successful_amount, {Decimal("5000.00"), Decimal("6000.00")})
+        self.assertEqual(sorted(outcome[0] for outcome in outcomes), ["success", "success"])
 
         self.invoice.refresh_from_db()
-        total_paid = Payment.objects.filter(invoice=self.invoice).aggregate(total=Sum("amount"))["total"]
-        self.assertEqual(total_paid, successful_amount)
-        self.assertEqual(self.invoice.paid_amount, successful_amount)
-        self.assertEqual(self.invoice.status, "partial")
+        total_received = Payment.objects.filter(invoice=self.invoice).aggregate(total=Sum("amount"))["total"]
+        total_advance = AdvanceCredit.objects.filter(source_payment__invoice=self.invoice).aggregate(total=Sum("original_amount"))["total"] or Decimal("0")
+
+        self.assertEqual(total_received, Decimal("11000.00"))
+        self.assertEqual(total_advance, Decimal("1000.00"))
+        self.assertEqual(self.invoice.paid_amount, Decimal("10000.00"))
+        self.assertEqual(self.invoice.status, "paid")
+        self.assertEqual(self.invoice.due_amount, Decimal("0.00"))
