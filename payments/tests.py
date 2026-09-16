@@ -12,7 +12,7 @@ from properties.models import Property
 from tenant.models import Occupancy, Tenant
 from unit.models import Unit
 from workspaces.models import Membership, Workspace
-from .models import Invoice, Payment
+from .models import AdvanceCredit, Invoice, Payment
 from .services import calculate_final_settlement, create_payment, record_payment
 
 
@@ -77,10 +77,20 @@ class PaymentIntegrityTests(TestCase):
         self.assertEqual(self.invoice.paid_amount, Decimal("4000.00"))
         self.assertEqual(self.invoice.status, "partial")
 
-    def test_payment_cannot_overpay_invoice(self):
+    def test_payment_overpayment_is_split_into_invoice_settlement_and_advance_credit(self):
         create_payment(self.owner, self.workspace, self.payment_data("7000.00"))
-        with self.assertRaises(ValidationError):
-            record_payment(self.owner, self.workspace, self.payment_data("4000.00"))
+        payment = record_payment(self.owner, self.workspace, self.payment_data("4000.00"))
+
+        self.invoice.refresh_from_db()
+        self.assertEqual(payment.amount, Decimal("4000.00"))
+        self.assertEqual(self.invoice.paid_amount, Decimal("10000.00"))
+        self.assertEqual(self.invoice.status, "paid")
+        self.assertEqual(self.invoice.due_amount, Decimal("0.00"))
+
+        credit = AdvanceCredit.objects.get(source_payment=payment)
+        self.assertEqual(credit.original_amount, Decimal("1000.00"))
+        self.assertEqual(credit.tenant_id, self.occupancy.tenant_id)
+        self.assertEqual(credit.occupancy_id, self.occupancy.id)
 
     def test_payment_is_workspace_scoped(self):
         with self.assertRaises(ValidationError):
