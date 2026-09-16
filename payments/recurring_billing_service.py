@@ -121,8 +121,11 @@ def generate_recurring_charge(
         schedule = _get_locked_schedule(schedule, workspace)
         existing = schedule.charges.filter(charge_date=charge_date).first()
         if existing:
-            if post_ledger:
-                _post_charge_ledger(user, workspace, existing)
+            # A replay must be a read-only/idempotent return. In particular, do
+            # not attempt to recreate the ledger event here: the same charge may
+            # already have a canonical event linked to an invoice, while this
+            # charge-only facade has no invoice context. Re-posting with invoice
+            # omitted would correctly be rejected by the immutable ledger boundary.
             return existing
         occupancy = _validate_schedule_run(schedule, charge_date, action="charge")
         charge = _create_charge_record(
