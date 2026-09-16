@@ -9,7 +9,7 @@ WORKSPACE_ID = "NULLIF(current_setting('app.workspace_id', true), '')::bigint"
 POLICIES = {
     "properties_property": f"workspace_id = {WORKSPACE_ID}",
     "properties_propertyimage": f"property_id IN (SELECT id FROM properties_property WHERE workspace_id = {WORKSPACE_ID})",
-    "unit_unit": f"property_id IN (SELECT id FROM unit_unit u JOIN properties_property p ON p.id = u.property_id WHERE p.workspace_id = {WORKSPACE_ID})",
+    "unit_unit": f"property_id IN (SELECT u.id FROM unit_unit u JOIN properties_property p ON p.id = u.property_id WHERE p.workspace_id = {WORKSPACE_ID})",
     "unit_unitimage": f"unit_id IN (SELECT u.id FROM unit_unit u JOIN properties_property p ON p.id = u.property_id WHERE p.workspace_id = {WORKSPACE_ID})",
     "unit_subunit": f"unit_id IN (SELECT u.id FROM unit_unit u JOIN properties_property p ON p.id = u.property_id WHERE p.workspace_id = {WORKSPACE_ID})",
     "tenant_tenant": f"workspace_id = {WORKSPACE_ID}",
