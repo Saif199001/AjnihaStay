@@ -52,31 +52,32 @@ def _get_locked_schedule(schedule, workspace):
 
 def _validate_schedule_run(schedule, run_date, *, action):
     if not schedule.active:
+        if action == "billing":
+            raise ValidationError("Inactive billing schedule cannot generate an invoice")
         raise ValidationError(f"Inactive billing schedule cannot generate a {action}")
 
     occupancy = schedule.occupancy
     if not occupancy.is_active:
+        if action == "billing":
+            raise ValidationError("Inactive occupancy cannot generate an invoice")
         raise ValidationError(f"Inactive occupancy cannot generate a {action}")
     if run_date < occupancy.check_in_date:
-        raise ValidationError(
-            f"{action.capitalize()} date cannot be before occupancy check-in date"
-        )
+        if action == "billing":
+            raise ValidationError("Billing date cannot be before occupancy check-in date")
+        raise ValidationError(f"{action.capitalize()} date cannot be before occupancy check-in date")
     if occupancy.check_out_date and run_date > occupancy.check_out_date:
-        raise ValidationError(
-            f"{action.capitalize()} date cannot be after occupancy check-out date"
-        )
+        if action == "billing":
+            raise ValidationError("Billing date cannot be after occupancy check-out date")
+        raise ValidationError(f"{action.capitalize()} date cannot be after occupancy check-out date")
     if run_date != schedule.next_run_date:
-        raise ValidationError(
-            f"{action.capitalize()} date must match the billing schedule next run date"
-        )
+        if action == "billing":
+            raise ValidationError("Billing date must match the billing schedule next run date")
+        raise ValidationError(f"{action.capitalize()} date must match the billing schedule next run date")
     return occupancy
 
 
 def _advance_schedule(schedule):
-    schedule.next_run_date = _next_run_date(
-        schedule.next_run_date,
-        schedule.frequency,
-    )
+    schedule.next_run_date = _next_run_date(schedule.next_run_date, schedule.frequency)
     if schedule.occupancy.check_out_date and schedule.next_run_date > schedule.occupancy.check_out_date:
         schedule.active = False
     schedule.save(update_fields=["next_run_date", "active", "updated_at"])
@@ -94,7 +95,6 @@ def generate_recurring_charge(user, workspace, schedule, charge_date=None):
         existing = schedule.charges.filter(charge_date=charge_date).first()
         if existing:
             return existing
-
         occupancy = _validate_schedule_run(schedule, charge_date, action="charge")
         charge = create_charge(
             user,
@@ -111,13 +111,7 @@ def generate_recurring_charge(user, workspace, schedule, charge_date=None):
         return charge
 
 
-def generate_recurring_invoice(
-    user,
-    workspace,
-    schedule,
-    billing_date=None,
-    due_date=None,
-):
+def generate_recurring_invoice(user, workspace, schedule, billing_date=None, due_date=None):
     """Canonical recurring-invoice orchestration; creates invoice + charge atomically."""
     require_mutation_permission(user, workspace)
     if billing_date is None:
@@ -128,10 +122,7 @@ def generate_recurring_invoice(
     with transaction.atomic():
         schedule = _get_locked_schedule(schedule, workspace)
         occupancy = schedule.occupancy
-        existing_invoice = Invoice.objects.filter(
-            occupancy=occupancy,
-            billing_start=billing_date,
-        ).first()
+        existing_invoice = Invoice.objects.filter(occupancy=occupancy, billing_start=billing_date).first()
         if existing_invoice:
             return existing_invoice
 
@@ -167,7 +158,6 @@ def generate_recurring_invoice(
         invoice.refresh_from_db()
 
         from .ledger_service import post_ledger_event
-
         post_ledger_event(
             user,
             workspace,
@@ -177,9 +167,6 @@ def generate_recurring_invoice(
             amount=invoice.total_amount,
             invoice=invoice,
             occupancy=occupancy,
-            metadata={
-                "billing_schedule_id": schedule.pk,
-                "billing_date": str(billing_date),
-            },
+            metadata={"billing_schedule_id": schedule.pk, "billing_date": str(billing_date)},
         )
         return invoice
