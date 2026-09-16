@@ -309,7 +309,7 @@ class WorkspaceRLSTests(TransactionTestCase):
                 )
                 self.assertIn((table, unexpected_policy), cursor.fetchall())
                 with self.assertRaises(CommandError) as context:
-                    call_command("enable_workspace_rls", verbosity=0)
+                    call_command("enable_workspace_rlS", verbosity=0)
                 self.assertIn(unexpected_policy, str(context.exception))
             finally:
                 cursor.execute(f"DROP POLICY IF EXISTS {unexpected_policy} ON {table}")
@@ -399,3 +399,30 @@ class WorkspaceRLSTests(TransactionTestCase):
         self.assertEqual(updated, 0)
         self.property_b.refresh_from_db()
         self.assertEqual(self.property_b.name, "RLS Property B")
+
+    def test_rls_blocks_cross_workspace_delete(self):
+        with transaction.atomic():
+            self._as_rls_role()
+            set_workspace_context(self.workspace_a.id)
+            deleted, _ = Property.objects.filter(id=self.property_b.id).delete()
+            self._reset_rls_role()
+        self.assertEqual(deleted, 0)
+        self.assertTrue(Property.objects.filter(id=self.property_b.id).exists())
+
+    def test_rls_blocks_cross_workspace_payment_allocation_delete(self):
+        with transaction.atomic():
+            self._as_rls_role()
+            set_workspace_context(self.workspace_a.id)
+            deleted, _ = PaymentAllocation.objects.filter(id=self.allocation_b.id).delete()
+            self._reset_rls_role()
+        self.assertEqual(deleted, 0)
+        self.assertTrue(PaymentAllocation.objects.filter(id=self.allocation_b.id).exists())
+
+    def test_rls_blocks_delete_without_workspace_context(self):
+        with transaction.atomic():
+            self._as_rls_role()
+            clear_workspace_context()
+            deleted, _ = Property.objects.filter(id=self.property_a.id).delete()
+            self._reset_rls_role()
+        self.assertEqual(deleted, 0)
+        self.assertTrue(Property.objects.filter(id=self.property_a.id).exists())
