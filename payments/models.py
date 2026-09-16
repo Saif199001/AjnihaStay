@@ -154,7 +154,10 @@ class AdvanceCredit(models.Model):
     @property
     def applied_amount(self): return self.applications.aggregate(total=Sum("amount"))["total"] or 0
     @property
-    def available_amount(self): return max(self.original_amount - self.applied_amount, 0)
+    def available_amount(self):
+        from .adjustment_service import get_payment_refund_impacts
+        refund_impact = get_payment_refund_impacts(self.source_payment)
+        return max(self.original_amount - self.applied_amount - refund_impact["unallocated_refund"], 0)
     class Meta:
         indexes = [models.Index(fields=["workspace", "tenant"]), models.Index(fields=["tenant", "created_at"]), models.Index(fields=["occupancy"])]
         constraints = [models.CheckConstraint(condition=Q(original_amount__gt=0), name="advance_credit_amount_positive")]
