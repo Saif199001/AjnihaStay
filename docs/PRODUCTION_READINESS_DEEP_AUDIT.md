@@ -3,28 +3,30 @@
 **Audit ID:** PROD-AUDIT-BASELINE-001  
 **Repository:** `Saif199001/AjnihaStay`  
 **Audited branch:** `production-branch`  
-**Audited baseline:** `3e8b7dd40cdb1e5170a33f354ac95587cda38706`  
-**Latest verified CI at audit:** Django CI #985 — GREEN  
-**Purpose:** Record the current production-readiness gaps before implementation/hardening.
+**Previous baseline:** `3e8b7dd40cdb1e5170a33f354ac95587cda38706`  
+**P0-01 final audited commit:** `7bd035ad55dcf355c122fb8765b3dbc1ab4ecb07`  
+**P0-01 implementation baseline:** `b053b84445286cb9a4aad4e294743c2536696b46` + canonicalization migration commit above  
+**Verified CI evidence:** Django CI #1066 — GREEN on implementation baseline `b053b84445286cb9a4aad4e294743c2536696b46`  
+**Purpose:** Record production-readiness gaps and formally close/freeze completed checkpoints.
 
 ---
 
 ## 1. Executive Summary
 
-The current AjnihaStay backend has a strong foundation: workspace/multi-tenancy, RBAC, RLS architecture, property/unit hierarchy, occupancy, financial models, ledger, adjustments, advance-credit models, KYC, leasing, applications, dashboard/reporting and extensive tests are already present.
+The AjnihaStay backend has a strong foundation: workspace/multi-tenancy, RBAC, PostgreSQL RLS architecture, property/unit hierarchy, occupancy, financial models, ledger, adjustments, advance-credit models, KYC, leasing, applications, dashboard/reporting and extensive tests are already present.
 
-However, **green CI does not yet mean production-ready**. The audit identified several gaps where the implementation is either incomplete, has competing authorities, lacks sufficient database-level protection, or needs a production deployment/security gate.
+The production-readiness hardening remains an incremental effort, not a rewrite. Existing validated financial, tenancy, leasing and KYC behavior must be preserved while remaining gaps are closed through verified implementation, contract tests and CI evidence.
 
-The most important production blockers are:
+**P0-01 — PostgreSQL RLS coverage is now CLOSED and FROZEN.** The deployment-time RLS inventory now covers all 26 workspace-owned tables identified by the audit, including `kyc_kycdocumentevent`. The historical KYC document-event migration used the legacy `app.current_workspace_id` setting, so a forward migration was added to canonicalize that policy to the project-wide `app.workspace_id` transaction-local context without rewriting historical migrations. CI #1066 verified migration graph consistency, migrations, RLS enablement and the full test suite with **665 tests passed**.
 
-1. Full RLS coverage is incomplete.
-2. Recurring billing does not yet have one canonical atomic orchestration authority.
-3. The recurring charge generator lacks the `post_ledger` orchestration contract needed by the canonical recurring flow.
-4. Advance-payment/overpayment handling is not a complete end-to-end collection workflow.
-5. CI does not currently provide a complete production-branch/deployment security gate.
-6. Occupancy and billing-schedule concurrency/invariant hardening needs completion.
+The remaining P0 production blockers are:
 
-The correct strategy is **not a rewrite**. Existing validated financial, tenancy, leasing and KYC behavior must be preserved. Missing capabilities should be recovered from verified repository history where available, then integrated and protected with contract/concurrency tests.
+1. Recurring billing does not yet have one canonical atomic orchestration authority.
+2. The recurring charge generator's `post_ledger` orchestration contract is not yet closed.
+3. Advance-payment/overpayment handling is not yet a complete end-to-end collection workflow.
+4. CI/deployment still needs a complete production security gate.
+
+P1 concurrency, invariant, authorization, KYC legacy-path and API-contract hardening remains after the P0 sequence.
 
 ---
 
@@ -35,41 +37,52 @@ The correct strategy is **not a rewrite**. Existing validated financial, tenancy
 - **GAP:** required production behavior is missing or incomplete.
 - **RISK:** consequence if left unresolved.
 - **PRODUCTION BLOCKER:** should be closed before production use.
+- **CLOSED / FROZEN:** implementation, audit evidence and CI evidence have been verified for the checkpoint; future work must not silently alter the frozen contract.
 
 ---
 
 # 3. P0 — Production Blockers
 
-## P0-01 — Incomplete PostgreSQL RLS Coverage
+## P0-01 — PostgreSQL RLS Coverage
 
 ### Area
 Security / Multi-tenancy / Database isolation
 
-### Current state
-The current `workspaces/management/commands/enable_workspace_rls.py` enables and forces RLS for a limited set of tables, including properties, units, tenants/occupancy/charges, invoices, payments, allocations, billing schedules and advance-credit tables.
+### Final audited state
+**CLOSED / FROZEN — P0-01-RLS-FROZEN-001**
 
-The current command does not cover all workspace-owned sensitive domain tables now present in the project, including financial adjustments, final settlements, financial ledger entries, applications/applicants/events, KYC entities/events, leasing entities/events and related contract data.
+The deployment-time command `workspaces/management/commands/enable_workspace_rls.py` now contains the authoritative inventory of **26 workspace-owned tables** and enables **RLS + FORCE RLS** for every table in that inventory. The inventory includes financial adjustments, payment refunds, ledger entries, applications/applicants/events, leasing, all modern KYC entities/events and agreement links, including `kyc_kycdocumentevent`.
 
-### Gap
-Application-level workspace filtering and permission checks are not sufficient as the final isolation boundary for every sensitive workspace-owned table. The operational RLS enable/force command must cover the complete tenant-scoped table inventory and every table must have an appropriate workspace policy.
+The canonical workspace context remains the transaction-local PostgreSQL setting `app.workspace_id`. KYC RLS policies in `0005_rls_workspace_isolation.py` already use that canonical setting for the modern KYC tables.
 
-### Risk
-A missed RLS table can become a cross-workspace data-isolation vulnerability if a future query path forgets an application-level workspace filter or if a lower-level access path is introduced.
+### Final blocker found during audit
+`kyc/migrations/0003_document_lifecycle_history.py` historically created `KycDocumentEvent` with a policy using the legacy setting `app.current_workspace_id`. Historical migrations were intentionally not rewritten because they may already be applied in deployed databases.
 
-### Required fix
-Create a canonical tenant-scoped RLS inventory and make the enable/force command cover every required table. Verify both `USING` and `WITH CHECK` policies, workspace context handling, migration ordering and non-owner/non-superuser production DB role requirements.
+### Final fix
+Added `kyc/migrations/0006_canonicalize_document_event_rls.py`, dependent on `0005_rls_workspace_isolation`, which:
 
-### Required tests
-- Every expected tenant-scoped table has RLS enabled.
-- Every expected table has FORCE RLS.
-- Policies exist with correct workspace predicate.
-- Cross-workspace reads return no rows.
-- Cross-workspace inserts/updates are rejected.
-- Missing workspace context fails closed.
-- RLS remains effective outside normal request views.
+- keeps `kyc_kycdocumentevent` RLS enabled;
+- keeps `FORCE ROW LEVEL SECURITY` enabled;
+- replaces the historical policy safely;
+- uses the canonical fail-closed predicate:
+  `workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::bigint`;
+- applies the same predicate to both `USING` and `WITH CHECK`;
+- preserves a reverse migration that restores the historical policy contract.
 
-### Status
-**RED — PRODUCTION BLOCKER**
+### Evidence
+- RLS inventory: `workspaces/management/commands/enable_workspace_rls.py` — **26 tables**.
+- Historical mismatch: `kyc/migrations/0003_document_lifecycle_history.py`.
+- Canonical KYC policies: `kyc/migrations/0005_rls_workspace_isolation.py`.
+- Canonicalization migration: `kyc/migrations/0006_canonicalize_document_event_rls.py`.
+- CI #1066: GREEN.
+- CI #1066 verified migration graph, `makemigrations --check --dry-run`, migrations, RLS enablement and the full Django test suite.
+- CI #1066 test result: **665 tests passed**.
+- CI RLS command result: **Workspace row-level security enabled and forced for 26 tables.**
+
+### Final verdict
+**CLOSED / FROZEN — P0-01-RLS-FROZEN-001**
+
+The RLS implementation may be extended only through an explicit audit of any newly introduced workspace-owned table. Any future change to workspace context, RLS policy semantics or the authoritative inventory requires a new checkpoint rather than silently modifying this frozen baseline.
 
 ---
 
@@ -195,9 +208,9 @@ Preserve existing partial-payment and settlement semantics. Do not mutate invoic
 CI/CD / Deployment security
 
 ### Current state
-The latest verified CI run #985 is green and performs migration graph checks, migration consistency checks, migrations, RLS enablement, the Django test suite and Django system checks.
+The latest verified implementation CI run #1066 is green and performs migration graph checks, migration consistency checks, migrations, RLS enablement, the Django test suite and Django system checks.
 
-However, the workflow does not provide a complete production security gate equivalent to a strict deployment check, and the current push-trigger configuration does not provide the same direct push coverage for the working production branch as a dedicated production gate should.
+However, the workflow does not yet provide a complete production security gate equivalent to a strict deployment check.
 
 ### Gap
 CI must explicitly validate production deployment safety, not only application tests.
@@ -496,80 +509,29 @@ Lease lifecycle, contract versions, renewals, notices and lifecycle history have
 Applicant/application lifecycle and append-only application event architecture are established.
 
 ### KYC
-The modern KYC domain has private-storage-oriented architecture, lifecycle validation and immutable event history. The main remaining issue is removing the legacy document path.
-
-### Dashboard / Reporting
-The dashboard has an established canonical query budget and financial-position based reporting behavior. Avoid changing it unless a specific regression or production-scale issue is demonstrated.
+The modern KYC domain has private-storage-oriented architecture, lifecycle validation and immutable event history. The historical document-event RLS setting mismatch has now been corrected through a forward migration without rewriting the historical migration.
 
 ---
 
-# 7. Recommended Closure Order
+# 7. Frozen Checkpoints
 
-The audit should be converted into implementation milestones in this order:
+## P0-01-RLS-FROZEN-001
 
-```text
-AUDIT BASELINE
-    ↓
-P0-01 RLS coverage
-    ↓
-P0-02/P0-03 canonical recurring billing
-    ↓
-P0-04 advance-payment workflow
-    ↓
-P0-05 production CI/security gate
-    ↓
-P1-01 occupancy concurrency
-    ↓
-P1-02 BillingSchedule hardening
-    ↓
-P1-03 financial transition consolidation
-    ↓
-P1-04 KYC legacy-path closure
-    ↓
-P1-05 background workspace context
-    ↓
-P1-06 authorization audit
-    ↓
-P1-07 API contract audit
-    ↓
-P2 production operations
-    ↓
-FINAL PRODUCTION READINESS AUDIT
-```
-
-Every milestone must follow:
-
-`Architecture → Existing-source/history audit → Implementation → Tests → Real integration → CI Green → Freeze baseline`
+**Checkpoint:** Complete PostgreSQL workspace-isolation/RLS inventory and canonical context alignment.  
+**Status:** **FROZEN**  
+**Freeze basis:** RLS inventory = 26 tables; KycDocumentEvent canonicalization migration added; CI #1066 GREEN; 665 tests passed; migrations and deployment-time RLS enable/force command verified.  
+**Freeze rule:** Any future modification to the workspace context setting, RLS policy semantics, or authoritative workspace-table inventory requires a new explicit audit/checkpoint.
 
 ---
 
-# 8. Important Implementation Rule
+# 8. Next Production-Hardening Order
 
-**Do not merge the later `consolidation/production-code` branch wholesale.**
+1. **P0-02 — Recurring Billing canonical orchestration**
+2. **P0-03 — Recurring charge `post_ledger` contract**
+3. **P0-04 — Advance payment / overpayment workflow**
+4. **P0-05 — Production CI / security gate**
+5. **P1 concurrency and invariant hardening**
+6. **P1 authorization/KYC/API contract hardening**
+7. **P2 operational and scale hardening**
 
-Repository history shows a later source line containing several relevant hardening commits, but that branch is ahead of the current baseline by many commits and contains historical experiments/fixes. Individual implementations must be inspected, their tests identified, and their CI evidence verified before porting.
-
-This avoids reintroducing previously discovered regressions.
-
----
-
-# 9. Final Audit Verdict
-
-### Current state
-**Strong backend foundation, but not yet production-grade.**
-
-### Current CI
-**GREEN** at the audited baseline.
-
-### Production readiness
-**NOT READY YET** due primarily to RLS completeness, recurring billing canonicalization, advance-payment workflow closure and production security/deployment gating.
-
-### Strategy
-**HARDEN, DO NOT REBUILD.**
-
-Existing validated contracts are the baseline. The goal is to close the identified gaps without regressing workspace isolation, financial semantics, partial payments, advance handling, arrears, occupancy, leasing, KYC or ledger integrity.
-
----
-
-**Audit baseline:** `PROD-AUDIT-BASELINE-001`  
-**Next phase:** P0 forensic closure and verified implementation.
+The frozen P0-01 contract should be treated as the security baseline for all subsequent work.
