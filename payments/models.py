@@ -44,11 +44,12 @@ class Invoice(models.Model):
     def allocated_paid_amount(self): return self.allocations.aggregate(total=Sum("amount"))["total"] or 0
     @property
     def settled_paid_amount(self):
-        allocation_total = self.allocations.aggregate(total=Sum("amount"))["total"] or 0
-        credit_total = self.advance_credit_applications.aggregate(total=Sum("amount"))["total"] or 0
-        return allocation_total + credit_total
+        from .adjustment_service import calculate_invoice_financial_position
+        return calculate_invoice_financial_position(self)["settlement"]
     @property
-    def due_amount(self): return max((self.total_amount or 0) - self.settled_paid_amount, 0)
+    def due_amount(self):
+        from .adjustment_service import calculate_invoice_financial_position
+        return calculate_invoice_financial_position(self)["outstanding"]
 
     class Meta:
         indexes = [models.Index(fields=["occupancy"]), models.Index(fields=["status"]), models.Index(fields=["due_date"])]
