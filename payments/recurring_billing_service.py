@@ -83,7 +83,34 @@ def _advance_schedule(schedule):
     schedule.save(update_fields=["next_run_date", "active", "updated_at"])
 
 
-def generate_recurring_charge(user, workspace, schedule, charge_date=None):
+def _post_charge_ledger(user, workspace, charge, *, invoice=None):
+    from .ledger_service import post_ledger_event
+
+    return post_ledger_event(
+        user,
+        workspace,
+        event_type="charge_generated",
+        event_key=f"charge:{charge.pk}:generated",
+        occurred_at=charge.created_at,
+        amount=charge.amount,
+        invoice=invoice,
+        occupancy=charge.occupancy,
+        metadata={
+            "charge_id": charge.pk,
+            "charge_type": charge.charge_type,
+            "recurring": True,
+        },
+    )
+
+
+def generate_recurring_charge(
+    user,
+    workspace,
+    schedule,
+    charge_date=None,
+    *,
+    post_ledger=True,
+):
     """Canonical recurring-charge orchestration; owns schedule cursor advancement."""
     require_mutation_permission(user, workspace)
     if charge_date is None:
@@ -94,6 +121,8 @@ def generate_recurring_charge(user, workspace, schedule, charge_date=None):
         schedule = _get_locked_schedule(schedule, workspace)
         existing = schedule.charges.filter(charge_date=charge_date).first()
         if existing:
+            if post_ledger:
+                _post_charge_ledger(user, workspace, existing)
             return existing
         occupancy = _validate_schedule_run(schedule, charge_date, action="charge")
         charge = _create_charge_record(
@@ -106,8 +135,11 @@ def generate_recurring_charge(user, workspace, schedule, charge_date=None):
             charge_date=charge_date,
             update_invoice=False,
             billing_schedule=schedule,
+            post_ledger=False,
         )
         _advance_schedule(schedule)
+        if post_ledger:
+            _post_charge_ledger(user, workspace, charge)
         return charge
 
 
@@ -142,7 +174,7 @@ def generate_recurring_invoice(user, workspace, schedule, billing_date=None, due
             charges_amount=0,
             due_date=due_date or billing_end,
         )
-        _create_charge_record(
+        charge = _create_charge_record(
             user,
             workspace,
             occupancy=occupancy,
@@ -153,7 +185,9 @@ def generate_recurring_invoice(user, workspace, schedule, billing_date=None, due
             update_invoice=True,
             invoice=invoice,
             billing_schedule=schedule,
+            post_ledger=False,
         )
+        _post_charge_ledger(user, workspace, charge, invoice=invoice)
         _advance_schedule(schedule)
         invoice.refresh_from_db()
 
