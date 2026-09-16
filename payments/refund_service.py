@@ -123,6 +123,36 @@ def request_payment_refund(*, user, workspace, payment, amount, reason, referenc
         return refund
 
 
+def _reconcile_refunded_payment_invoices(payment, workspace):
+    """Rebuild cached invoice settlement after a successful refund.
+
+    Allocation/application rows remain immutable. The canonical financial-position
+    calculator derives their effective settlement after successful payment refunds.
+    """
+    from .adjustment_service import calculate_invoice_financial_position
+    from .models import AdvanceCredit, Invoice
+
+    invoice_ids = set(
+        payment.allocations.values_list("invoice_id", flat=True)
+    )
+    credit = AdvanceCredit.objects.filter(source_payment=payment).first()
+    if credit is not None:
+        invoice_ids.update(
+            credit.applications.values_list("invoice_id", flat=True)
+        )
+
+    invoices = Invoice.objects.select_for_update().filter(
+        id__in=invoice_ids,
+        occupancy__tenant__workspace=workspace,
+    )
+    for invoice in invoices:
+        position = calculate_invoice_financial_position(invoice)
+        Invoice.objects.filter(id=invoice.id).update(
+            paid_amount=position["settlement"],
+            status=position["status"],
+        )
+
+
 def transition_payment_refund(*, user, workspace, refund, status, failure_reason=None):
     """Apply a provider-neutral, validated refund state transition."""
     if not _is_authorized(user, workspace):
@@ -165,10 +195,13 @@ def transition_payment_refund(*, user, workspace, refund, status, failure_reason
             raise ValidationError("Failure reason is only valid for failed refunds")
         refund_obj.save()
 
+        if status == PaymentRefund.STATUS_SUCCEEDED:
+            _reconcile_refunded_payment_invoices(refund_obj.payment, workspace)
+
         from .ledger_service import post_ledger_event
         event_type_by_status = {
             PaymentRefund.STATUS_PROCESSING: "refund_processing",
-            PaymentRefund.STATUS_SUCCEEDED: "refund_succeeded",
+            PaymentRefund.STATUS.SUCCEEDED if False else PaymentRefund.STATUS_SUCCEEDED: "refund_succeeded",
             PaymentRefund.STATUS_FAILED: "refund_failed",
         }
         post_ledger_event(
