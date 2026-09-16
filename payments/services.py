@@ -112,16 +112,20 @@ def recalculate_invoice_state(invoice):
 
 
 def record_payment(user, workspace, data):
+    """Canonical payment intake for exact, partial, overpayment and advance receipts."""
     require_mutation_permission(user, workspace)
     with transaction.atomic():
         invoice_value = data.get("invoice")
         invoice_id = getattr(invoice_value, "id", invoice_value)
-        try:
-            invoice = Invoice.objects.select_for_update().select_related(
-                "occupancy__tenant"
-            ).get(id=invoice_id, occupancy__tenant__workspace=workspace)
-        except Invoice.DoesNotExist:
-            raise ValidationError("Invoice not found")
+
+        invoice = None
+        if invoice_id not in (None, ""):
+            try:
+                invoice = Invoice.objects.select_for_update().select_related(
+                    "occupancy__tenant"
+                ).get(id=invoice_id, occupancy__tenant__workspace=workspace)
+            except Invoice.DoesNotExist:
+                raise ValidationError("Invoice not found")
 
         try:
             amount = Decimal(data.get("amount"))
@@ -130,10 +134,6 @@ def record_payment(user, workspace, data):
 
         if amount <= 0:
             raise ValidationError("Payment amount must be greater than zero")
-
-        position = calculate_invoice_financial_position(invoice)
-        if amount > position["outstanding"]:
-            raise ValidationError("Payment exceeds remaining amount")
 
         payment = Payment.objects.create(
             workspace=workspace,
@@ -144,13 +144,42 @@ def record_payment(user, workspace, data):
             reference_id=data.get("reference_id"),
             notes=data.get("notes") or "",
         )
-        allocation = PaymentAllocation.objects.create(
-            payment=payment,
-            invoice=invoice,
-            amount=amount,
-        )
 
-        recalculate_invoice_state(invoice)
+        settled_amount = Decimal("0")
+        advance_amount = amount
+        allocation = None
+
+        if invoice is not None:
+            position = calculate_invoice_financial_position(invoice)
+            settled_amount = min(amount, position["outstanding"])
+            advance_amount = amount - settled_amount
+            if settled_amount > 0:
+                allocation = PaymentAllocation.objects.create(
+                    payment=payment,
+                    invoice=invoice,
+                    amount=settled_amount,
+                )
+                recalculate_invoice_state(invoice)
+
+        if advance_amount > 0:
+            tenant_id = invoice.occupancy.tenant_id if invoice is not None else data.get("tenant")
+            occupancy_id = invoice.occupancy_id if invoice is not None else data.get("occupancy")
+            if not tenant_id:
+                raise ValidationError("Tenant is required for an advance payment")
+            # Local import avoids a module-level cycle: advance_credit_service
+            # depends on recalculate_invoice_state from this module.
+            from .advance_credit_service import create_advance_credit
+
+            create_advance_credit(
+                user,
+                workspace,
+                {
+                    "payment": payment,
+                    "tenant": tenant_id,
+                    "occupancy": occupancy_id,
+                    "amount": advance_amount,
+                },
+            )
 
         post_ledger_event(
             user,
@@ -161,19 +190,27 @@ def record_payment(user, workspace, data):
             amount=payment.amount,
             invoice=invoice,
             payment=payment,
-            metadata={"payment_id": payment.pk},
+            occupancy=invoice.occupancy if invoice is not None else None,
+            metadata={
+                "payment_id": payment.pk,
+                "settled_amount": str(settled_amount),
+                "advance_amount": str(advance_amount),
+            },
         )
-        post_ledger_event(
-            user,
-            workspace,
-            event_type="payment_allocated",
-            event_key=f"payment-allocation:{allocation.pk}:created",
-            occurred_at=payment.created_at,
-            amount=allocation.amount,
-            invoice=invoice,
-            payment=payment,
-            metadata={"allocation_id": allocation.pk},
-        )
+
+        if allocation is not None:
+            post_ledger_event(
+                user,
+                workspace,
+                event_type="payment_allocated",
+                event_key=f"payment-allocation:{allocation.pk}:created",
+                occurred_at=payment.created_at,
+                amount=allocation.amount,
+                invoice=invoice,
+                payment=payment,
+                occupancy=invoice.occupancy,
+                metadata={"allocation_id": allocation.pk},
+            )
         return payment
 
 
@@ -232,6 +269,7 @@ def calculate_final_settlement(occupancy_id, workspace):
             "unit": occupancy.unit.unit_number,
             "total_rent": total_rent,
             "total_charges": total_charges,
+            "total_amount": total_amount,
             "total_paid": total_paid,
             "total_due": total_due,
             "security_deposit": security_deposit,
