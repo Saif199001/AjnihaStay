@@ -44,6 +44,10 @@ class WorkspaceRLSTests(TestCase):
             cursor.execute(
                 f"GRANT USAGE, SELECT ON SEQUENCE properties_property_id_seq TO {RLS_ROLE}"
             )
+            cursor.execute(
+                "GRANT EXECUTE ON FUNCTION workspace_rls_row_visible(text, bigint) "
+                f"TO {RLS_ROLE}"
+            )
 
     @classmethod
     def tearDownClass(cls):
@@ -228,6 +232,48 @@ class WorkspaceRLSTests(TestCase):
 
         self.assertTrue(visible_a)
         self.assertFalse(visible_b)
+
+    def test_rls_resolver_is_not_publicly_executable(self):
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT has_function_privilege('public', %s, 'EXECUTE')",
+                ["workspace_rls_row_visible(text,bigint)"],
+            )
+            public_execute = cursor.fetchone()[0]
+        self.assertFalse(public_execute)
+
+    def test_rls_resolver_runtime_role_has_explicit_execute(self):
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT has_function_privilege(current_user, %s, 'EXECUTE')",
+                ["workspace_rls_row_visible(text,bigint)"],
+            )
+            current_user_execute = cursor.fetchone()[0]
+        self.assertTrue(current_user_execute)
+
+    def test_resolver_owner_has_select_only_on_authoritative_tables(self):
+        with connection.cursor() as cursor:
+            for table in TABLES:
+                for privilege in ("SELECT", "INSERT", "UPDATE", "DELETE"):
+                    cursor.execute(
+                        "SELECT has_table_privilege(%s, %s, %s)",
+                        [RLS_FUNCTION_OWNER, table, privilege],
+                    )
+                    allowed = cursor.fetchone()[0]
+                    if privilege == "SELECT":
+                        self.assertTrue(allowed, f"{table}: {privilege}")
+                    else:
+                        self.assertFalse(allowed, f"{table}: {privilege}")
+
+    def test_rls_role_is_not_superuser_or_bypassrls(self):
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = %s",
+                [RLS_ROLE],
+            )
+            is_superuser, bypass_rls = cursor.fetchone()
+        self.assertFalse(is_superuser)
+        self.assertFalse(bypass_rls)
 
     def test_authoritative_inventory_is_fully_rls_enabled_forced_and_policied(self):
         with connection.cursor() as cursor:
