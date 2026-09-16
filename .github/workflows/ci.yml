@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+      - production-branch
       - 'phase-*'
       - 'phase-*/*'
   pull_request:
