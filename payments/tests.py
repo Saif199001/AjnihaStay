@@ -92,6 +92,17 @@ class PaymentIntegrityTests(TestCase):
         self.assertEqual(credit.tenant_id, self.occupancy.tenant_id)
         self.assertEqual(credit.occupancy_id, self.occupancy.id)
 
+    def test_direct_payment_create_cannot_overpay_invoice(self):
+        create_payment(self.owner, self.workspace, self.payment_data("7000.00"))
+        with self.assertRaises(ValidationError):
+            Payment.objects.create(
+                workspace=self.workspace,
+                invoice=self.invoice,
+                amount=Decimal("4000.00"),
+                payment_method="upi",
+                payment_date=date(2026, 9, 3),
+            )
+
     def test_payment_is_workspace_scoped(self):
         with self.assertRaises(ValidationError):
             record_payment(self.other_owner, self.other_workspace, self.payment_data("1000.00"))
