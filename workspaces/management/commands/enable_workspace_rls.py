@@ -4,6 +4,7 @@ from django.db import connection, transaction
 
 WORKSPACE_ID = "NULLIF(current_setting('app.workspace_id', true), '')::bigint"
 WORKSPACE_FUNCTION = "workspace_rls_row_visible"
+RLS_FUNCTION_OWNER = "ajnihastay_rls_owner"
 
 TABLES = (
     "properties_property",
@@ -130,9 +131,29 @@ class Command(BaseCommand):
                 if missing:
                     raise CommandError("Workspace RLS inventory contains missing tables: " + ", ".join(missing))
 
+                cursor.execute(
+                    "SELECT 1 FROM pg_roles WHERE rolname = %s",
+                    [RLS_FUNCTION_OWNER],
+                )
+                if cursor.fetchone() is None:
+                    cursor.execute(
+                        f"CREATE ROLE {RLS_FUNCTION_OWNER} NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION BYPASSRLS"
+                    )
+                else:
+                    cursor.execute(
+                        f"ALTER ROLE {RLS_FUNCTION_OWNER} NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION BYPASSRLS"
+                    )
+
                 cursor.execute(FUNCTION_SQL)
-                cursor.execute(f"REVOKE ALL ON FUNCTION {WORKSPACE_FUNCTION}(text, bigint) FROM PUBLIC")
-                cursor.execute(f"GRANT EXECUTE ON FUNCTION {WORKSPACE_FUNCTION}(text, bigint) TO PUBLIC")
+                cursor.execute(
+                    f"ALTER FUNCTION {WORKSPACE_FUNCTION}(text, bigint) OWNER TO {RLS_FUNCTION_OWNER}"
+                )
+                cursor.execute(
+                    f"REVOKE ALL ON FUNCTION {WORKSPACE_FUNCTION}(text, bigint) FROM PUBLIC"
+                )
+                cursor.execute(
+                    f"GRANT EXECUTE ON FUNCTION {WORKSPACE_FUNCTION}(text, bigint) TO PUBLIC"
+                )
 
                 for table in TABLES:
                     policy_name = f"workspace_isolation_{table}"
