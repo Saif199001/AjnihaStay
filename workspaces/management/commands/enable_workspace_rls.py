@@ -50,12 +50,10 @@ class Command(BaseCommand):
 
         with transaction.atomic():
             with connection.cursor() as cursor:
-                existing_tables = {
-                    row[0]
-                    for row in cursor.execute(
-                        "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
-                    ).fetchall()
-                }
+                cursor.execute(
+                    "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
+                )
+                existing_tables = {row[0] for row in cursor.fetchall()}
 
                 missing = sorted(set(TABLES) - existing_tables)
                 if missing:
