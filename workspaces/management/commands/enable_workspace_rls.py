@@ -151,11 +151,13 @@ class Command(BaseCommand):
                 for table in TABLES:
                     cursor.execute(f"GRANT SELECT ON TABLE {table} TO {RLS_FUNCTION_OWNER}")
 
+                # The resolver is executable only by the database role running the
+                # RLS installation command. This replaces the unsafe PUBLIC grant.
                 cursor.execute(
                     f"REVOKE ALL ON FUNCTION {WORKSPACE_FUNCTION}(text, bigint) FROM PUBLIC"
                 )
                 cursor.execute(
-                    f"GRANT EXECUTE ON FUNCTION {WORKSPACE_FUNCTION}(text, bigint) TO PUBLIC"
+                    f"GRANT EXECUTE ON FUNCTION {WORKSPACE_FUNCTION}(text, bigint) TO CURRENT_USER"
                 )
 
                 for table in TABLES:
