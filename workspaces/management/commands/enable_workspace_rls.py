@@ -37,6 +37,23 @@ TABLES = (
 
 POLICIES = {table: f"{WORKSPACE_FUNCTION}('{table}', id)" for table in TABLES}
 
+
+def find_unexpected_policies(cursor):
+    """Return authoritative-table policies that are outside the locked policy contract."""
+    expected = {f"workspace_isolation_{table}" for table in TABLES}
+    cursor.execute(
+        "SELECT tablename, policyname "
+        "FROM pg_policies "
+        "WHERE schemaname = 'public' "
+        "AND tablename = ANY(%s) "
+        "ORDER BY tablename, policyname",
+        [[table.split(".")[-1] for table in TABLES]],
+    )
+    return sorted(
+        (table, policy) for table, policy in cursor.fetchall() if policy not in expected
+    )
+
+
 FUNCTION_SQL = f"""
 CREATE OR REPLACE FUNCTION {WORKSPACE_FUNCTION}(p_table text, p_id bigint)
 RETURNS boolean
@@ -130,6 +147,13 @@ class Command(BaseCommand):
                 missing = sorted(set(TABLES) - existing_tables)
                 if missing:
                     raise CommandError("Workspace RLS inventory contains missing tables: " + ", ".join(missing))
+
+                unexpected = find_unexpected_policies(cursor)
+                if unexpected:
+                    details = ", ".join(f"{table}.{policy}" for table, policy in unexpected)
+                    raise CommandError(
+                        "Workspace RLS policy inventory contains unexpected policies: " + details
+                    )
 
                 cursor.execute(
                     "SELECT 1 FROM pg_roles WHERE rolname = %s",
