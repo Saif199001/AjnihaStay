@@ -78,7 +78,8 @@ class Payment(models.Model):
         if self.invoice_id:
             if self.invoice.occupancy.tenant.workspace_id != self.workspace_id: raise ValidationError("Payment and invoice must belong to the same workspace")
             total_paid = self.invoice.payments.exclude(id=self.id).aggregate(total=Sum("amount"))["total"] or 0
-            if total_paid + self.amount > (self.invoice.total_amount or 0): raise ValidationError("Payment exceeds remaining amount")
+            if total_paid + self.amount > (self.invoice.total_amount or 0) and not getattr(self, "_allow_canonical_overpayment", False):
+                raise ValidationError("Payment exceeds remaining amount")
 
     def save(self, *args, **kwargs):
         if self.pk:
