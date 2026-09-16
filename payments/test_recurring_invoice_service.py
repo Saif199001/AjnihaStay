@@ -13,6 +13,7 @@ from unit.models import Unit
 from workspaces.models import Membership, Workspace
 
 from .billing_models import BillingSchedule
+from .ledger_models import FinancialLedgerEntry
 from .models import Invoice
 from .recurring_invoice_service import generate_invoice_from_schedule
 from .charge_generation_service import generate_charge_from_schedule
@@ -86,6 +87,26 @@ class RecurringInvoiceGenerationTests(TestCase):
         self.assertEqual(invoice.total_amount, Decimal("1000.00"))
         self.assertEqual(invoice.status, "pending")
         self.assertEqual(Charge.objects.filter(occupancy=self.occupancy).count(), 1)
+
+        charge_event = FinancialLedgerEntry.objects.get(
+            workspace=self.workspace,
+            event_type="charge_generated",
+        )
+        self.assertEqual(charge_event.invoice_id, invoice.id)
+        self.assertEqual(charge_event.occupancy_id, self.occupancy.id)
+        self.assertEqual(charge_event.metadata.get("recurring"), True)
+        self.assertEqual(
+            FinancialLedgerEntry.objects.filter(
+                workspace=self.workspace,
+                event_type="charge_generated",
+            ).count(),
+            1,
+        )
+        recurring_invoice_event = FinancialLedgerEntry.objects.get(
+            workspace=self.workspace,
+            event_type="recurring_invoice_generated",
+        )
+        self.assertEqual(recurring_invoice_event.invoice_id, invoice.id)
 
         self.schedule.refresh_from_db()
         self.assertEqual(self.schedule.next_run_date, date(2026, 10, 1))
@@ -206,6 +227,20 @@ class RecurringInvoiceGenerationTests(TestCase):
         self.assertEqual(second.pk, first.pk)
         self.assertEqual(Invoice.objects.filter(occupancy=self.occupancy).count(), 1)
         self.assertEqual(Charge.objects.filter(occupancy=self.occupancy).count(), 1)
+        self.assertEqual(
+            FinancialLedgerEntry.objects.filter(
+                workspace=self.workspace,
+                event_type="charge_generated",
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            FinancialLedgerEntry.objects.filter(
+                workspace=self.workspace,
+                event_type="recurring_invoice_generated",
+            ).count(),
+            1,
+        )
         self.schedule.refresh_from_db()
         self.assertEqual(self.schedule.next_run_date, next_run_date)
 
@@ -228,5 +263,50 @@ class RecurringInvoiceGenerationTests(TestCase):
 
         self.assertEqual(Charge.objects.filter(occupancy=self.occupancy).count(), 1)
         self.assertEqual(charge.billing_schedule_id, self.schedule.id)
+        self.assertEqual(
+            FinancialLedgerEntry.objects.filter(
+                workspace=self.workspace,
+                event_type="charge_generated",
+            ).count(),
+            1,
+        )
         self.schedule.refresh_from_db()
         self.assertEqual(self.schedule.next_run_date, next_run_date)
+
+    def test_charge_facade_can_suppress_lower_level_ledger_posting(self):
+        charge = generate_charge_from_schedule(
+            self.owner,
+            self.workspace,
+            self.schedule,
+            charge_date=date(2026, 9, 1),
+            post_ledger=False,
+        )
+
+        self.assertEqual(charge.billing_schedule_id, self.schedule.id)
+        self.assertEqual(Charge.objects.filter(occupancy=self.occupancy).count(), 1)
+        self.assertEqual(
+            FinancialLedgerEntry.objects.filter(
+                workspace=self.workspace,
+                event_type="charge_generated",
+            ).count(),
+            0,
+        )
+
+    def test_recurring_charge_posts_exactly_one_canonical_charge_ledger_event(self):
+        charge = generate_charge_from_schedule(
+            self.owner,
+            self.workspace,
+            self.schedule,
+            charge_date=date(2026, 9, 1),
+        )
+
+        events = FinancialLedgerEntry.objects.filter(
+            workspace=self.workspace,
+            event_type="charge_generated",
+        )
+        self.assertEqual(events.count(), 1)
+        event = events.get()
+        self.assertEqual(event.event_key, f"charge:{charge.pk}:generated")
+        self.assertIsNone(event.invoice_id)
+        self.assertEqual(event.occupancy_id, self.occupancy.id)
+        self.assertEqual(event.metadata.get("recurring"), True)
