@@ -14,6 +14,7 @@ from workspaces.models import Membership, Workspace
 from .billing_models import BillingSchedule
 from .models import Invoice
 from .recurring_invoice_service import generate_invoice_from_schedule
+from .charge_generation_service import generate_charge_from_schedule
 
 
 class RecurringInvoiceGenerationTests(TestCase):
@@ -184,5 +185,27 @@ class RecurringInvoiceGenerationTests(TestCase):
         self.assertEqual(second.pk, first.pk)
         self.assertEqual(Invoice.objects.filter(occupancy=self.occupancy).count(), 1)
         self.assertEqual(Charge.objects.filter(occupancy=self.occupancy).count(), 1)
+        self.schedule.refresh_from_db()
+        self.assertEqual(self.schedule.next_run_date, next_run_date)
+
+    def test_charge_facade_reuses_invoice_occurrence_without_advancing_twice(self):
+        generate_invoice_from_schedule(
+            self.owner,
+            self.workspace,
+            self.schedule,
+            billing_date=date(2026, 9, 1),
+        )
+        self.schedule.refresh_from_db()
+        next_run_date = self.schedule.next_run_date
+
+        charge = generate_charge_from_schedule(
+            self.owner,
+            self.workspace,
+            self.schedule,
+            charge_date=date(2026, 9, 1),
+        )
+
+        self.assertEqual(Charge.objects.filter(occupancy=self.occupancy).count(), 1)
+        self.assertEqual(charge.billing_schedule_id, self.schedule.id)
         self.schedule.refresh_from_db()
         self.assertEqual(self.schedule.next_run_date, next_run_date)
