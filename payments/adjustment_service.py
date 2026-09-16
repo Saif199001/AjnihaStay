@@ -34,6 +34,52 @@ def _require_mutation_permission(user, workspace):
     return require_mutation_permission(user, workspace)
 
 
+def get_payment_refund_impacts(payment):
+    """Return deterministic successful-refund consumption across this payment's settlement uses.
+
+    Refunds consume settlement in this order: payment allocations, then advance-credit
+    applications, then any still-unallocated payment balance. This keeps the refund
+    effect deterministic without mutating immutable allocation/application rows.
+    """
+    from .models import AdvanceCredit
+    from .refund_models import PaymentRefund
+
+    refunded = (
+        PaymentRefund.objects.filter(
+            payment=payment,
+            status=PaymentRefund.STATUS_SUCCEEDED,
+        ).aggregate(total=Sum("amount"))["total"]
+        or Decimal("0")
+    )
+    remaining = refunded
+    allocation_refunds = {}
+    allocations = PaymentAllocation.objects.filter(payment=payment).order_by("id")
+    for allocation in allocations:
+        consumed = min(remaining, allocation.amount)
+        allocation_refunds[allocation.id] = consumed
+        remaining -= consumed
+        if remaining <= 0:
+            break
+
+    application_refunds = {}
+    credit = AdvanceCredit.objects.filter(source_payment=payment).first()
+    if credit is not None and remaining > 0:
+        applications = AdvanceCreditApplication.objects.filter(credit=credit).order_by("id")
+        for application in applications:
+            consumed = min(remaining, application.amount)
+            application_refunds[application.id] = consumed
+            remaining -= consumed
+            if remaining <= 0:
+                break
+
+    return {
+        "allocation_refunds": allocation_refunds,
+        "application_refunds": application_refunds,
+        "unallocated_refund": max(remaining, Decimal("0")),
+        "total_refunded": refunded,
+    }
+
+
 def _sum_adjustments(invoice):
     rows = FinancialAdjustment.objects.filter(invoice=invoice).values("adjustment_type").annotate(total=Sum("amount"))
     totals = {row["adjustment_type"]: row["total"] or Decimal("0") for row in rows}
@@ -53,8 +99,19 @@ def calculate_invoice_financial_position(invoice):
     debit_adjustments, credit_adjustments, adjustment_totals = _sum_adjustments(invoice)
     late_fee_total = _sum_late_fees(invoice)
     adjusted_receivable = gross_receivable + debit_adjustments + late_fee_total - credit_adjustments
-    payment_settlement = PaymentAllocation.objects.filter(invoice=invoice).aggregate(total=Sum("amount"))["total"] or Decimal("0")
-    advance_credit_settlement = AdvanceCreditApplication.objects.filter(invoice=invoice).aggregate(total=Sum("amount"))["total"] or Decimal("0")
+
+    payment_settlement = Decimal("0")
+    allocations = PaymentAllocation.objects.filter(invoice=invoice).select_related("payment").order_by("id")
+    for allocation in allocations:
+        impact = get_payment_refund_impacts(allocation.payment)
+        payment_settlement += max(allocation.amount - impact["allocation_refunds"].get(allocation.id, Decimal("0")), Decimal("0"))
+
+    advance_credit_settlement = Decimal("0")
+    applications = AdvanceCreditApplication.objects.filter(invoice=invoice).select_related("credit__source_payment").order_by("id")
+    for application in applications:
+        impact = get_payment_refund_impacts(application.credit.source_payment)
+        advance_credit_settlement += max(application.amount - impact["application_refunds"].get(application.id, Decimal("0")), Decimal("0"))
+
     settlement = payment_settlement + advance_credit_settlement
     outstanding = max(adjusted_receivable - settlement, Decimal("0"))
     if adjusted_receivable > 0:
