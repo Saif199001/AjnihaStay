@@ -17,16 +17,13 @@ def create_invoice(user, workspace, data):
         occupancy = Occupancy.objects.get(id=data.get("occupancy"), tenant__workspace=workspace)
     except Occupancy.DoesNotExist:
         raise ValidationError("Occupancy not found")
-
     try:
         rent_amount = Decimal(data.get("rent_amount"))
         charges_amount = Decimal(data.get("charges_amount") or 0)
     except (TypeError, ValueError, InvalidOperation):
         raise ValidationError("Invalid invoice amount")
-
     if rent_amount < 0 or charges_amount < 0:
         raise ValidationError("Invoice amounts cannot be negative")
-
     with transaction.atomic():
         invoice = Invoice.objects.create(
             occupancy=occupancy,
@@ -117,7 +114,6 @@ def record_payment(user, workspace, data):
     with transaction.atomic():
         invoice_value = data.get("invoice")
         invoice_id = getattr(invoice_value, "id", invoice_value)
-
         invoice = None
         if invoice_id not in (None, ""):
             try:
@@ -131,7 +127,6 @@ def record_payment(user, workspace, data):
             amount = Decimal(data.get("amount"))
         except (TypeError, ValueError, InvalidOperation):
             raise ValidationError("Invalid payment amount")
-
         if amount <= 0:
             raise ValidationError("Payment amount must be greater than zero")
 
@@ -148,7 +143,6 @@ def record_payment(user, workspace, data):
         settled_amount = Decimal("0")
         advance_amount = amount
         allocation = None
-
         if invoice is not None:
             position = calculate_invoice_financial_position(invoice)
             settled_amount = min(amount, position["outstanding"])
@@ -166,10 +160,7 @@ def record_payment(user, workspace, data):
             occupancy_id = invoice.occupancy_id if invoice is not None else data.get("occupancy")
             if not tenant_id:
                 raise ValidationError("Tenant is required for an advance payment")
-            # Local import avoids a module-level cycle: advance_credit_service
-            # depends on recalculate_invoice_state from this module.
             from .advance_credit_service import create_advance_credit
-
             create_advance_credit(
                 user,
                 workspace,
@@ -197,7 +188,6 @@ def record_payment(user, workspace, data):
                 "advance_amount": str(advance_amount),
             },
         )
-
         if allocation is not None:
             post_ledger_event(
                 user,
@@ -232,10 +222,10 @@ def _optional_positive_id(value, field_name):
 
 def get_payments(invoice_id, workspace):
     invoice_id = _optional_positive_id(invoice_id, "invoice")
-    return Payment.objects.filter(
-        invoice_id=invoice_id,
-        invoice__occupancy__tenant__workspace=workspace,
-    ).select_related("invoice").order_by("-created_at")
+    payments = Payment.objects.filter(workspace=workspace).select_related("invoice").order_by("-created_at")
+    if invoice_id is not None:
+        payments = payments.filter(invoice_id=invoice_id)
+    return payments
 
 
 def calculate_final_settlement(occupancy_id, workspace):
@@ -243,33 +233,25 @@ def calculate_final_settlement(occupancy_id, workspace):
         try:
             occupancy = Occupancy.objects.select_for_update().select_related(
                 "tenant", "unit"
-            ).get(
-                id=occupancy_id,
-                tenant__workspace=workspace,
-            )
+            ).get(id=occupancy_id, tenant__workspace=workspace)
         except Occupancy.DoesNotExist:
             raise ValidationError("Occupancy not found")
-
         invoices = list(occupancy.invoices.select_for_update().order_by("id"))
         total_rent = sum((invoice.rent_amount or Decimal("0") for invoice in invoices), Decimal("0"))
         total_charges = sum((invoice.charges_amount or Decimal("0") for invoice in invoices), Decimal("0"))
         total_amount = total_rent + total_charges
         total_paid = sum(
-            (calculate_invoice_financial_position(invoice)["settlement"] for invoice in invoices),
-            Decimal("0"),
+            (calculate_invoice_financial_position(invoice)["settlement"] for invoice in invoices), Decimal("0")
         )
         total_due = sum(
-            (calculate_invoice_financial_position(invoice)["outstanding"] for invoice in invoices),
-            Decimal("0"),
+            (calculate_invoice_financial_position(invoice)["outstanding"] for invoice in invoices), Decimal("0")
         )
         security_deposit = occupancy.security_deposit or Decimal("0")
-
         return {
             "tenant": occupancy.tenant.full_name,
             "unit": occupancy.unit.unit_number,
             "total_rent": total_rent,
             "total_charges": total_charges,
-            "total_amount": total_amount,
             "total_paid": total_paid,
             "total_due": total_due,
             "security_deposit": security_deposit,
