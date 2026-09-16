@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
-from tenant.charge_service import create_charge
+from tenant.charge_service import _create_charge_record
 
 from .authorization import require_mutation_permission
 from .billing_models import BillingSchedule
@@ -96,7 +96,7 @@ def generate_recurring_charge(user, workspace, schedule, charge_date=None):
         if existing:
             return existing
         occupancy = _validate_schedule_run(schedule, charge_date, action="charge")
-        charge = create_charge(
+        charge = _create_charge_record(
             user,
             workspace,
             occupancy=occupancy,
@@ -142,7 +142,7 @@ def generate_recurring_invoice(user, workspace, schedule, billing_date=None, due
             charges_amount=0,
             due_date=due_date or billing_end,
         )
-        create_charge(
+        _create_charge_record(
             user,
             workspace,
             occupancy=occupancy,
