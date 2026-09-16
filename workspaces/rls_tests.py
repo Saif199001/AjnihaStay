@@ -4,7 +4,7 @@ from unittest import skipUnless
 
 from django.core.management import call_command, CommandError
 from django.db import connection, transaction
-from django.test import TestCase
+from django.test import TransactionTestCase
 
 from accounts.models import User
 from payments.models import Invoice, Payment, PaymentAllocation
@@ -15,6 +15,7 @@ from unit.models import Unit
 from .db import clear_workspace_context, set_workspace_context
 from .management.commands.enable_workspace_rls import (
     POLICIES,
+    POLICY_NAMES,
     RLS_FUNCTION_OWNER,
     TABLES,
 )
@@ -25,7 +26,7 @@ RLS_ROLE = "ajnihastay_rls_test"
 
 
 @skipUnless(connection.vendor == "postgresql", "Workspace RLS requires PostgreSQL")
-class WorkspaceRLSTests(TestCase):
+class WorkspaceRLSTests(TransactionTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -284,10 +285,10 @@ class WorkspaceRLSTests(TestCase):
                 )
                 policies = cursor.fetchall()
                 self.assertTrue(
-                    any(row[0] == f"workspace_isolation_{table}" for row in policies),
+                    any(row[0] == POLICY_NAMES[table] for row in policies),
                     table,
                 )
-                policy = next(row for row in policies if row[0] == f"workspace_isolation_{table}")
+                policy = next(row for row in policies if row[0] == POLICY_NAMES[table])
                 self.assertIsNotNone(policy[1], table)
                 self.assertIsNotNone(policy[2], table)
 
