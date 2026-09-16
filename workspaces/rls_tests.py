@@ -13,7 +13,11 @@ from tenant.models import Occupancy, Tenant
 from unit.models import Unit
 
 from .db import clear_workspace_context, set_workspace_context
-from .management.commands.enable_workspace_rls import POLICIES, TABLES
+from .management.commands.enable_workspace_rls import (
+    POLICIES,
+    RLS_FUNCTION_OWNER,
+    TABLES,
+)
 from .models import Membership, Workspace
 
 
@@ -109,7 +113,6 @@ class WorkspaceRLSTests(TestCase):
             charges_amount=Decimal("0.00"),
             due_date=date(2026, 10, 5),
         )
-        # This is deliberately invoice-less: it is the critical pure-advance case.
         self.payment_a = Payment.objects.create(
             workspace=self.workspace_a,
             invoice=None,
@@ -182,6 +185,49 @@ class WorkspaceRLSTests(TestCase):
             is_superuser, bypass_rls = cursor.fetchone()
         self.assertFalse(is_superuser)
         self.assertFalse(bypass_rls)
+
+    def test_rls_resolver_has_dedicated_non_login_capability_owner(self):
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT p.prosecdef, r.rolname, r.rolsuper, r.rolbypassrls, "
+                "r.rolcanlogin, r.rolcreatedb, r.rolcreaterole, r.rolinherit, "
+                "r.rolreplication "
+                "FROM pg_proc p "
+                "JOIN pg_namespace n ON n.oid = p.pronamespace "
+                "JOIN pg_roles r ON r.oid = p.proowner "
+                "WHERE n.nspname = 'public' "
+                "AND p.proname = %s "
+                "AND pg_get_function_identity_arguments(p.oid) = %s",
+                ["workspace_rls_row_visible", "p_table text, p_id bigint"],
+            )
+            row = cursor.fetchone()
+
+        self.assertIsNotNone(row)
+        security_definer, owner, superuser, bypass_rls, can_login, createdb, createrole, inherit, replication = row
+        self.assertTrue(security_definer)
+        self.assertEqual(owner, RLS_FUNCTION_OWNER)
+        self.assertFalse(superuser)
+        self.assertTrue(bypass_rls)
+        self.assertFalse(can_login)
+        self.assertFalse(createdb)
+        self.assertFalse(createrole)
+        self.assertFalse(inherit)
+        self.assertFalse(replication)
+
+    def test_rls_resolver_executes_for_restricted_non_bypass_caller(self):
+        with transaction.atomic():
+            self._as_rls_role()
+            set_workspace_context(self.workspace_a.id)
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT workspace_rls_row_visible(%s, %s), workspace_rls_row_visible(%s, %s)",
+                    ["properties_property", self.property_a.id, "properties_property", self.property_b.id],
+                )
+                visible_a, visible_b = cursor.fetchone()
+            self._reset_rls_role()
+
+        self.assertTrue(visible_a)
+        self.assertFalse(visible_b)
 
     def test_authoritative_inventory_is_fully_rls_enabled_forced_and_policied(self):
         with connection.cursor() as cursor:
