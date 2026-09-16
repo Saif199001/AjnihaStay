@@ -175,6 +175,13 @@ def apply_advance_credit(user, workspace, data):
         application = AdvanceCreditApplication.objects.create(credit=credit, invoice=invoice, amount=amount)
         invoice = recalculate_invoice_state(invoice)
         from .ledger_service import post_ledger_event
+
+        source_payment = credit.source_payment
+        ledger_payment = (
+            source_payment
+            if source_payment.invoice_id in (None, invoice.id)
+            else None
+        )
         post_ledger_event(
             user,
             workspace,
@@ -183,6 +190,7 @@ def apply_advance_credit(user, workspace, data):
             occurred_at=application.created_at,
             amount=application.amount,
             invoice=invoice,
+            payment=ledger_payment,
             occupancy=invoice.occupancy,
             metadata={
                 "advance_credit_id": credit.pk,
