@@ -119,7 +119,7 @@ class FinancialAdjustmentAPITests(TestCase):
         Membership.objects.create(
             workspace=self.workspace,
             user=staff,
-            role=Membership.ROLE_STAFF,
+            role=Membership.ROLE_VIEWER,
         )
         self.client.force_authenticate(user=staff)
 
