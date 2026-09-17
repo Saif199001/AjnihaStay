@@ -7,7 +7,7 @@ from django.core.exceptions import ValidationError
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
-from workspaces.permissions import WorkspaceStaffPermission
+from workspaces.permissions import WorkspaceViewerPermission
 
 from .reconciliation import ledger_reconciliation_report
 from .reporting import (
@@ -67,7 +67,7 @@ def _error_response(exc):
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def financial_receivables_report_api(request):
     try:
         as_of = _query_date(request, "as_of", required=False)
@@ -78,7 +78,7 @@ def financial_receivables_report_api(request):
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def financial_invoice_report_api(request):
     try:
         invoice_id = _query_int(request, "invoice_id")
@@ -89,13 +89,13 @@ def financial_invoice_report_api(request):
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def financial_invoice_status_report_api(request):
     return Response({"data": _json_safe(invoice_status_report(workspace=request.workspace))})
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def financial_collection_period_report_api(request):
     try:
         start = _query_date(request, "start")
@@ -107,7 +107,7 @@ def financial_collection_period_report_api(request):
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def financial_aging_report_api(request):
     try:
         as_of = _query_date(request, "as_of")
@@ -118,25 +118,25 @@ def financial_aging_report_api(request):
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def financial_advance_credit_report_api(request):
     return Response({"data": _json_safe(advance_credit_report(workspace=request.workspace))})
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def financial_adjustment_report_api(request):
     return Response({"data": _json_safe(adjustment_report(workspace=request.workspace))})
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def financial_late_fee_report_api(request):
     return Response({"data": _json_safe(late_fee_report(workspace=request.workspace))})
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def financial_ledger_activity_api(request):
     try:
         start = request.query_params.get("start")
@@ -170,6 +170,6 @@ def financial_ledger_activity_api(request):
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def financial_reconciliation_report_api(request):
     return Response({"data": _json_safe(ledger_reconciliation_report(workspace=request.workspace))})
