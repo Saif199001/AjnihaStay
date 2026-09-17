@@ -2,7 +2,7 @@ from django.core.exceptions import ValidationError
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
-from workspaces.permissions import WorkspaceManagerPermission, WorkspaceStaffPermission
+from workspaces.permissions import WorkspaceManagerPermission, WorkspaceViewerPermission
 from .serializers import ChargeSerializer, OccupancySerializer, TenantSerializer
 from .services import create_charge, create_occupancy, create_tenant, get_charges, get_tenants
 
@@ -25,7 +25,7 @@ def tenant_create_api(request):
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def tenant_list_api(request):
     return Response({"data": TenantSerializer(get_tenants(request.workspace), many=True).data})
 
@@ -57,7 +57,7 @@ def charge_create_api(request):
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def charge_list_api(request):
     occupancy_id = request.GET.get("occupancy")
     try:
