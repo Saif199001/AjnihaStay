@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
 from django.contrib.auth.tokens import default_token_generator
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 from rest_framework.test import APIClient
@@ -34,6 +34,7 @@ class AuthenticationSecurityTests(TestCase):
         )
         self.assertEqual(response.status_code, 403)
 
+    @override_settings(RESEND_API_KEY="test-key")
     @patch("accounts.api.resend.Emails.send")
     def test_forgot_password_has_same_response_for_unknown_email(self, send_mock):
         existing = self.client.post(
