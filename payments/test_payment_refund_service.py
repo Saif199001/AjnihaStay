@@ -18,10 +18,10 @@ class PaymentRefundServiceTests(TestCase):
             email="refund-owner@example.com", password="pass1234"
         )
         self.manager = User.objects.create_user(
-            email="refund-manager@example.com", password="pass1234", role="manager"
+            email="refund-manager@example.com", password="pass1234"
         )
         self.staff = User.objects.create_user(
-            email="refund-staff@example.com", password="pass1234", role="staff"
+            email="refund-staff@example.com", password="pass1234"
         )
         self.outsider = User.objects.create_user(
             email="refund-outsider@example.com", password="pass1234"
