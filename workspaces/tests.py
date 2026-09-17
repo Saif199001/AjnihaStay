@@ -35,12 +35,30 @@ class WorkspaceFoundationTests(TestCase):
         self.assertEqual(membership.role, Membership.ROLE_OWNER)
         self.assertTrue(membership.is_active)
 
+    def test_membership_role_contract_is_owner_admin_manager_viewer(self):
+        self.assertEqual(
+            set(dict(Membership.ROLE_CHOICES)),
+            {
+                Membership.ROLE_OWNER,
+                Membership.ROLE_ADMIN,
+                Membership.ROLE_MANAGER,
+                Membership.ROLE_VIEWER,
+            },
+        )
+        self.assertNotIn("staff", dict(Membership.ROLE_CHOICES))
+        self.assertEqual(Membership._meta.get_field("role").default, Membership.ROLE_VIEWER)
+
     def test_workspace_list_returns_only_active_memberships(self):
         user = User.objects.create_user("member@example.com", self.password)
         workspace_a = Workspace.objects.create(name="A", slug="a", owner=user)
         workspace_b = Workspace.objects.create(name="B", slug="b", owner=user)
-        Membership.objects.create(workspace=workspace_a, user=user, role="owner")
-        Membership.objects.create(workspace=workspace_b, user=user, role="staff", is_active=False)
+        Membership.objects.create(workspace=workspace_a, user=user, role=Membership.ROLE_OWNER)
+        Membership.objects.create(
+            workspace=workspace_b,
+            user=user,
+            role=Membership.ROLE_VIEWER,
+            is_active=False,
+        )
 
         self.client.force_authenticate(user=user)
         response = self.client.get("/api/workspaces/")
@@ -52,7 +70,7 @@ class WorkspaceFoundationTests(TestCase):
         user = User.objects.create_user("member2@example.com", self.password)
         other = User.objects.create_user("other@example.com", self.password)
         workspace = Workspace.objects.create(name="Other", slug="other", owner=other)
-        Membership.objects.create(workspace=workspace, user=other, role="owner")
+        Membership.objects.create(workspace=workspace, user=other, role=Membership.ROLE_OWNER)
 
         self.client.force_authenticate(user=user)
         response = self.client.get(
@@ -65,7 +83,7 @@ class WorkspaceFoundationTests(TestCase):
     def test_single_membership_is_selected_without_header(self):
         user = User.objects.create_user("single@example.com", self.password)
         workspace = Workspace.objects.create(name="Single", slug="single", owner=user)
-        Membership.objects.create(workspace=workspace, user=user, role="owner")
+        Membership.objects.create(workspace=workspace, user=user, role=Membership.ROLE_OWNER)
 
         self.client.force_authenticate(user=user)
         response = self.client.get("/api/workspaces/current/")
@@ -77,8 +95,8 @@ class WorkspaceFoundationTests(TestCase):
         user = User.objects.create_user("multi@example.com", self.password)
         workspace_a = Workspace.objects.create(name="A", slug="multi-a", owner=user)
         workspace_b = Workspace.objects.create(name="B", slug="multi-b", owner=user)
-        Membership.objects.create(workspace=workspace_a, user=user, role="owner")
-        Membership.objects.create(workspace=workspace_b, user=user, role="admin")
+        Membership.objects.create(workspace=workspace_a, user=user, role=Membership.ROLE_OWNER)
+        Membership.objects.create(workspace=workspace_b, user=user, role=Membership.ROLE_ADMIN)
 
         self.client.force_authenticate(user=user)
         response = self.client.get("/api/workspaces/current/")
@@ -88,11 +106,11 @@ class WorkspaceFoundationTests(TestCase):
     def test_workspace_context_returns_only_callers_membership(self):
         user = User.objects.create_user("context@example.com", self.password)
         workspace = Workspace.objects.create(name="Mine", slug="mine", owner=user)
-        Membership.objects.create(workspace=workspace, user=user, role="manager")
+        Membership.objects.create(workspace=workspace, user=user, role=Membership.ROLE_MANAGER)
 
         other = User.objects.create_user("intruder@example.com", self.password)
         other_workspace = Workspace.objects.create(name="Other", slug="other-context", owner=other)
-        Membership.objects.create(workspace=other_workspace, user=other, role="owner")
+        Membership.objects.create(workspace=other_workspace, user=other, role=Membership.ROLE_OWNER)
 
         self.client.force_authenticate(user=user)
         request = self.client.get(
@@ -108,8 +126,8 @@ class WorkspaceFoundationTests(TestCase):
         other = User.objects.create_user("property-other@example.com", self.password)
         workspace = Workspace.objects.create(name="Owner WS", slug="property-owner", owner=owner)
         other_workspace = Workspace.objects.create(name="Other WS", slug="property-other", owner=other)
-        Membership.objects.create(workspace=workspace, user=owner, role="owner")
-        Membership.objects.create(workspace=other_workspace, user=other, role="owner")
+        Membership.objects.create(workspace=workspace, user=owner, role=Membership.ROLE_OWNER)
+        Membership.objects.create(workspace=other_workspace, user=other, role=Membership.ROLE_OWNER)
         prop = Property.objects.create(
             owner=owner,
             workspace=workspace,
