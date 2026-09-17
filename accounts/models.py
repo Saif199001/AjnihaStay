@@ -63,6 +63,8 @@ class UserProfile(models.Model):
 
 
 class Staff(models.Model):
+    """Legacy staff profile; workspace authorization is owned by Membership.role."""
+
     owner = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
@@ -75,11 +77,9 @@ class Staff(models.Model):
         related_name="staff_profile"
     )
 
-    role = models.CharField(max_length=50, default="manager")
-
     is_active = models.BooleanField(default=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.user.email} ({self.role})"
+        return self.user.email
