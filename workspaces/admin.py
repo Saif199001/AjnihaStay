@@ -8,6 +8,7 @@ class WorkspaceAdmin(admin.ModelAdmin):
     list_display = ("name", "slug", "owner", "is_active", "created_at")
     search_fields = ("name", "slug", "owner__email")
     list_filter = ("is_active",)
+    readonly_fields = ("owner", "slug", "created_at", "updated_at")
 
 
 @admin.register(Membership)
