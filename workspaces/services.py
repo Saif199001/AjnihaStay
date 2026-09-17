@@ -8,6 +8,11 @@ from .permissions import ROLE_RANK
 User = get_user_model()
 
 
+def _ensure_workspace_active(workspace):
+    if not workspace.is_active:
+        raise ValidationError("Workspace is archived")
+
+
 def _ensure_admin_can_manage(actor_membership, target_membership=None, target_role=None):
     if ROLE_RANK[actor_membership.role] < ROLE_RANK[Membership.ROLE_ADMIN]:
         raise ValidationError("Workspace admin permission required")
@@ -28,6 +33,7 @@ def list_members(workspace):
 
 @transaction.atomic
 def add_member(workspace, actor_membership, email, role=Membership.ROLE_VIEWER):
+    _ensure_workspace_active(workspace)
     _ensure_admin_can_manage(actor_membership, target_role=role)
 
     email = (email or "").strip().lower()
@@ -62,6 +68,7 @@ def add_member(workspace, actor_membership, email, role=Membership.ROLE_VIEWER):
 
 @transaction.atomic
 def change_member_role(workspace, actor_membership, target_user_id, role):
+    _ensure_workspace_active(workspace)
     try:
         target = Membership.objects.select_for_update().get(
             workspace=workspace,
@@ -87,6 +94,7 @@ def change_member_role(workspace, actor_membership, target_user_id, role):
 
 @transaction.atomic
 def deactivate_member(workspace, actor_membership, target_user_id):
+    _ensure_workspace_active(workspace)
     try:
         target = Membership.objects.select_for_update().get(
             workspace=workspace,
