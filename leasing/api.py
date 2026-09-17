@@ -2,7 +2,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from django.core.exceptions import ValidationError
 
-from workspaces.permissions import WorkspaceManagerPermission, WorkspaceStaffPermission
+from workspaces.permissions import WorkspaceManagerPermission, WorkspaceViewerPermission
 
 from .cancellation_service import cancel_lease
 from .expiry_service import expire_lease
@@ -29,14 +29,14 @@ def _reject_renewal_action_payload(request):
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def lease_list_api(request):
     leases = Lease.objects.filter(workspace=request.workspace).select_related("occupancy__tenant")
     return Response({"data": LeaseSerializer(leases, many=True).data})
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def lease_detail_api(request, lease_id):
     try:
         lease = Lease.objects.select_related("occupancy__tenant").get(id=lease_id, workspace=request.workspace)
