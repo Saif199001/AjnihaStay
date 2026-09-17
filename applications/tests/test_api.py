@@ -19,7 +19,7 @@ class ApplicationApiTests(TestCase):
         self.other_workspace = Workspace.objects.create(name="Other Application API", slug="other-application-api", owner=self.other_owner)
         Membership.objects.create(workspace=self.workspace, user=self.owner, role=Membership.ROLE_OWNER)
         Membership.objects.create(workspace=self.workspace, user=self.manager, role=Membership.ROLE_MANAGER)
-        Membership.objects.create(workspace=self.workspace, user=self.staff, role=Membership.ROLE_STAFF)
+        Membership.objects.create(workspace=self.workspace, user=self.staff, role=Membership.ROLE_VIEWER)
         Membership.objects.create(workspace=self.other_workspace, user=self.other_owner, role=Membership.ROLE_OWNER)
         self.property = Property.objects.create(
             owner=self.owner, workspace=self.workspace, name="API Property", property_type="flat",
