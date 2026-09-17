@@ -23,7 +23,7 @@ class FinancialMutationAuthorizationTests(TestCase):
         Membership.objects.create(workspace=self.workspace, user=self.owner, role=Membership.ROLE_OWNER)
         Membership.objects.create(workspace=self.workspace, user=self.admin, role=Membership.ROLE_ADMIN)
         Membership.objects.create(workspace=self.workspace, user=self.manager, role=Membership.ROLE_MANAGER)
-        Membership.objects.create(workspace=self.workspace, user=self.staff, role=Membership.ROLE_STAFF)
+        Membership.objects.create(workspace=self.workspace, user=self.staff, role=Membership.ROLE_VIEWER)
         Membership.objects.create(
             workspace=self.workspace,
             user=self.inactive_manager,
