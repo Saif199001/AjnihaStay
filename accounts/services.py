@@ -33,7 +33,6 @@ def create_user_account(email, password, confirm_password, workspace_name=None):
         user = User.objects.create_user(
             email=email,
             password=password,
-            role="owner",
         )
         name = (workspace_name or "").strip() or f"{email}'s Workspace"
         workspace = Workspace.objects.create(
