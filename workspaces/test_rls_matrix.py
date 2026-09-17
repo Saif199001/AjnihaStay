@@ -27,7 +27,7 @@ class RestrictedRoleRLSBehavioralMatrixTests(WorkspaceRLSTests):
             cursor.execute(
                 "SELECT id FROM {0} WHERE workspace_rls_row_visible(%s, id) "
                 "ORDER BY id".format(table),
-                [workspace_id],
+                [table],
             )
             return [row[0] for row in cursor.fetchall()]
 
