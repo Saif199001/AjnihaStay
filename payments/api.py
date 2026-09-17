@@ -3,7 +3,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from workspaces.permissions import WorkspaceManagerPermission, WorkspaceStaffPermission
+from workspaces.permissions import WorkspaceManagerPermission, WorkspaceViewerPermission
 from .advance_credit_service import (
     apply_advance_credit,
     create_advance_credit,
@@ -49,13 +49,13 @@ def invoice_create_api(request):
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def invoice_list_api(request):
     return Response({"data": InvoiceSerializer(get_invoices(request.workspace), many=True).data})
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def invoice_detail_api(request, invoice_id):
     try:
         invoice = get_invoice(invoice_id, request.workspace)
@@ -104,7 +104,7 @@ def payment_allocation_create_api(request, payment_id):
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def payment_list_api(request):
     invoice_id = request.GET.get("invoice")
     try:
@@ -115,7 +115,7 @@ def payment_list_api(request):
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def final_settlement_api(request, occupancy_id):
     try:
         data = calculate_final_settlement(occupancy_id, request.workspace)
@@ -131,7 +131,7 @@ def generate_invoice_api(request):
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def billing_schedule_list_api(request):
     schedules = get_billing_schedules(request.workspace)
     return Response({"data": BillingScheduleSerializer(schedules, many=True).data})
@@ -151,7 +151,7 @@ def billing_schedule_create_api(request):
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def billing_schedule_detail_api(request, schedule_id):
     try:
         schedule = get_billing_schedule(schedule_id, request.workspace)
@@ -183,7 +183,7 @@ def billing_schedule_update_api(request, schedule_id):
 
 
 @api_view(["GET", "POST"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def advance_credit_collection_api(request):
     if request.method == "GET":
         credits = get_advance_credits(request.workspace)
@@ -211,7 +211,7 @@ def advance_credit_collection_api(request):
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def advance_credit_detail_api(request, credit_id):
     try:
         credit = get_advance_credit(credit_id, request.workspace)
