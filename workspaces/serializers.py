@@ -9,11 +9,27 @@ class WorkspaceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Workspace
         fields = ["id", "name", "slug", "is_active", "role", "created_at", "updated_at"]
-        read_only_fields = fields
+        read_only_fields = ["id", "slug", "is_active", "role", "created_at", "updated_at"]
 
     def get_role(self, obj):
         membership = getattr(obj, "current_membership", None)
         return membership.role if membership else None
+
+
+class WorkspaceUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Workspace
+        fields = ["name"]
+
+    def validate_name(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Workspace name is required")
+        return value
+
+
+class WorkspaceTransferOwnershipSerializer(serializers.Serializer):
+    target_user_id = serializers.IntegerField(min_value=1)
 
 
 class MembershipSerializer(serializers.ModelSerializer):
