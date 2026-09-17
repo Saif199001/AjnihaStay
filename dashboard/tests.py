@@ -29,26 +29,9 @@ class DashboardReadModelTests(TestCase):
 
     def test_dashboard_reports_capacity_aware_availability_and_upcoming_vacancy(self):
         unit = Unit.objects.create(property=self.property, unit_type="room", unit_number="101", rent=Decimal("10000"), capacity=2)
-        tenant = Tenant.objects.create(
-            full_name="Current Tenant",
-            email="current@example.com",
-            phone="123",
-            permanent_address="Test Address",
-            workspace=self.workspace,
-            owner=self.user,
-        )
-        Occupancy.objects.create(
-            tenant=tenant,
-            unit=unit,
-            check_in_date=self.today - timedelta(days=5),
-            check_out_date=self.today + timedelta(days=10),
-            next_due_date=self.today,
-            rent=Decimal("10000"),
-            security_deposit=Decimal("0"),
-        )
-
+        tenant = Tenant.objects.create(full_name="Current Tenant", email="current@example.com", phone="123", permanent_address="Test Address", workspace=self.workspace, owner=self.user)
+        Occupancy.objects.create(tenant=tenant, unit=unit, check_in_date=self.today - timedelta(days=5), check_out_date=self.today + timedelta(days=10), next_due_date=self.today, rent=Decimal("10000"), security_deposit=Decimal("0"))
         data = get_dashboard_data(self.workspace)
-
         self.assertEqual(data["summary"]["total_unit_capacity"], 2)
         self.assertEqual(data["summary"]["occupied_unit_slots"], 1)
         self.assertEqual(data["summary"]["available_unit_slots"], 1)
@@ -59,27 +42,10 @@ class DashboardReadModelTests(TestCase):
         unit = Unit.objects.create(property=self.property, unit_type="room", unit_number="102", rent=Decimal("12000"), capacity=3)
         occupied_subunit = SubUnit.objects.create(unit=unit, subunit_number="A", rent=Decimal("12000"))
         vacant_subunit = SubUnit.objects.create(unit=unit, subunit_number="B", rent=Decimal("12000"))
-        tenant = Tenant.objects.create(
-            full_name="Sub Tenant",
-            email="sub@example.com",
-            phone="123",
-            permanent_address="Test Address",
-            workspace=self.workspace,
-            owner=self.user,
-        )
-        Occupancy.objects.create(
-            tenant=tenant,
-            unit=unit,
-            subunit=occupied_subunit,
-            check_in_date=self.today - timedelta(days=2),
-            next_due_date=self.today,
-            rent=Decimal("12000"),
-            security_deposit=Decimal("0"),
-        )
-
+        tenant = Tenant.objects.create(full_name="Sub Tenant", email="sub@example.com", phone="123", permanent_address="Test Address", workspace=self.workspace, owner=self.user)
+        Occupancy.objects.create(tenant=tenant, unit=unit, subunit=occupied_subunit, check_in_date=self.today - timedelta(days=2), next_due_date=self.today, rent=Decimal("12000"), security_deposit=Decimal("0"))
         data = get_dashboard_data(self.workspace)
         vacant = [item for item in data["availability"] if item["type"] == "subunit"]
-
         self.assertEqual(data["summary"]["occupied_unit_slots"], 0)
         self.assertEqual(data["summary"]["available_unit_slots"], 3)
         self.assertEqual(data["summary"]["occupied_subunits"], 1)
@@ -92,16 +58,8 @@ class DashboardReadModelTests(TestCase):
         other_workspace = Workspace.objects.create(name="Other Workspace", slug="other-ops-workspace", owner=other_user)
         Membership.objects.create(workspace=other_workspace, user=other_user, role="owner")
         other_property = Property.objects.create(name="Other Property", owner=other_user, workspace=other_workspace)
-        other_unit = Unit.objects.create(
-            property=other_property,
-            unit_type="room",
-            unit_number="201",
-            rent=Decimal("9000"),
-            capacity=1,
-        )
-
+        other_unit = Unit.objects.create(property=other_property, unit_type="room", unit_number="201", rent=Decimal("9000"), capacity=1)
         data = get_dashboard_data(self.workspace)
-
         self.assertEqual(data["summary"]["total_properties"], 1)
         self.assertEqual(data["summary"]["total_units"], 0)
         self.assertEqual(data["summary"]["total_unit_capacity"], 0)
@@ -112,120 +70,33 @@ class DashboardReadModelTests(TestCase):
         other_user = User.objects.create_user(email="other@example.com", password="testpass123")
         other_workspace = Workspace.objects.create(name="Other Workspace", slug="other-workspace", owner=other_user)
         Membership.objects.create(workspace=other_workspace, user=other_user, role="owner")
-        tenant = Tenant.objects.create(
-            full_name="Financial Tenant",
-            email="financial@example.com",
-            phone="123",
-            permanent_address="Test Address",
-            workspace=self.workspace,
-            owner=self.user,
-        )
+        tenant = Tenant.objects.create(full_name="Financial Tenant", email="financial@example.com", phone="123", permanent_address="Test Address", workspace=self.workspace, owner=self.user)
         unit = Unit.objects.create(property=self.property, unit_type="room", unit_number="103", rent=Decimal("5000"), capacity=1)
-        occupancy = Occupancy.objects.create(
-            tenant=tenant,
-            unit=unit,
-            check_in_date=self.today - timedelta(days=2),
-            next_due_date=self.today,
-            rent=Decimal("5000"),
-            security_deposit=Decimal("0"),
-        )
-        invoice = Invoice.objects.create(
-            occupancy=occupancy,
-            billing_start=self.today.replace(day=1),
-            billing_end=self.today,
-            rent_amount=Decimal("5000"),
-            charges_amount=Decimal("0"),
-            due_date=self.today,
-        )
-        payment = Payment.objects.create(
-            workspace=self.workspace,
-            invoice=invoice,
-            amount=Decimal("1000"),
-            payment_method="cash",
-            payment_date=self.today,
-        )
+        occupancy = Occupancy.objects.create(tenant=tenant, unit=unit, check_in_date=self.today - timedelta(days=2), next_due_date=self.today, rent=Decimal("5000"), security_deposit=Decimal("0"))
+        invoice = Invoice.objects.create(occupancy=occupancy, billing_start=self.today.replace(day=1), billing_end=self.today, rent_amount=Decimal("5000"), charges_amount=Decimal("0"), due_date=self.today)
+        payment = Payment.objects.create(workspace=self.workspace, invoice=invoice, amount=Decimal("1000"), payment_method="cash", payment_date=self.today)
         PaymentAllocation.objects.create(payment=payment, invoice=invoice, amount=Decimal("1000"))
-
         other_property = Property.objects.create(name="Other Property", owner=other_user, workspace=other_workspace)
         other_unit = Unit.objects.create(property=other_property, unit_type="room", unit_number="201", rent=Decimal("9000"), capacity=1)
-        other_tenant = Tenant.objects.create(
-            full_name="Other Tenant",
-            email="other-fin@example.com",
-            phone="123",
-            permanent_address="Other Address",
-            workspace=other_workspace,
-            owner=other_user,
-        )
-        other_occupancy = Occupancy.objects.create(
-            tenant=other_tenant,
-            unit=other_unit,
-            check_in_date=self.today - timedelta(days=2),
-            next_due_date=self.today,
-            rent=Decimal("9000"),
-            security_deposit=Decimal("0"),
-        )
-        other_invoice = Invoice.objects.create(
-            occupancy=other_occupancy,
-            billing_start=self.today.replace(day=1),
-            billing_end=self.today,
-            rent_amount=Decimal("9000"),
-            charges_amount=Decimal("0"),
-            due_date=self.today,
-        )
-        other_payment = Payment.objects.create(
-            workspace=other_workspace,
-            invoice=other_invoice,
-            amount=Decimal("9000"),
-            payment_method="cash",
-            payment_date=self.today,
-        )
+        other_tenant = Tenant.objects.create(full_name="Other Tenant", email="other-fin@example.com", phone="123", permanent_address="Other Address", workspace=other_workspace, owner=other_user)
+        other_occupancy = Occupancy.objects.create(tenant=other_tenant, unit=other_unit, check_in_date=self.today - timedelta(days=2), next_due_date=self.today, rent=Decimal("9000"), security_deposit=Decimal("0"))
+        other_invoice = Invoice.objects.create(occupancy=other_occupancy, billing_start=self.today.replace(day=1), billing_end=self.today, rent_amount=Decimal("9000"), charges_amount=Decimal("0"), due_date=self.today)
+        other_payment = Payment.objects.create(workspace=other_workspace, invoice=other_invoice, amount=Decimal("9000"), payment_method="cash", payment_date=self.today)
         PaymentAllocation.objects.create(payment=other_payment, invoice=other_invoice, amount=Decimal("9000"))
-
         data = get_dashboard_data(self.workspace)
-
         self.assertEqual(data["financial"]["period_invoiced"], Decimal("5000"))
         self.assertEqual(data["financial"]["period_collected"], Decimal("1000"))
 
     def test_dashboard_financial_reads_use_allocations_not_legacy_paid_amount(self):
-        tenant = Tenant.objects.create(
-            full_name="Allocation Tenant",
-            email="allocation@example.com",
-            phone="123",
-            permanent_address="Test Address",
-            workspace=self.workspace,
-            owner=self.user,
-        )
+        tenant = Tenant.objects.create(full_name="Allocation Tenant", email="allocation@example.com", phone="123", permanent_address="Test Address", workspace=self.workspace, owner=self.user)
         unit = Unit.objects.create(property=self.property, unit_type="room", unit_number="104", rent=Decimal("5000"), capacity=1)
-        occupancy = Occupancy.objects.create(
-            tenant=tenant,
-            unit=unit,
-            check_in_date=self.today - timedelta(days=10),
-            next_due_date=self.today,
-            rent=Decimal("5000"),
-            security_deposit=Decimal("0"),
-        )
-        invoice = Invoice.objects.create(
-            occupancy=occupancy,
-            billing_start=self.today.replace(day=1),
-            billing_end=self.today,
-            rent_amount=Decimal("5000"),
-            charges_amount=Decimal("0"),
-            due_date=self.today - timedelta(days=1),
-        )
-        payment = Payment.objects.create(
-            workspace=self.workspace,
-            invoice=invoice,
-            amount=Decimal("2000"),
-            payment_method="cash",
-            payment_date=self.today,
-        )
+        occupancy = Occupancy.objects.create(tenant=tenant, unit=unit, check_in_date=self.today - timedelta(days=10), next_due_date=self.today, rent=Decimal("5000"), security_deposit=Decimal("0"))
+        invoice = Invoice.objects.create(occupancy=occupancy, billing_start=self.today.replace(day=1), billing_end=self.today, rent_amount=Decimal("5000"), charges_amount=Decimal("0"), due_date=self.today - timedelta(days=1))
+        payment = Payment.objects.create(workspace=self.workspace, invoice=invoice, amount=Decimal("2000"), payment_method="cash", payment_date=self.today)
         PaymentAllocation.objects.create(payment=payment, invoice=invoice, amount=Decimal("2000"))
-
         Invoice.objects.filter(id=invoice.id).update(paid_amount=Decimal("5000"), status="paid")
-
         data = get_dashboard_data(self.workspace)
         invoice.refresh_from_db()
-
         self.assertEqual(invoice.due_amount, Decimal("3000"))
         self.assertEqual(data["financial"]["period_collected"], Decimal("2000"))
         self.assertEqual(data["financial"]["outstanding"], Decimal("3000"))
@@ -233,36 +104,12 @@ class DashboardReadModelTests(TestCase):
 
     def test_dashboard_has_bounded_operational_lists_and_reports_totals(self):
         for index in range(3):
-            Unit.objects.create(
-                property=self.property,
-                unit_type="room",
-                unit_number=f"2{index:02d}",
-                rent=Decimal("1000"),
-                capacity=1,
-            )
-
-        tenant = Tenant.objects.create(
-            full_name="Vacancy Tenant",
-            email="vacancy@example.com",
-            phone="123",
-            permanent_address="Test Address",
-            workspace=self.workspace,
-            owner=self.user,
-        )
+            Unit.objects.create(property=self.property, unit_type="room", unit_number=f"2{index:02d}", rent=Decimal("1000"), capacity=1)
+        tenant = Tenant.objects.create(full_name="Vacancy Tenant", email="vacancy@example.com", phone="123", permanent_address="Test Address", workspace=self.workspace, owner=self.user)
         units = list(Unit.objects.filter(property=self.property).order_by("unit_number"))
         for index, unit in enumerate(units):
-            Occupancy.objects.create(
-                tenant=tenant,
-                unit=unit,
-                check_in_date=self.today - timedelta(days=1),
-                check_out_date=self.today + timedelta(days=index + 1),
-                next_due_date=self.today,
-                rent=Decimal("1000"),
-                security_deposit=Decimal("0"),
-            )
-
+            Occupancy.objects.create(tenant=tenant, unit=unit, check_in_date=self.today - timedelta(days=1), check_out_date=self.today + timedelta(days=index + 1), next_due_date=self.today, rent=Decimal("1000"), security_deposit=Decimal("0"))
         data = get_dashboard_data(self.workspace, availability_limit=1, upcoming_vacancy_limit=1)
-
         self.assertEqual(data["availability_total"], 0)
         self.assertFalse(data["availability_truncated"])
         self.assertEqual(data["upcoming_vacancies_total"], len(units))
@@ -272,37 +119,11 @@ class DashboardReadModelTests(TestCase):
     def test_dashboard_read_model_stays_within_query_budget(self):
         unit = Unit.objects.create(property=self.property, unit_type="room", unit_number="301", rent=Decimal("7000"), capacity=2)
         subunit = SubUnit.objects.create(unit=unit, subunit_number="A", rent=Decimal("7000"))
-        tenant = Tenant.objects.create(
-            full_name="Query Tenant",
-            email="query@example.com",
-            phone="123",
-            permanent_address="Test Address",
-            workspace=self.workspace,
-            owner=self.user,
-        )
-        occupancy = Occupancy.objects.create(
-            tenant=tenant,
-            unit=unit,
-            subunit=subunit,
-            check_in_date=self.today - timedelta(days=1),
-            check_out_date=self.today + timedelta(days=5),
-            next_due_date=self.today,
-            rent=Decimal("7000"),
-            security_deposit=Decimal("0"),
-        )
-        Invoice.objects.create(
-            occupancy=occupancy,
-            billing_start=self.today.replace(day=1),
-            billing_end=self.today,
-            rent_amount=Decimal("7000"),
-            charges_amount=Decimal("0"),
-            due_date=self.today,
-        )
-
-        # B1 adds canonical financial aggregation reads; lock the resulting budget at 13.
+        tenant = Tenant.objects.create(full_name="Query Tenant", email="query@example.com", phone="123", permanent_address="Test Address", workspace=self.workspace, owner=self.user)
+        occupancy = Occupancy.objects.create(tenant=tenant, unit=unit, subunit=subunit, check_in_date=self.today - timedelta(days=1), check_out_date=self.today + timedelta(days=5), next_due_date=self.today, rent=Decimal("7000"), security_deposit=Decimal("0"))
+        Invoice.objects.create(occupancy=occupancy, billing_start=self.today.replace(day=1), billing_end=self.today, rent_amount=Decimal("7000"), charges_amount=Decimal("0"), due_date=self.today)
         with self.assertNumQueries(13):
             data = get_dashboard_data(self.workspace)
-
         self.assertEqual(data["summary"]["occupied_subunits"], 1)
 
 
@@ -316,16 +137,13 @@ class DashboardEmptyWorkspaceTests(TestCase):
     @patch("dashboard.services.timezone.localdate")
     def test_dashboard_uses_django_localdate_for_as_of_and_current_occupancy(self, mocked_localdate):
         mocked_localdate.return_value = date(2026, 9, 5)
-
         data = get_dashboard_data(self.workspace)
-
         self.assertEqual(data["as_of"], date(2026, 9, 5))
         self.assertEqual(data["period"]["start"], date(2026, 9, 1))
         self.assertEqual(data["period"]["end"], date(2026, 9, 5))
 
     def test_empty_workspace_returns_zero_metrics_and_empty_lists(self):
         data = get_dashboard_data(self.workspace)
-
         self.assertEqual(data["summary"]["total_properties"], 0)
         self.assertEqual(data["summary"]["total_units"], 0)
         self.assertEqual(data["summary"]["total_unit_capacity"], 0)
@@ -349,16 +167,7 @@ class DashboardAPIContractTests(TestCase):
 
     def test_dashboard_api_returns_contract_and_accepts_period_parameters(self):
         self.client.force_authenticate(user=self.user)
-        response = self.client.get(
-            "/api/dashboard/",
-            {
-                "period_start": "2026-08-01",
-                "period_end": "2026-08-31",
-                "upcoming_days": 45,
-                "availability_limit": 50,
-                "upcoming_vacancy_limit": 50,
-            },
-        )
+        response = self.client.get("/api/dashboard/", {"period_start": "2026-08-01", "period_end": "2026-08-31", "upcoming_days": 45, "availability_limit": 50, "upcoming_vacancy_limit": 50})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["period"]["start"], date(2026, 8, 1))
         self.assertEqual(response.data["period"]["end"], date(2026, 8, 31))
@@ -373,7 +182,6 @@ class DashboardAPIContractTests(TestCase):
     def test_dashboard_query_validation_uses_timezone_localdate(self, mocked_localdate):
         mocked_localdate.return_value = date(2026, 9, 5)
         serializer = DashboardQuerySerializer(data={})
-
         self.assertTrue(serializer.is_valid(), serializer.errors)
         self.assertEqual(serializer.validated_data, {})
 
@@ -390,11 +198,9 @@ class DashboardAPIContractTests(TestCase):
 
     def test_dashboard_api_allows_staff_members(self):
         staff = User.objects.create_user(email="staff@example.com", password="testpass123")
-        Membership.objects.create(workspace=self.workspace, user=staff, role="staff")
+        Membership.objects.create(workspace=self.workspace, user=staff, role=Membership.ROLE_VIEWER)
         self.client.force_authenticate(user=staff)
-
         response = self.client.get("/api/dashboard/")
-
         self.assertEqual(response.status_code, 200)
 
     def test_dashboard_api_requires_workspace_membership(self):
