@@ -2,7 +2,7 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from rest_framework.exceptions import ValidationError
 
-from .models import Membership
+from .models import Membership, Workspace
 from .permissions import ROLE_RANK
 
 User = get_user_model()
@@ -102,3 +102,64 @@ def deactivate_member(workspace, actor_membership, target_user_id):
     target.is_active = False
     target.save(update_fields=["is_active", "updated_at"])
     return target
+
+
+@transaction.atomic
+def transfer_workspace_ownership(workspace, actor_membership, target_user_id):
+    if actor_membership.workspace_id != workspace.id:
+        raise ValidationError("Workspace membership mismatch")
+    if actor_membership.role != Membership.ROLE_OWNER:
+        raise ValidationError("Workspace owner permission required")
+    if not workspace.is_active:
+        raise ValidationError("Workspace is archived")
+
+    workspace = Workspace.objects.select_for_update().get(pk=workspace.pk)
+    current_owner = Membership.objects.select_for_update().get(
+        workspace=workspace,
+        user_id=workspace.owner_id,
+    )
+
+    if not current_owner.is_active or current_owner.role != Membership.ROLE_OWNER:
+        raise ValidationError("Workspace owner membership is inconsistent")
+    if int(target_user_id) == workspace.owner_id:
+        raise ValidationError("Target user is already the workspace owner")
+
+    try:
+        target = Membership.objects.select_for_update().get(
+            workspace=workspace,
+            user_id=target_user_id,
+        )
+    except Membership.DoesNotExist:
+        raise ValidationError("Target user must be an active workspace member")
+
+    if not target.is_active:
+        raise ValidationError("Target user must be an active workspace member")
+    if not target.user.is_active:
+        raise ValidationError("Target user account is inactive")
+
+    current_owner.role = Membership.ROLE_ADMIN
+    current_owner.save(update_fields=["role", "updated_at"])
+
+    target.role = Membership.ROLE_OWNER
+    target.save(update_fields=["role", "updated_at"])
+
+    workspace.owner_id = target.user_id
+    workspace.save(update_fields=["owner", "updated_at"])
+
+    return workspace
+
+
+@transaction.atomic
+def archive_workspace(workspace, actor_membership):
+    if actor_membership.workspace_id != workspace.id:
+        raise ValidationError("Workspace membership mismatch")
+    if actor_membership.role != Membership.ROLE_OWNER:
+        raise ValidationError("Workspace owner permission required")
+
+    workspace = Workspace.objects.select_for_update().get(pk=workspace.pk)
+    if not workspace.is_active:
+        return workspace
+
+    workspace.is_active = False
+    workspace.save(update_fields=["is_active", "updated_at"])
+    return workspace
