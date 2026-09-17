@@ -2,7 +2,7 @@ from django.core.exceptions import ValidationError
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
-from workspaces.permissions import WorkspaceManagerPermission, WorkspaceStaffPermission
+from workspaces.permissions import WorkspaceManagerPermission, WorkspaceViewerPermission
 from .serializers import SubUnitSerializer, UnitSerializer
 from .services import create_subunit, create_unit, get_units
 
@@ -12,7 +12,7 @@ def _validation_message(exc):
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def unit_list_api(request):
     property_id = request.GET.get("property")
     try:
