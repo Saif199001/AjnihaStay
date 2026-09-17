@@ -32,9 +32,9 @@ class MembershipCreateSerializer(serializers.Serializer):
         choices=[
             Membership.ROLE_ADMIN,
             Membership.ROLE_MANAGER,
-            Membership.ROLE_STAFF,
+            Membership.ROLE_VIEWER,
         ],
-        default=Membership.ROLE_STAFF,
+        default=Membership.ROLE_VIEWER,
     )
 
 
@@ -43,6 +43,6 @@ class MembershipRoleSerializer(serializers.Serializer):
         choices=[
             Membership.ROLE_ADMIN,
             Membership.ROLE_MANAGER,
-            Membership.ROLE_STAFF,
+            Membership.ROLE_VIEWER,
         ]
     )
