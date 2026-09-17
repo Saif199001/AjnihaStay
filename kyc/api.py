@@ -5,7 +5,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
-from workspaces.permissions import WorkspaceManagerPermission, WorkspaceStaffPermission
+from workspaces.permissions import WorkspaceManagerPermission, WorkspaceViewerPermission
 
 from .models import AgreementLink, KycDocument, KycProfile, KycVerificationEvent
 from .serializers import (
@@ -90,7 +90,7 @@ def _validate_api_file(file):
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def kyc_detail_api(request, tenant_id):
     tenant = _tenant_or_404(tenant_id, request.workspace)
     if tenant is None:
@@ -142,7 +142,7 @@ def kyc_reject_api(request, tenant_id):
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def kyc_history_api(request, tenant_id):
     tenant = _tenant_or_404(tenant_id, request.workspace)
     if tenant is None:
@@ -153,7 +153,7 @@ def kyc_history_api(request, tenant_id):
 
 @api_view(["GET", "POST"])
 @parser_classes([MultiPartParser, FormParser, JSONParser])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def kyc_documents_api(request, tenant_id):
     tenant = _tenant_or_404(tenant_id, request.workspace)
     if tenant is None:
