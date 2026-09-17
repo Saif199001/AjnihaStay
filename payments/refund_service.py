@@ -10,7 +10,11 @@ from .models import Payment
 from .refund_models import PaymentRefund
 
 
-REFUND_AUTHORIZED_ROLES = {"owner", "admin", "manager"}
+REFUND_AUTHORIZED_ROLES = {
+    Membership.ROLE_OWNER,
+    Membership.ROLE_ADMIN,
+    Membership.ROLE_MANAGER,
+}
 ACTIVE_REFUND_STATUSES = {PaymentRefund.STATUS_REQUESTED, PaymentRefund.STATUS_PROCESSING}
 
 
@@ -23,13 +27,11 @@ def _is_authorized(user, workspace):
         return False
     if getattr(user, "is_superuser", False):
         return True
-    if getattr(user, "role", None) not in REFUND_AUTHORIZED_ROLES:
-        return False
     return Membership.objects.filter(
         workspace_id=_workspace_id(workspace),
         user_id=user.id,
         is_active=True,
-        role__in={Membership.ROLE_OWNER, Membership.ROLE_ADMIN, Membership.ROLE_MANAGER},
+        role__in=REFUND_AUTHORIZED_ROLES,
     ).exists()
 
 
