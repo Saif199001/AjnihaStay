@@ -15,10 +15,8 @@ class ProductionRLSSettingsContractTests(SimpleTestCase):
         env.update(overrides)
 
         code = """
-import os
-from dotenv import load_dotenv
-load_dotenv = lambda *args, **kwargs: None
-import importlib
+import dotenv
+dotenv.load_dotenv = lambda *args, **kwargs: None
 import ajnihastay.settings
 """
         return subprocess.run(
@@ -47,12 +45,12 @@ import ajnihastay.settings
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("DB_RLS_ENABLED must be a boolean value", result.stderr)
 
-    def test_production_accepts_enabled_db_rls_and_atomic_requests(self):
+    def test_production_accepts_enabled_db_rls(self):
         result = self._import_settings_in_child(DEBUG="false", DB_RLS_ENABLED="true")
 
         self.assertEqual(result.returncode, 0, msg=result.stderr)
 
-    def test_ci_or_local_debug_mode_can_explicitly_disable_db_rls(self):
+    def test_debug_mode_can_explicitly_disable_db_rls(self):
         result = self._import_settings_in_child(DEBUG="true", DB_RLS_ENABLED="false")
 
         self.assertEqual(result.returncode, 0, msg=result.stderr)
