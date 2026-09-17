@@ -98,6 +98,17 @@ class AuthenticationSecurityTests(TestCase):
         self.assertTrue(self.user.check_password(self.password))
         self.assertFalse(self.user.check_password("NewStrongPass123!"))
 
+    @override_settings(
+        REST_FRAMEWORK={
+            "DEFAULT_AUTHENTICATION_CLASSES": (
+                "rest_framework_simplejwt.authentication.JWTAuthentication",
+            ),
+            "DEFAULT_PERMISSION_CLASSES": (
+                "rest_framework.permissions.IsAuthenticated",
+            ),
+            "DEFAULT_THROTTLE_CLASSES": [],
+        }
+    )
     def test_signup_uses_membership_role_as_canonical_role(self):
         response = self.client.post(
             "/api/signup/",
