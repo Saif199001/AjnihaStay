@@ -53,9 +53,11 @@ class AuthenticationSecurityTests(TestCase):
         self.assertEqual(existing.data, unknown.data)
         send_mock.assert_called_once()
 
-    def test_password_reset_revokes_outstanding_refresh_tokens(self):
-        refresh = RefreshToken.for_user(self.user)
-        refresh_token = str(refresh)
+    def test_password_reset_revokes_all_outstanding_refresh_tokens(self):
+        refresh_one = RefreshToken.for_user(self.user)
+        refresh_two = RefreshToken.for_user(self.user)
+        refresh_one_token = str(refresh_one)
+        refresh_two_token = str(refresh_two)
         uid = urlsafe_base64_encode(force_bytes(self.user.pk))
         token = default_token_generator.make_token(self.user)
 
@@ -67,10 +69,34 @@ class AuthenticationSecurityTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(
-            BlacklistedToken.objects.filter(
-                token__token=refresh_token
-            ).exists()
+            BlacklistedToken.objects.filter(token__token=refresh_one_token).exists()
         )
+        self.assertTrue(
+            BlacklistedToken.objects.filter(token__token=refresh_two_token).exists()
+        )
+
+    @patch(
+        "rest_framework_simplejwt.token_blacklist.models.BlacklistedToken.objects.get_or_create",
+        side_effect=RuntimeError("blacklist unavailable"),
+    )
+    def test_password_reset_rolls_back_password_when_token_revocation_fails(self, blacklist_mock):
+        RefreshToken.for_user(self.user)
+        uid = urlsafe_base64_encode(force_bytes(self.user.pk))
+        token = default_token_generator.make_token(self.user)
+
+        response = self.client.post(
+            f"/api/reset-password/{uid}/{token}/",
+            {"password": "NewStrongPass123!", "confirm_password": "NewStrongPass123!"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.data, {"error": "Unable to complete password reset"})
+        blacklist_mock.assert_called_once()
+
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password(self.password))
+        self.assertFalse(self.user.check_password("NewStrongPass123!"))
 
     def test_signup_uses_membership_role_as_canonical_role(self):
         response = self.client.post(
