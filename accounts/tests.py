@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
 from django.contrib.auth.tokens import default_token_generator
-from django.test import TestCase, override_settings
+from django.test import TestCase
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 from rest_framework.test import APIClient
@@ -34,7 +34,6 @@ class AuthenticationSecurityTests(TestCase):
         )
         self.assertEqual(response.status_code, 403)
 
-    @override_settings(RESEND_API_KEY="test-key")
     @patch("accounts.api.resend.Emails.send")
     def test_forgot_password_has_same_response_for_unknown_email(self, send_mock):
         existing = self.client.post(
@@ -98,18 +97,8 @@ class AuthenticationSecurityTests(TestCase):
         self.assertTrue(self.user.check_password(self.password))
         self.assertFalse(self.user.check_password("NewStrongPass123!"))
 
-    @override_settings(
-        REST_FRAMEWORK={
-            "DEFAULT_AUTHENTICATION_CLASSES": (
-                "rest_framework_simplejwt.authentication.JWTAuthentication",
-            ),
-            "DEFAULT_PERMISSION_CLASSES": (
-                "rest_framework.permissions.IsAuthenticated",
-            ),
-            "DEFAULT_THROTTLE_CLASSES": [],
-        }
-    )
-    def test_signup_uses_membership_role_as_canonical_role(self):
+    @patch("rest_framework.throttling.SimpleRateThrottle.allow_request", return_value=True)
+    def test_signup_uses_membership_role_as_canonical_role(self, allow_request_mock):
         response = self.client.post(
             "/api/signup/",
             {
@@ -129,6 +118,7 @@ class AuthenticationSecurityTests(TestCase):
         self.assertEqual(membership.role, Membership.ROLE_OWNER)
         self.assertNotIn("role", response.data["user"])
         self.assertFalse(hasattr(user, "role"))
+        allow_request_mock.assert_called()
 
     def test_user_serializer_does_not_expose_role(self):
         data = UserSerializer(self.user).data
