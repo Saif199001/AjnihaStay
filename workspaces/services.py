@@ -8,8 +8,8 @@ from .permissions import ROLE_RANK
 User = get_user_model()
 
 
-def _ensure_manager_can_manage(actor_membership, target_membership=None, target_role=None):
-    if ROLE_RANK[actor_membership.role] < ROLE_RANK["admin"]:
+def _ensure_admin_can_manage(actor_membership, target_membership=None, target_role=None):
+    if ROLE_RANK[actor_membership.role] < ROLE_RANK[Membership.ROLE_ADMIN]:
         raise ValidationError("Workspace admin permission required")
 
     if target_membership and target_membership.role == Membership.ROLE_OWNER:
@@ -27,8 +27,8 @@ def list_members(workspace):
 
 
 @transaction.atomic
-def add_member(workspace, actor_membership, email, role=Membership.ROLE_STAFF):
-    _ensure_manager_can_manage(actor_membership, target_role=role)
+def add_member(workspace, actor_membership, email, role=Membership.ROLE_VIEWER):
+    _ensure_admin_can_manage(actor_membership, target_role=role)
 
     email = (email or "").strip().lower()
     if not email:
@@ -36,7 +36,7 @@ def add_member(workspace, actor_membership, email, role=Membership.ROLE_STAFF):
     if role not in {
         Membership.ROLE_ADMIN,
         Membership.ROLE_MANAGER,
-        Membership.ROLE_STAFF,
+        Membership.ROLE_VIEWER,
     }:
         raise ValidationError("Invalid membership role")
 
@@ -70,11 +70,11 @@ def change_member_role(workspace, actor_membership, target_user_id, role):
     except Membership.DoesNotExist:
         raise ValidationError("Workspace member not found")
 
-    _ensure_manager_can_manage(actor_membership, target_membership=target, target_role=role)
+    _ensure_admin_can_manage(actor_membership, target_membership=target, target_role=role)
     if role not in {
         Membership.ROLE_ADMIN,
         Membership.ROLE_MANAGER,
-        Membership.ROLE_STAFF,
+        Membership.ROLE_VIEWER,
     }:
         raise ValidationError("Invalid membership role")
     if not target.is_active:
@@ -95,7 +95,7 @@ def deactivate_member(workspace, actor_membership, target_user_id):
     except Membership.DoesNotExist:
         raise ValidationError("Workspace member not found")
 
-    _ensure_manager_can_manage(actor_membership, target_membership=target)
+    _ensure_admin_can_manage(actor_membership, target_membership=target)
     if not target.is_active:
         return target
 
