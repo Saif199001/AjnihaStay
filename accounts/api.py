@@ -4,8 +4,10 @@ import resend
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from rest_framework.decorators import api_view, permission_classes
@@ -148,19 +150,20 @@ def reset_password_api(request, uidb64, token):
         return Response({"error": "Invalid or expired token"}, status=400)
 
     try:
-        from django.contrib.auth.password_validation import validate_password
         validate_password(password, user=user)
     except ValidationError as exc:
         return Response({"error": exc.messages}, status=400)
 
-    user.set_password(password)
-    user.save(update_fields=["password"])
-
     try:
-        from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
-        for outstanding in OutstandingToken.objects.filter(user=user):
-            BlacklistedToken.objects.get_or_create(token=outstanding)
+        with transaction.atomic():
+            user.set_password(password)
+            user.save(update_fields=["password"])
+
+            from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
+
+            for outstanding in OutstandingToken.objects.filter(user=user):
+                BlacklistedToken.objects.get_or_create(token=outstanding)
     except Exception:
-        pass
+        return Response({"error": "Unable to complete password reset"}, status=503)
 
     return Response({"message": "Password reset successful"})
