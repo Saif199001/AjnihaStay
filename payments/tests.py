@@ -24,40 +24,20 @@ class PaymentIntegrityTests(TestCase):
         self.other_workspace = Workspace.objects.create(name="Other Workspace", slug="other-workspace", owner=self.other_owner)
         Membership.objects.create(workspace=self.workspace, user=self.owner, role="owner")
         Membership.objects.create(workspace=self.other_workspace, user=self.other_owner, role="owner")
-
-        property_obj = Property.objects.create(
-            owner=self.owner, workspace=self.workspace, name="Test Property", property_type="pg",
-            address="Test Address", city="Delhi", state="Delhi", pincode="110001",
-        )
+        property_obj = Property.objects.create(owner=self.owner, workspace=self.workspace, name="Test Property", property_type="pg", address="Test Address", city="Delhi", state="Delhi", pincode="110001")
         unit = Unit.objects.create(property=property_obj, unit_type="room", unit_number="101", rent=Decimal("10000.00"))
-        tenant = Tenant.objects.create(
-            owner=self.owner, workspace=self.workspace, full_name="Test Tenant",
-            phone="9999999999", permanent_address="Delhi",
-        )
-        occupancy = Occupancy.objects.create(
-            tenant=tenant, unit=unit, allotted_by=self.owner, rent=Decimal("10000.00"),
-            check_in_date=date(2026, 9, 1), next_due_date=date(2026, 10, 1),
-        )
+        tenant = Tenant.objects.create(owner=self.owner, workspace=self.workspace, full_name="Test Tenant", phone="9999999999", permanent_address="Delhi")
+        occupancy = Occupancy.objects.create(tenant=tenant, unit=unit, allotted_by=self.owner, rent=Decimal("10000.00"), check_in_date=date(2026, 9, 1), next_due_date=date(2026, 10, 1))
         self.occupancy = occupancy
-        self.invoice = Invoice.objects.create(
-            occupancy=occupancy, billing_start=date(2026, 9, 1), billing_end=date(2026, 10, 1),
-            rent_amount=Decimal("10000.00"), charges_amount=Decimal("0.00"), due_date=date(2026, 10, 1),
-        )
+        self.invoice = Invoice.objects.create(occupancy=occupancy, billing_start=date(2026, 9, 1), billing_end=date(2026, 10, 1), rent_amount=Decimal("10000.00"), charges_amount=Decimal("0.00"), due_date=date(2026, 10, 1))
         self.client = APIClient()
 
     def payment_data(self, amount):
-        return {
-            "invoice": self.invoice.id, "amount": Decimal(amount), "payment_method": "upi",
-            "payment_date": date(2026, 9, 3),
-        }
+        return {"invoice": self.invoice.id, "amount": Decimal(amount), "payment_method": "upi", "payment_date": date(2026, 9, 3)}
 
     def test_invoice_rejects_negative_amounts(self):
         with self.assertRaises(ValidationError):
-            Invoice.objects.create(
-                occupancy=self.occupancy,
-                billing_start=date(2026, 9, 1), billing_end=date(2026, 10, 1),
-                rent_amount=Decimal("-1.00"), charges_amount=Decimal("0.00"), due_date=date(2026, 10, 1),
-            )
+            Invoice.objects.create(occupancy=self.occupancy, billing_start=date(2026, 9, 1), billing_end=date(2026, 10, 1), rent_amount=Decimal("-1.00"), charges_amount=Decimal("0.00"), due_date=date(2026, 10, 1))
 
     def test_payment_rejects_non_positive_amount(self):
         with self.assertRaises(ValidationError):
@@ -80,13 +60,11 @@ class PaymentIntegrityTests(TestCase):
     def test_payment_overpayment_is_split_into_invoice_settlement_and_advance_credit(self):
         create_payment(self.owner, self.workspace, self.payment_data("7000.00"))
         payment = record_payment(self.owner, self.workspace, self.payment_data("4000.00"))
-
         self.invoice.refresh_from_db()
         self.assertEqual(payment.amount, Decimal("4000.00"))
         self.assertEqual(self.invoice.paid_amount, Decimal("10000.00"))
         self.assertEqual(self.invoice.status, "paid")
         self.assertEqual(self.invoice.due_amount, Decimal("0.00"))
-
         credit = AdvanceCredit.objects.get(source_payment=payment)
         self.assertEqual(credit.original_amount, Decimal("1000.00"))
         self.assertEqual(credit.tenant_id, self.occupancy.tenant_id)
@@ -95,13 +73,7 @@ class PaymentIntegrityTests(TestCase):
     def test_direct_payment_create_cannot_overpay_invoice(self):
         create_payment(self.owner, self.workspace, self.payment_data("7000.00"))
         with self.assertRaises(ValidationError):
-            Payment.objects.create(
-                workspace=self.workspace,
-                invoice=self.invoice,
-                amount=Decimal("4000.00"),
-                payment_method="upi",
-                payment_date=date(2026, 9, 3),
-            )
+            Payment.objects.create(workspace=self.workspace, invoice=self.invoice, amount=Decimal("4000.00"), payment_method="upi", payment_date=date(2026, 9, 3))
 
     def test_payment_is_workspace_scoped(self):
         with self.assertRaises(ValidationError):
@@ -126,21 +98,11 @@ class PaymentIntegrityTests(TestCase):
         self.invoice.refresh_from_db()
         self.invoice.paid_amount = Decimal("9999.00")
         self.invoice.status = "paid"
-
-        with self.assertRaisesMessage(
-            ValidationError,
-            "Invoice paid amount and status are managed by the canonical financial service",
-        ):
+        with self.assertRaisesMessage(ValidationError, "Invoice paid amount and status are managed by the canonical financial service"):
             self.invoice.save()
 
     def test_direct_payment_create_does_not_mutate_invoice_state(self):
-        payment = Payment.objects.create(
-            workspace=self.workspace,
-            invoice=self.invoice,
-            amount=Decimal("4000.00"),
-            payment_method="upi",
-            payment_date=date(2026, 9, 3),
-        )
+        payment = Payment.objects.create(workspace=self.workspace, invoice=self.invoice, amount=Decimal("4000.00"), payment_method="upi", payment_date=date(2026, 9, 3))
         self.assertEqual(payment.amount, Decimal("4000.00"))
         self.invoice.refresh_from_db()
         self.assertEqual(self.invoice.paid_amount, Decimal("0.00"))
@@ -155,11 +117,7 @@ class PaymentIntegrityTests(TestCase):
 
     def test_settlement_uses_actual_payment_rows(self):
         record_payment(self.owner, self.workspace, self.payment_data("4000.00"))
-        Invoice.objects.filter(id=self.invoice.id).update(
-            paid_amount=Decimal("9999.00"),
-            status="partial",
-        )
-
+        Invoice.objects.filter(id=self.invoice.id).update(paid_amount=Decimal("9999.00"), status="partial")
         settlement = calculate_final_settlement(self.occupancy.id, self.workspace)
         self.assertEqual(settlement["total_paid"], Decimal("4000.00"))
         self.assertEqual(settlement["total_due"], Decimal("6000.00"))
@@ -171,15 +129,7 @@ class PaymentIntegrityTests(TestCase):
 
     def test_database_constraint_blocks_invalid_payment_row(self):
         with self.assertRaises(IntegrityError):
-            Payment.objects.bulk_create([
-                Payment(
-                    workspace=self.workspace,
-                    invoice=self.invoice,
-                    amount=Decimal("0.00"),
-                    payment_method="upi",
-                    payment_date=date(2026, 9, 3),
-                )
-            ])
+            Payment.objects.bulk_create([Payment(workspace=self.workspace, invoice=self.invoice, amount=Decimal("0.00"), payment_method="upi", payment_date=date(2026, 9, 3))])
 
 
 class PaymentWorkspaceAPITests(TestCase):
@@ -190,31 +140,17 @@ class PaymentWorkspaceAPITests(TestCase):
         self.other = User.objects.create_user("api-other@example.com", self.password)
         self.manager = User.objects.create_user("api-manager@example.com", self.password)
         self.staff = User.objects.create_user("api-staff@example.com", self.password)
-
         self.workspace = Workspace.objects.create(name="API Workspace", slug="api-workspace", owner=self.owner)
         self.other_workspace = Workspace.objects.create(name="Other API Workspace", slug="other-api-workspace", owner=self.other)
         Membership.objects.create(workspace=self.workspace, user=self.owner, role="owner")
         Membership.objects.create(workspace=self.workspace, user=self.manager, role="manager")
-        Membership.objects.create(workspace=self.workspace, user=self.staff, role="staff")
+        Membership.objects.create(workspace=self.workspace, user=self.staff, role=Membership.ROLE_VIEWER)
         Membership.objects.create(workspace=self.other_workspace, user=self.other, role="owner")
-
-        property_obj = Property.objects.create(
-            owner=self.owner, workspace=self.workspace, name="API Property", property_type="pg",
-            address="Delhi", city="Delhi", state="Delhi", pincode="110001",
-        )
+        property_obj = Property.objects.create(owner=self.owner, workspace=self.workspace, name="API Property", property_type="pg", address="Delhi", city="Delhi", state="Delhi", pincode="110001")
         unit = Unit.objects.create(property=property_obj, unit_type="room", unit_number="201", rent=Decimal("12000.00"))
-        tenant = Tenant.objects.create(
-            owner=self.owner, workspace=self.workspace, full_name="API Tenant",
-            phone="8888888888", permanent_address="Delhi",
-        )
-        self.occupancy = Occupancy.objects.create(
-            tenant=tenant, unit=unit, allotted_by=self.owner, rent=Decimal("12000.00"),
-            check_in_date=date(2026, 9, 1), next_due_date=date(2026, 10, 1),
-        )
-        self.invoice = Invoice.objects.create(
-            occupancy=self.occupancy, billing_start=date(2026, 9, 1), billing_end=date(2026, 10, 1),
-            rent_amount=Decimal("12000.00"), charges_amount=Decimal("0.00"), due_date=date(2026, 10, 1),
-        )
+        tenant = Tenant.objects.create(owner=self.owner, workspace=self.workspace, full_name="API Tenant", phone="8888888888", permanent_address="Delhi")
+        self.occupancy = Occupancy.objects.create(tenant=tenant, unit=unit, allotted_by=self.owner, rent=Decimal("12000.00"), check_in_date=date(2026, 9, 1), next_due_date=date(2026, 10, 1))
+        self.invoice = Invoice.objects.create(occupancy=self.occupancy, billing_start=date(2026, 9, 1), billing_end=date(2026, 10, 1), rent_amount=Decimal("12000.00"), charges_amount=Decimal("0.00"), due_date=date(2026, 10, 1))
 
     def authenticate(self, user, workspace=None):
         self.client.force_authenticate(user=user)
@@ -227,71 +163,31 @@ class PaymentWorkspaceAPITests(TestCase):
 
     def test_payment_create_requires_manager_role(self):
         headers = self.authenticate(self.staff)
-        response = self.client.post("/api/payments/create/", {
-            "invoice": self.invoice.id,
-            "amount": "1000.00",
-            "payment_method": "upi",
-            "payment_date": "2026-09-03",
-        }, format="json", **headers)
+        response = self.client.post("/api/payments/create/", {"invoice": self.invoice.id, "amount": "1000.00", "payment_method": "upi", "payment_date": "2026-09-03"}, format="json", **headers)
         self.assertEqual(response.status_code, 403)
 
     def test_manager_can_create_payment_in_workspace(self):
         headers = self.authenticate(self.manager)
-        response = self.client.post("/api/payments/create/", {
-            "invoice": self.invoice.id,
-            "amount": "1000.00",
-            "payment_method": "upi",
-            "payment_date": "2026-09-03",
-        }, format="json", **headers)
+        response = self.client.post("/api/payments/create/", {"invoice": self.invoice.id, "amount": "1000.00", "payment_method": "upi", "payment_date": "2026-09-03"}, format="json", **headers)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["data"]["invoice"], self.invoice.id)
 
     @patch("payments.api.record_payment")
     def test_payment_create_api_delegates_to_canonical_service(self, record_payment_mock):
-        payment = Payment.objects.create(
-            workspace=self.workspace,
-            invoice=self.invoice,
-            amount=Decimal("1000.00"),
-            payment_method="upi",
-            payment_date=date(2026, 9, 3),
-        )
+        payment = Payment.objects.create(workspace=self.workspace, invoice=self.invoice, amount=Decimal("1000.00"), payment_method="upi", payment_date=date(2026, 9, 3))
         record_payment_mock.return_value = payment
         headers = self.authenticate(self.manager)
-        response = self.client.post("/api/payments/create/", {
-            "invoice": self.invoice.id,
-            "amount": "1000.00",
-            "payment_method": "upi",
-            "payment_date": "2026-09-03",
-        }, format="json", **headers)
+        response = self.client.post("/api/payments/create/", {"invoice": self.invoice.id, "amount": "1000.00", "payment_method": "upi", "payment_date": "2026-09-03"}, format="json", **headers)
         self.assertEqual(response.status_code, 200)
-        record_payment_mock.assert_called_once_with(
-            self.manager,
-            self.workspace,
-            {
-                "invoice": self.invoice,
-                "amount": Decimal("1000.00"),
-                "payment_method": "upi",
-                "payment_date": date(2026, 9, 3),
-            },
-        )
+        record_payment_mock.assert_called_once_with(self.manager, self.workspace, {"invoice": self.invoice, "amount": Decimal("1000.00"), "payment_method": "upi", "payment_date": date(2026, 9, 3)})
 
     def test_cross_workspace_payment_create_is_blocked(self):
         headers = self.authenticate(self.other, self.other_workspace)
-        response = self.client.post("/api/payments/create/", {
-            "invoice": self.invoice.id,
-            "amount": "1000.00",
-            "payment_method": "upi",
-            "payment_date": "2026-09-03",
-        }, format="json", **headers)
+        response = self.client.post("/api/payments/create/", {"invoice": self.invoice.id, "amount": "1000.00", "payment_method": "upi", "payment_date": "2026-09-03"}, format="json", **headers)
         self.assertEqual(response.status_code, 400)
 
     def test_cross_workspace_payment_list_is_empty(self):
-        record_payment(self.owner, self.workspace, {
-            "invoice": self.invoice.id,
-            "amount": Decimal("1000.00"),
-            "payment_method": "upi",
-            "payment_date": date(2026, 9, 3),
-        })
+        record_payment(self.owner, self.workspace, {"invoice": self.invoice.id, "amount": Decimal("1000.00"), "payment_method": "upi", "payment_date": date(2026, 9, 3)})
         headers = self.authenticate(self.other, self.other_workspace)
         response = self.client.get(f"/api/payments/?invoice={self.invoice.id}", **headers)
         self.assertEqual(response.status_code, 200)
