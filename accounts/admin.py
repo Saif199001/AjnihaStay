@@ -61,9 +61,9 @@ class UserProfileAdmin(admin.ModelAdmin):
 
 class StaffAdmin(admin.ModelAdmin):
 
-    list_display = ("user", "owner", "role", "is_active", "created_at")
+    list_display = ("user", "owner", "is_active", "created_at")
 
-    list_filter = ("role", "is_active")
+    list_filter = ("is_active",)
 
     search_fields = ("user__email", "owner__email")
 
