@@ -11,14 +11,24 @@ from dotenv import load_dotenv
 load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+
 def env_bool(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
     if value is None:
         return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise RuntimeError(
+        f"{name} must be a boolean value (true/false, 1/0, yes/no, on/off)"
+    )
+
 
 def env_list(name: str) -> list[str]:
     return [item.strip() for item in os.getenv(name, "").split(",") if item.strip()]
+
 
 SECRET_KEY = os.getenv("SECRET_KEY")
 if not SECRET_KEY:
@@ -36,7 +46,14 @@ SECURE_REFERRER_POLICY = os.getenv("SECURE_REFERRER_POLICY", "same-origin")
 SESSION_COOKIE_SECURE = env_bool("SESSION_COOKIE_SECURE", not DEBUG)
 CSRF_COOKIE_SECURE = env_bool("CSRF_COOKIE_SECURE", not DEBUG)
 AUTH_USER_MODEL = "accounts.User"
+
+if not DEBUG and "DB_RLS_ENABLED" not in os.environ:
+    raise RuntimeError(
+        "DB_RLS_ENABLED environment variable is required when DEBUG=False"
+    )
 DB_RLS_ENABLED = env_bool("DB_RLS_ENABLED", False)
+if not DEBUG and not DB_RLS_ENABLED:
+    raise RuntimeError("DB_RLS_ENABLED must be true when DEBUG=False")
 
 INSTALLED_APPS = [
     "django.contrib.admin", "django.contrib.auth", "django.contrib.contenttypes", "django.contrib.sessions",
