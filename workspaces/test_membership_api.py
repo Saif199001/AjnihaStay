@@ -20,7 +20,7 @@ class WorkspaceMembershipAPITests(TestCase):
             user=self.owner,
             role=Membership.ROLE_OWNER,
         )
-        self.staff = User.objects.create_user("staff@example.com", self.password)
+        self.viewer = User.objects.create_user("viewer@example.com", self.password)
         self.manager = User.objects.create_user("manager@example.com", self.password)
         self.admin = User.objects.create_user("admin@example.com", self.password)
         self.other_owner = User.objects.create_user("other-owner@example.com", self.password)
@@ -38,19 +38,31 @@ class WorkspaceMembershipAPITests(TestCase):
     def authenticate(self, user):
         self.client.force_authenticate(user=user)
 
-    def test_owner_can_add_member(self):
+    def test_owner_can_add_member_as_viewer(self):
         self.authenticate(self.owner)
         response = self.client.post(
             "/api/workspaces/members/",
-            {"email": self.staff.email, "role": Membership.ROLE_STAFF},
+            {"email": self.viewer.email, "role": Membership.ROLE_VIEWER},
             HTTP_X_WORKSPACE_ID=str(self.workspace.id),
             format="json",
         )
 
         self.assertEqual(response.status_code, 201)
-        membership = Membership.objects.get(workspace=self.workspace, user=self.staff)
+        membership = Membership.objects.get(workspace=self.workspace, user=self.viewer)
         self.assertTrue(membership.is_active)
-        self.assertEqual(membership.role, Membership.ROLE_STAFF)
+        self.assertEqual(membership.role, Membership.ROLE_VIEWER)
+
+    def test_legacy_staff_role_is_rejected(self):
+        self.authenticate(self.owner)
+        response = self.client.post(
+            "/api/workspaces/members/",
+            {"email": self.viewer.email, "role": "staff"},
+            HTTP_X_WORKSPACE_ID=str(self.workspace.id),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Membership.objects.filter(workspace=self.workspace, user=self.viewer).exists())
 
     def test_admin_can_add_member_but_cannot_assign_owner(self):
         Membership.objects.create(
@@ -61,27 +73,27 @@ class WorkspaceMembershipAPITests(TestCase):
         self.authenticate(self.admin)
         response = self.client.post(
             "/api/workspaces/members/",
-            {"email": self.staff.email, "role": Membership.ROLE_OWNER},
+            {"email": self.viewer.email, "role": Membership.ROLE_OWNER},
             HTTP_X_WORKSPACE_ID=str(self.workspace.id),
             format="json",
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertFalse(Membership.objects.filter(workspace=self.workspace, user=self.staff).exists())
+        self.assertFalse(Membership.objects.filter(workspace=self.workspace, user=self.viewer).exists())
 
-    def test_manager_and_staff_cannot_manage_members(self):
-        manager_membership = Membership.objects.create(
+    def test_manager_and_viewer_cannot_manage_members(self):
+        Membership.objects.create(
             workspace=self.workspace,
             user=self.manager,
             role=Membership.ROLE_MANAGER,
         )
-        staff_membership = Membership.objects.create(
+        Membership.objects.create(
             workspace=self.workspace,
-            user=self.staff,
-            role=Membership.ROLE_STAFF,
+            user=self.viewer,
+            role=Membership.ROLE_VIEWER,
         )
 
-        for user in (self.manager, self.staff):
+        for user in (self.manager, self.viewer):
             self.authenticate(user)
             response = self.client.get(
                 "/api/workspaces/members/",
@@ -97,8 +109,8 @@ class WorkspaceMembershipAPITests(TestCase):
         )
         Membership.objects.create(
             workspace=self.other_workspace,
-            user=self.staff,
-            role=Membership.ROLE_STAFF,
+            user=self.viewer,
+            role=Membership.ROLE_VIEWER,
         )
         self.authenticate(self.owner)
         response = self.client.get(
@@ -110,13 +122,13 @@ class WorkspaceMembershipAPITests(TestCase):
         returned_ids = {item["user_id"] for item in response.data["data"]}
         self.assertIn(self.owner.id, returned_ids)
         self.assertIn(self.admin.id, returned_ids)
-        self.assertNotIn(self.staff.id, returned_ids)
+        self.assertNotIn(self.viewer.id, returned_ids)
 
     def test_owner_cannot_be_demoted(self):
         self.authenticate(self.owner)
         response = self.client.patch(
             f"/api/workspaces/members/{self.owner.id}/role/",
-            {"role": Membership.ROLE_STAFF},
+            {"role": Membership.ROLE_VIEWER},
             HTTP_X_WORKSPACE_ID=str(self.workspace.id),
             format="json",
         )
@@ -140,32 +152,32 @@ class WorkspaceMembershipAPITests(TestCase):
     def test_cross_workspace_member_role_change_is_blocked(self):
         Membership.objects.create(
             workspace=self.other_workspace,
-            user=self.staff,
-            role=Membership.ROLE_STAFF,
+            user=self.viewer,
+            role=Membership.ROLE_VIEWER,
         )
         self.authenticate(self.owner)
         response = self.client.patch(
-            f"/api/workspaces/members/{self.staff.id}/role/",
+            f"/api/workspaces/members/{self.viewer.id}/role/",
             {"role": Membership.ROLE_ADMIN},
             HTTP_X_WORKSPACE_ID=str(self.workspace.id),
             format="json",
         )
 
         self.assertEqual(response.status_code, 400)
-        membership = Membership.objects.get(workspace=self.other_workspace, user=self.staff)
-        self.assertEqual(membership.role, Membership.ROLE_STAFF)
+        membership = Membership.objects.get(workspace=self.other_workspace, user=self.viewer)
+        self.assertEqual(membership.role, Membership.ROLE_VIEWER)
 
     def test_inactive_member_can_be_reactivated_without_duplicate_membership(self):
         membership = Membership.objects.create(
             workspace=self.workspace,
-            user=self.staff,
-            role=Membership.ROLE_STAFF,
+            user=self.viewer,
+            role=Membership.ROLE_VIEWER,
             is_active=False,
         )
         self.authenticate(self.owner)
         response = self.client.post(
             "/api/workspaces/members/",
-            {"email": self.staff.email, "role": Membership.ROLE_MANAGER},
+            {"email": self.viewer.email, "role": Membership.ROLE_MANAGER},
             HTTP_X_WORKSPACE_ID=str(self.workspace.id),
             format="json",
         )
@@ -174,4 +186,4 @@ class WorkspaceMembershipAPITests(TestCase):
         membership.refresh_from_db()
         self.assertTrue(membership.is_active)
         self.assertEqual(membership.role, Membership.ROLE_MANAGER)
-        self.assertEqual(Membership.objects.filter(workspace=self.workspace, user=self.staff).count(), 1)
+        self.assertEqual(Membership.objects.filter(workspace=self.workspace, user=self.viewer).count(), 1)
