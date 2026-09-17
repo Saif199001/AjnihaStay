@@ -52,7 +52,7 @@ class KycServiceTests(TestCase):
         self.workspace = Workspace.objects.create(name="KYC Workspace", slug="kyc-workspace", owner=self.owner)
         Membership.objects.create(workspace=self.workspace, user=self.owner, role=Membership.ROLE_OWNER)
         Membership.objects.create(workspace=self.workspace, user=self.manager, role=Membership.ROLE_MANAGER)
-        Membership.objects.create(workspace=self.workspace, user=self.staff, role=Membership.ROLE_STAFF)
+        Membership.objects.create(workspace=self.workspace, user=self.staff, role=Membership.ROLE_VIEWER)
         self.tenant = Tenant.objects.create(owner=self.owner, workspace=self.workspace, full_name="KYC Tenant", phone="9999999999", permanent_address="Delhi")
 
     def _uploaded_document(self, document_type="passport", expires_at=None):
