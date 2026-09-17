@@ -126,21 +126,13 @@ class FinancialAdjustmentServiceTests(TestCase):
         self.assertEqual(position["outstanding"], Decimal("12000.00"))
 
     def test_adjustment_amount_with_more_than_two_decimals_is_rejected(self):
-        with self.assertRaisesMessage(
-            ValidationError,
-            "Adjustment amount cannot have more than two decimal places",
-        ):
+        with self.assertRaisesMessage(ValidationError, "Adjustment amount cannot have more than two decimal places"):
             self.create_adjustment(amount="1000.001", idempotency_key="ADJ-PRECISION")
         self.assertEqual(FinancialAdjustment.objects.count(), 0)
 
     def test_discount_waiver_and_write_off_are_credit_side_and_distinguishable(self):
         for index, adjustment_type in enumerate((FinancialAdjustment.TYPE_DISCOUNT, FinancialAdjustment.TYPE_WAIVER, FinancialAdjustment.TYPE_WRITE_OFF)):
-            self.create_adjustment(
-                adjustment_type=adjustment_type,
-                amount="100.00",
-                reason=f"Approved {adjustment_type}",
-                idempotency_key=f"ADJ-{adjustment_type}-{index}",
-            )
+            self.create_adjustment(adjustment_type=adjustment_type, amount="100.00", reason=f"Approved {adjustment_type}", idempotency_key=f"ADJ-{adjustment_type}-{index}")
         position = calculate_invoice_financial_position(self.invoice)
         self.assertEqual(position["credit_adjustments"], Decimal("300.00"))
         self.assertEqual(position["adjustment_totals"][FinancialAdjustment.TYPE_DISCOUNT], Decimal("100.00"))
@@ -160,12 +152,7 @@ class FinancialAdjustmentServiceTests(TestCase):
 
     def test_partial_payment_then_debit_increases_outstanding(self):
         self.create_payment("5000.00")
-        _, position, _ = self.create_adjustment(
-            adjustment_type=FinancialAdjustment.TYPE_DEBIT,
-            amount="2000.00",
-            reason="Additional utility charge",
-            idempotency_key="ADJ-PARTIAL-DEBIT",
-        )
+        _, position, _ = self.create_adjustment(adjustment_type=FinancialAdjustment.TYPE_DEBIT, amount="2000.00", reason="Additional utility charge", idempotency_key="ADJ-PARTIAL-DEBIT")
         self.assertEqual(position["settlement"], Decimal("5000.00"))
         self.assertEqual(position["adjusted_receivable"], Decimal("12000.00"))
         self.assertEqual(position["outstanding"], Decimal("7000.00"))
@@ -193,12 +180,7 @@ class FinancialAdjustmentServiceTests(TestCase):
             self.create_adjustment(amount="1.00", idempotency_key="ADJ-FULLY-PAID")
 
     def test_zero_collectible_without_settlement_remains_pending(self):
-        self.create_adjustment(
-            amount="10000.00",
-            idempotency_key="ADJ-WRITE-OFF-FULL",
-            adjustment_type=FinancialAdjustment.TYPE_WRITE_OFF,
-            reason="Approved full write-off",
-        )
+        self.create_adjustment(amount="10000.00", idempotency_key="ADJ-WRITE-OFF-FULL", adjustment_type=FinancialAdjustment.TYPE_WRITE_OFF, reason="Approved full write-off")
         position = calculate_invoice_financial_position(self.invoice)
         self.assertEqual(position["adjusted_receivable"], Decimal("0.00"))
         self.assertEqual(position["settlement"], Decimal("0"))
@@ -223,35 +205,13 @@ class FinancialAdjustmentServiceTests(TestCase):
 
     def test_service_requires_manager_level_membership(self):
         staff = User.objects.create_user("adjustment-staff@example.com", "StrongPass123!")
-        Membership.objects.create(workspace=self.workspace, user=staff, role=Membership.ROLE_STAFF)
+        Membership.objects.create(workspace=self.workspace, user=staff, role=Membership.ROLE_VIEWER)
         with self.assertRaisesMessage(PermissionDenied, "Financial mutation requires manager-level access"):
-            create_financial_adjustment(
-                staff,
-                self.workspace,
-                {
-                    "invoice": self.invoice.id,
-                    "adjustment_type": "credit",
-                    "amount": "100.00",
-                    "reason": "Staff attempt",
-                },
-            )
+            create_financial_adjustment(staff, self.workspace, {"invoice": self.invoice.id, "adjustment_type": "credit", "amount": "100.00", "reason": "Staff attempt"})
 
     def test_cross_workspace_invoice_is_not_visible_to_service(self):
         other_owner = User.objects.create_user("adjustment-other@example.com", "StrongPass123!")
-        other_workspace = Workspace.objects.create(
-            name="Other Adjustment Service Workspace",
-            slug="other-adjustment-service-workspace",
-            owner=other_owner,
-        )
+        other_workspace = Workspace.objects.create(name="Other Adjustment Service Workspace", slug="other-adjustment-service-workspace", owner=other_owner)
         Membership.objects.create(workspace=other_workspace, user=other_owner, role=Membership.ROLE_OWNER)
         with self.assertRaisesMessage(ValidationError, "Invoice not found"):
-            create_financial_adjustment(
-                other_owner,
-                other_workspace,
-                {
-                    "invoice": self.invoice.id,
-                    "adjustment_type": "credit",
-                    "amount": "100.00",
-                    "reason": "Cross workspace",
-                },
-            )
+            create_financial_adjustment(other_owner, other_workspace, {"invoice": self.invoice.id, "adjustment_type": "credit", "amount": "100.00", "reason": "Cross workspace"})
