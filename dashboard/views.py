@@ -4,7 +4,7 @@ from django.shortcuts import render
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from workspaces.permissions import WorkspaceStaffPermission
+from workspaces.permissions import WorkspaceViewerPermission
 from workspaces.context import get_workspace_for_request
 from workspaces.db import set_workspace_context
 
@@ -13,7 +13,7 @@ from .services import get_dashboard_data
 
 
 class DashboardAPIView(APIView):
-    permission_classes = [WorkspaceStaffPermission]
+    permission_classes = [WorkspaceViewerPermission]
 
     def get(self, request):
         query_serializer = DashboardQuerySerializer(data=request.query_params)
