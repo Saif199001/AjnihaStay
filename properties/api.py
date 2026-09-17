@@ -2,7 +2,7 @@ from django.core.exceptions import ValidationError
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
-from workspaces.permissions import WorkspaceManagerPermission, WorkspaceStaffPermission
+from workspaces.permissions import WorkspaceManagerPermission, WorkspaceViewerPermission
 from .models import Property
 from .serializers import PropertySerializer
 from .services import create_property
@@ -13,7 +13,7 @@ def _validation_message(exc):
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def property_list_api(request):
     properties = Property.objects.filter(workspace=request.workspace, is_active=True).order_by("id")
     return Response({"data": PropertySerializer(properties, many=True).data})
