@@ -3,7 +3,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
-from workspaces.permissions import WorkspaceManagerPermission, WorkspaceStaffPermission
+from workspaces.permissions import WorkspaceManagerPermission, WorkspaceViewerPermission
 from .serializers import ApplicantSerializer, ApplicationEventSerializer, ApplicationSerializer
 from .services import (
     approve_application,
@@ -75,13 +75,13 @@ def applicant_create_api(request):
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def applicant_list_api(request):
     return _paginate_response(request, list_applicants(request.workspace), ApplicantSerializer)
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def applicant_detail_api(request, applicant_id):
     try:
         applicant = get_applicant(request.workspace, applicant_id)
@@ -104,7 +104,7 @@ def application_create_api(request):
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def application_list_api(request):
     try:
         applications = list_applications(
@@ -119,7 +119,7 @@ def application_list_api(request):
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def application_detail_api(request, application_id):
     try:
         application = get_application(request.workspace, application_id)
@@ -198,7 +198,7 @@ def application_withdraw_api(request, application_id):
 
 
 @api_view(["GET"])
-@permission_classes([WorkspaceStaffPermission])
+@permission_classes([WorkspaceViewerPermission])
 def application_history_api(request, application_id):
     try:
         history = get_application_history(request.workspace, application_id)
