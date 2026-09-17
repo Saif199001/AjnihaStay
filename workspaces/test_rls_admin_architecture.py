@@ -9,7 +9,7 @@ from unit.models import SubUnit, Unit
 from payments.models import Invoice, Payment
 
 from .models import Membership, Workspace
-from .permissions import WorkspaceStaffPermission
+from .permissions import WorkspaceViewerPermission
 
 
 class WorkspaceRLSAdminArchitectureTests(TestCase):
@@ -35,7 +35,7 @@ class WorkspaceRLSAdminArchitectureTests(TestCase):
         request = factory.get("/api/test/")
         request.user = self.user
 
-        permission = WorkspaceStaffPermission()
+        permission = WorkspaceViewerPermission()
         self.assertTrue(permission.has_permission(request, object()))
         self.assertEqual(request.workspace.id, self.workspace.id)
         self.assertEqual(request.workspace_membership.workspace_id, self.workspace.id)
