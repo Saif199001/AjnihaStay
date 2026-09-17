@@ -17,7 +17,7 @@ class PaymentRefundAPITests(TestCase):
             email="refund-api-owner@example.com", password="pass1234"
         )
         self.staff = User.objects.create_user(
-            email="refund-api-staff@example.com", password="pass1234", role="staff"
+            email="refund-api-staff@example.com", password="pass1234"
         )
         self.workspace = Workspace.objects.create(
             name="Refund API Workspace",
