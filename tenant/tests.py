@@ -150,12 +150,12 @@ class TenantWorkspaceAPITests(TestCase):
         self.owner = User.objects.create_user("tenant-api-owner@example.com", password)
         self.other = User.objects.create_user("tenant-api-other@example.com", password)
         self.manager = User.objects.create_user("tenant-api-manager@example.com", password)
-        self.staff = User.objects.create_user("tenant-api-staff@example.com", password)
+        self.viewer = User.objects.create_user("tenant-api-viewer@example.com", password)
         self.workspace = Workspace.objects.create(name="Tenant API", slug="tenant-api", owner=self.owner)
         self.other_workspace = Workspace.objects.create(name="Other Tenant API", slug="other-tenant-api", owner=self.other)
         Membership.objects.create(workspace=self.workspace, user=self.owner, role="owner")
         Membership.objects.create(workspace=self.workspace, user=self.manager, role="manager")
-        Membership.objects.create(workspace=self.workspace, user=self.staff, role="staff")
+        Membership.objects.create(workspace=self.workspace, user=self.viewer, role=Membership.ROLE_VIEWER)
         Membership.objects.create(workspace=self.other_workspace, user=self.other, role="owner")
         self.property = Property.objects.create(owner=self.owner, workspace=self.workspace, name="API Property", property_type="pg", address="Delhi", city="Delhi", state="Delhi", pincode="110001")
         self.other_property = Property.objects.create(owner=self.other, workspace=self.other_workspace, name="Other API Property", property_type="pg", address="Delhi", city="Delhi", state="Delhi", pincode="110002")
@@ -188,7 +188,7 @@ class TenantWorkspaceAPITests(TestCase):
         }
 
     def test_staff_cannot_create_tenant(self):
-        response = self.client.post("/api/tenants/create/", {"full_name": "Blocked", "phone": "6666666666", "permanent_address": "Delhi"}, format="json", **self.headers(self.staff))
+        response = self.client.post("/api/tenants/create/", {"full_name": "Blocked", "phone": "6666666666", "permanent_address": "Delhi"}, format="json", **self.headers(self.viewer))
         self.assertEqual(response.status_code, 403)
         self.assertFalse(Tenant.objects.filter(full_name="Blocked").exists())
 
@@ -200,7 +200,7 @@ class TenantWorkspaceAPITests(TestCase):
         self.assertEqual(created.owner_id, self.manager.id)
 
     def test_staff_cannot_create_occupancy(self):
-        response = self.client.post("/api/occupancy/create/", self.occupancy_payload(), format="json", **self.headers(self.staff))
+        response = self.client.post("/api/occupancy/create/", self.occupancy_payload(), format="json", **self.headers(self.viewer))
         self.assertEqual(response.status_code, 403)
         self.assertEqual(Occupancy.objects.count(), 0)
 
@@ -242,13 +242,13 @@ class TenantWorkspaceAPITests(TestCase):
         self.assertEqual(Charge.objects.filter(occupancy=occupancy).count(), 0)
 
     def test_malformed_charge_list_occupancy_id_returns_400(self):
-        headers = self.headers(self.staff)
+        headers = self.headers(self.viewer)
         response = self.client.get("/api/charges/?occupancy=not-a-number", **headers)
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.data["error"], "Invalid occupancy ID")
 
     def test_zero_charge_list_occupancy_id_returns_400(self):
-        headers = self.headers(self.staff)
+        headers = self.headers(self.viewer)
         response = self.client.get("/api/charges/?occupancy=0", **headers)
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.data["error"], "Invalid occupancy ID")
