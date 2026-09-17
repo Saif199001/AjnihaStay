@@ -3,14 +3,12 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from .models import User, UserProfile, Staff
 
 
-# 🔥 Custom User Admin
 class UserAdmin(BaseUserAdmin):
 
     model = User
 
     list_display = (
         "email",
-        "role",
         "is_active",
         "is_staff",
         "is_active_account",
@@ -18,7 +16,6 @@ class UserAdmin(BaseUserAdmin):
     )
 
     list_filter = (
-        "role",
         "is_active",
         "is_staff",
         "is_superuser",
@@ -37,8 +34,8 @@ class UserAdmin(BaseUserAdmin):
         ("Permissions", {
             "fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")
         }),
-        ("Role Info", {
-            "fields": ("role", "phone", "is_active_account")
+        ("Account Info", {
+            "fields": ("phone", "is_active_account")
         }),
         ("Important Dates", {
             "fields": ("date_joined",)
@@ -48,12 +45,11 @@ class UserAdmin(BaseUserAdmin):
     add_fieldsets = (
         (None, {
             "classes": ("wide",),
-            "fields": ("email", "password1", "password2", "role"),
+            "fields": ("email", "password1", "password2"),
         }),
     )
 
 
-# 🔥 User Profile Admin
 class UserProfileAdmin(admin.ModelAdmin):
 
     list_display = ("user", "city", "state")
@@ -63,7 +59,6 @@ class UserProfileAdmin(admin.ModelAdmin):
     list_filter = ("city", "state")
 
 
-# 🔥 Staff Admin
 class StaffAdmin(admin.ModelAdmin):
 
     list_display = ("user", "owner", "role", "is_active", "created_at")
@@ -77,12 +72,10 @@ class StaffAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at",)
 
 
-# 🔥 Register Models
 admin.site.register(User, UserAdmin)
 admin.site.register(UserProfile, UserProfileAdmin)
 admin.site.register(Staff, StaffAdmin)
 
-# 🔥 Admin Panel Branding
 admin.site.site_header = "AjnihaStay Admin"
 admin.site.site_title = "AjnihaStay"
 admin.site.index_title = "Welcome to AjnihaStay Dashboard"
