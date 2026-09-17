@@ -40,7 +40,7 @@ class PaymentRefundServiceTests(TestCase):
             workspace=self.workspace, user=self.manager, role=Membership.ROLE_MANAGER
         )
         Membership.objects.create(
-            workspace=self.workspace, user=self.staff, role=Membership.ROLE_STAFF
+            workspace=self.workspace, user=self.staff, role=Membership.ROLE_VIEWER
         )
         Membership.objects.create(
             workspace=self.other_workspace, user=self.owner, role=Membership.ROLE_OWNER
@@ -58,282 +58,89 @@ class PaymentRefundServiceTests(TestCase):
         )
 
     def test_request_creates_requested_refund(self):
-        refund = request_payment_refund(
-            user=self.owner,
-            workspace=self.workspace,
-            payment=self.payment,
-            amount="2500",
-            reason="Customer overpayment",
-        )
+        refund = request_payment_refund(user=self.owner, workspace=self.workspace, payment=self.payment, amount="2500", reason="Customer overpayment")
         self.assertEqual(refund.status, PaymentRefund.STATUS_REQUESTED)
         self.assertEqual(refund.amount, Decimal("2500.00"))
         self.assertEqual(refund.payment_id, self.payment.id)
 
     def test_successful_refund_consumes_capacity(self):
-        refund = request_payment_refund(
-            user=self.owner,
-            workspace=self.workspace,
-            payment=self.payment,
-            amount="4000",
-            reason="Partial refund",
-        )
-        transition_payment_refund(
-            user=self.owner,
-            workspace=self.workspace,
-            refund=refund,
-            status=PaymentRefund.STATUS_PROCESSING,
-        )
-        transition_payment_refund(
-            user=self.owner,
-            workspace=self.workspace,
-            refund=refund,
-            status=PaymentRefund.STATUS_SUCCEEDED,
-        )
-        second = request_payment_refund(
-            user=self.owner,
-            workspace=self.workspace,
-            payment=self.payment,
-            amount="6000",
-            reason="Remaining refund",
-        )
+        refund = request_payment_refund(user=self.owner, workspace=self.workspace, payment=self.payment, amount="4000", reason="Partial refund")
+        transition_payment_refund(user=self.owner, workspace=self.workspace, refund=refund, status=PaymentRefund.STATUS_PROCESSING)
+        transition_payment_refund(user=self.owner, workspace=self.workspace, refund=refund, status=PaymentRefund.STATUS_SUCCEEDED)
+        second = request_payment_refund(user=self.owner, workspace=self.workspace, payment=self.payment, amount="6000", reason="Remaining refund")
         self.assertEqual(second.amount, Decimal("6000.00"))
         with self.assertRaises(ValidationError):
-            request_payment_refund(
-                user=self.owner,
-                workspace=self.workspace,
-                payment=self.payment,
-                amount="1",
-                reason="Excess refund",
-            )
+            request_payment_refund(user=self.owner, workspace=self.workspace, payment=self.payment, amount="1", reason="Excess refund")
 
     def test_active_refund_reserves_capacity(self):
-        request_payment_refund(
-            user=self.owner,
-            workspace=self.workspace,
-            payment=self.payment,
-            amount="7000",
-            reason="Pending refund",
-        )
+        request_payment_refund(user=self.owner, workspace=self.workspace, payment=self.payment, amount="7000", reason="Pending refund")
         with self.assertRaises(ValidationError):
-            request_payment_refund(
-                user=self.owner,
-                workspace=self.workspace,
-                payment=self.payment,
-                amount="3001",
-                reason="Over capacity",
-            )
+            request_payment_refund(user=self.owner, workspace=self.workspace, payment=self.payment, amount="3001", reason="Over capacity")
 
     def test_failed_refund_releases_capacity(self):
-        refund = request_payment_refund(
-            user=self.owner,
-            workspace=self.workspace,
-            payment=self.payment,
-            amount="7000",
-            reason="Refund attempt",
-        )
-        failed_refund = transition_payment_refund(
-            user=self.owner,
-            workspace=self.workspace,
-            refund=refund,
-            status=PaymentRefund.STATUS_FAILED,
-            failure_reason="Gateway rejected",
-        )
-        replacement = request_payment_refund(
-            user=self.owner,
-            workspace=self.workspace,
-            payment=self.payment,
-            amount="7000",
-            reason="Retry refund",
-        )
+        refund = request_payment_refund(user=self.owner, workspace=self.workspace, payment=self.payment, amount="7000", reason="Refund attempt")
+        failed_refund = transition_payment_refund(user=self.owner, workspace=self.workspace, refund=refund, status=PaymentRefund.STATUS_FAILED, failure_reason="Gateway rejected")
+        replacement = request_payment_refund(user=self.owner, workspace=self.workspace, payment=self.payment, amount="7000", reason="Retry refund")
         self.assertEqual(replacement.status, PaymentRefund.STATUS_REQUESTED)
         self.assertEqual(failed_refund.status, PaymentRefund.STATUS_FAILED)
-        self.assertEqual(
-            PaymentRefund.objects.filter(
-                payment=self.payment, status=PaymentRefund.STATUS_FAILED
-            ).count(),
-            1,
-        )
+        self.assertEqual(PaymentRefund.objects.filter(payment=self.payment, status=PaymentRefund.STATUS_FAILED).count(), 1)
 
     def test_idempotency_returns_existing_refund_for_same_operation(self):
-        first = request_payment_refund(
-            user=self.owner,
-            workspace=self.workspace,
-            payment=self.payment,
-            amount="1500",
-            reason="Duplicate-safe",
-            idempotency_key="refund-1",
-        )
-        second = request_payment_refund(
-            user=self.owner,
-            workspace=self.workspace,
-            payment=self.payment,
-            amount="1500",
-            reason="Duplicate-safe",
-            idempotency_key="refund-1",
-        )
+        first = request_payment_refund(user=self.owner, workspace=self.workspace, payment=self.payment, amount="1500", reason="Duplicate-safe", idempotency_key="refund-1")
+        second = request_payment_refund(user=self.owner, workspace=self.workspace, payment=self.payment, amount="1500", reason="Duplicate-safe", idempotency_key="refund-1")
         self.assertEqual(first.id, second.id)
-        self.assertEqual(
-            PaymentRefund.objects.filter(idempotency_key="refund-1").count(), 1
-        )
+        self.assertEqual(PaymentRefund.objects.filter(idempotency_key="refund-1").count(), 1)
 
     def test_idempotency_conflict_is_rejected(self):
-        request_payment_refund(
-            user=self.owner,
-            workspace=self.workspace,
-            payment=self.payment,
-            amount="1500",
-            reason="Original",
-            idempotency_key="refund-conflict",
-        )
+        request_payment_refund(user=self.owner, workspace=self.workspace, payment=self.payment, amount="1500", reason="Original", idempotency_key="refund-conflict")
         with self.assertRaises(ValidationError):
-            request_payment_refund(
-                user=self.owner,
-                workspace=self.workspace,
-                payment=self.payment,
-                amount="1600",
-                reason="Different operation",
-                idempotency_key="refund-conflict",
-            )
+            request_payment_refund(user=self.owner, workspace=self.workspace, payment=self.payment, amount="1600", reason="Different operation", idempotency_key="refund-conflict")
 
     def test_unauthorized_staff_cannot_request_refund(self):
         with self.assertRaises(ValidationError):
-            request_payment_refund(
-                user=self.staff,
-                workspace=self.workspace,
-                payment=self.payment,
-                amount="100",
-                reason="Unauthorized",
-            )
+            request_payment_refund(user=self.staff, workspace=self.workspace, payment=self.payment, amount="100", reason="Unauthorized")
 
     def test_manager_can_request_refund(self):
-        refund = request_payment_refund(
-            user=self.manager,
-            workspace=self.workspace,
-            payment=self.payment,
-            amount="100",
-            reason="Manager refund",
-        )
+        refund = request_payment_refund(user=self.manager, workspace=self.workspace, payment=self.payment, amount="100", reason="Manager refund")
         self.assertEqual(refund.requested_by_id, self.manager.id)
 
     def test_owner_without_workspace_membership_cannot_request_refund(self):
         with self.assertRaises(ValidationError):
-            request_payment_refund(
-                user=self.outsider,
-                workspace=self.workspace,
-                payment=self.payment,
-                amount="100",
-                reason="Outsider owner",
-            )
+            request_payment_refund(user=self.outsider, workspace=self.workspace, payment=self.payment, amount="100", reason="Outsider owner")
 
     def test_cross_workspace_payment_is_rejected(self):
         with self.assertRaises(ValidationError):
-            request_payment_refund(
-                user=self.owner,
-                workspace=self.other_workspace,
-                payment=self.payment,
-                amount="100",
-                reason="Wrong workspace",
-            )
+            request_payment_refund(user=self.owner, workspace=self.other_workspace, payment=self.payment, amount="100", reason="Wrong workspace")
 
     def test_payment_is_not_mutated(self):
         original_amount = self.payment.amount
-        refund = request_payment_refund(
-            user=self.owner,
-            workspace=self.workspace,
-            payment=self.payment,
-            amount="500",
-            reason="No payment mutation",
-        )
+        refund = request_payment_refund(user=self.owner, workspace=self.workspace, payment=self.payment, amount="500", reason="No payment mutation")
         self.payment.refresh_from_db()
         self.assertEqual(self.payment.amount, original_amount)
         self.assertEqual(refund.payment_id, self.payment.id)
 
     def test_multiple_partial_refunds_never_exceed_payment_amount(self):
-        first = request_payment_refund(
-            user=self.owner,
-            workspace=self.workspace,
-            payment=self.payment,
-            amount="3000",
-            reason="First partial refund",
-        )
-        transition_payment_refund(
-            user=self.owner,
-            workspace=self.workspace,
-            refund=first,
-            status=PaymentRefund.STATUS_PROCESSING,
-        )
-        transition_payment_refund(
-            user=self.owner,
-            workspace=self.workspace,
-            refund=first,
-            status=PaymentRefund.STATUS_SUCCEEDED,
-        )
-        second = request_payment_refund(
-            user=self.owner,
-            workspace=self.workspace,
-            payment=self.payment,
-            amount="2000",
-            reason="Second partial refund",
-        )
+        first = request_payment_refund(user=self.owner, workspace=self.workspace, payment=self.payment, amount="3000", reason="First partial refund")
+        transition_payment_refund(user=self.owner, workspace=self.workspace, refund=first, status=PaymentRefund.STATUS_PROCESSING)
+        transition_payment_refund(user=self.owner, workspace=self.workspace, refund=first, status=PaymentRefund.STATUS_SUCCEEDED)
+        second = request_payment_refund(user=self.owner, workspace=self.workspace, payment=self.payment, amount="2000", reason="Second partial refund")
         self.assertEqual(second.status, PaymentRefund.STATUS_REQUESTED)
         with self.assertRaises(ValidationError):
-            request_payment_refund(
-                user=self.owner,
-                workspace=self.workspace,
-                payment=self.payment,
-                amount="5001",
-                reason="Beyond remaining capacity",
-            )
-        self.assertEqual(
-            PaymentRefund.objects.filter(payment=self.payment).aggregate(total=Sum("amount"))["total"],
-            Decimal("5000.00"),
-        )
+            request_payment_refund(user=self.owner, workspace=self.workspace, payment=self.payment, amount="5001", reason="Beyond remaining capacity")
+        self.assertEqual(PaymentRefund.objects.filter(payment=self.payment).aggregate(total=Sum("amount"))["total"], Decimal("5000.00"))
 
     def test_state_transitions_and_failure_reason(self):
-        refund = request_payment_refund(
-            user=self.owner,
-            workspace=self.workspace,
-            payment=self.payment,
-            amount="500",
-            reason="State test",
-        )
-        transition_payment_refund(
-            user=self.owner,
-            workspace=self.workspace,
-            refund=refund,
-            status=PaymentRefund.STATUS_PROCESSING,
-        )
+        refund = request_payment_refund(user=self.owner, workspace=self.workspace, payment=self.payment, amount="500", reason="State test")
+        transition_payment_refund(user=self.owner, workspace=self.workspace, refund=refund, status=PaymentRefund.STATUS_PROCESSING)
         refund.refresh_from_db()
         self.assertEqual(refund.status, PaymentRefund.STATUS_PROCESSING)
-        transition_payment_refund(
-            user=self.owner,
-            workspace=self.workspace,
-            refund=refund,
-            status=PaymentRefund.STATUS_SUCCEEDED,
-        )
+        transition_payment_refund(user=self.owner, workspace=self.workspace, refund=refund, status=PaymentRefund.STATUS_SUCCEEDED)
         refund.refresh_from_db()
         self.assertEqual(refund.status, PaymentRefund.STATUS_SUCCEEDED)
         with self.assertRaises(ValidationError):
-            transition_payment_refund(
-                user=self.owner,
-                workspace=self.workspace,
-                refund=refund,
-                status=PaymentRefund.STATUS_FAILED,
-                failure_reason="Too late",
-            )
+            transition_payment_refund(user=self.owner, workspace=self.workspace, refund=refund, status=PaymentRefund.STATUS_FAILED, failure_reason="Too late")
 
     def test_failed_transition_requires_failure_reason(self):
-        refund = request_payment_refund(
-            user=self.owner,
-            workspace=self.workspace,
-            payment=self.payment,
-            amount="500",
-            reason="Failure test",
-        )
+        refund = request_payment_refund(user=self.owner, workspace=self.workspace, payment=self.payment, amount="500", reason="Failure test")
         with self.assertRaises(ValidationError):
-            transition_payment_refund(
-                user=self.owner,
-                workspace=self.workspace,
-                refund=refund,
-                status=PaymentRefund.STATUS_FAILED,
-            )
+            transition_payment_refund(user=self.owner, workspace=self.workspace, refund=refund, status=PaymentRefund.STATUS_FAILED)
