@@ -54,7 +54,6 @@ class LeaseApiTests(TestCase):
         self.assertEqual(len(response.data["data"]), 1)
         detail = lease_detail_api(self.auth(self.factory.get(f"/api/leases/{lease_id}/"), self.member), lease_id)
         self.assertEqual(detail.status_code, 200)
-
         other_owner = User.objects.create_user(email="p14-other-list@example.com", password="pass")
         other = Workspace.objects.create(name="Other P14 List", slug="other-p14-list", owner=other_owner)
         Membership.objects.create(workspace=other, user=other_owner, role="owner", is_active=True)
@@ -64,24 +63,15 @@ class LeaseApiTests(TestCase):
 
     def test_write_endpoints_require_manager_permission(self):
         lease_id = self.create_lease()
-
         create_request = self.auth(self.factory.post("/api/leases/create/", self.payload(), format="json"), self.member)
         self.assertEqual(lease_create_api(create_request).status_code, 403)
-
         update_request = self.auth(self.factory.post(f"/api/leases/{lease_id}/update/", {"agreement_number": "P14-001"}, format="json"), self.member)
         self.assertEqual(lease_update_api(update_request, lease_id).status_code, 403)
-
         transition_request = self.auth(self.factory.post(f"/api/leases/{lease_id}/transition/", {"status": Lease.STATUS_PENDING_SIGNATURE}, format="json"), self.member)
         self.assertEqual(lease_transition_api(transition_request, lease_id).status_code, 403)
 
     def test_unauthenticated_requests_are_rejected(self):
-        for view, request, args in (
-            (lease_list_api, self.factory.get("/api/leases/"), ()),
-            (lease_detail_api, self.factory.get("/api/leases/1/"), (1,)),
-            (lease_create_api, self.factory.post("/api/leases/create/", self.payload(), format="json"), ()),
-            (lease_update_api, self.factory.post("/api/leases/1/update/", {}, format="json"), (1,)),
-            (lease_transition_api, self.factory.post("/api/leases/1/transition/", {"status": Lease.STATUS_PENDING_SIGNATURE}, format="json"), (1,)),
-        ):
+        for view, request, args in ((lease_list_api, self.factory.get("/api/leases/"), ()), (lease_detail_api, self.factory.get("/api/leases/1/"), (1,)), (lease_create_api, self.factory.post("/api/leases/create/", self.payload(), format="json"), ()), (lease_update_api, self.factory.post("/api/leases/1/update/", {}, format="json"), (1,)), (lease_transition_api, self.factory.post("/api/leases/1/transition/", {"status": Lease.STATUS_PENDING_SIGNATURE}, format="json"), (1,))):
             self.assertEqual(view(self.unauth(request), *args).status_code, 401)
 
     def test_detail_returns_404_for_wrong_workspace(self):
@@ -94,7 +84,7 @@ class LeaseApiTests(TestCase):
 
     def test_transition_validation_is_exposed_as_400(self):
         lease_id = self.create_lease()
-        transition = lease_transition_api(self.auth(self.factory.post(f"/api/leases/{lease_id}/transition/", {"status": Lease.STATUS_PENDING_SIGNATURE}, format="json"), self.manager), lease_id)
+        transition = lease_transition_api(self.auth(self.factory.post(f"/api/leases/{lease_id}/transition/", {"status": Lease.STATUS_ACTIVE}, format="json"), self.manager), lease_id)
         self.assertEqual(transition.status_code, 400)
 
     def test_serializer_rejects_invalid_date_and_negative_money(self):
@@ -102,7 +92,6 @@ class LeaseApiTests(TestCase):
         bad["end_date"] = "2025-12-31"
         response = lease_create_api(self.auth(self.factory.post("/api/leases/create/", bad, format="json"), self.manager))
         self.assertEqual(response.status_code, 400)
-
         bad = self.payload()
         bad["rent_amount"] = "-1.00"
         response = lease_create_api(self.auth(self.factory.post("/api/leases/create/", bad, format="json"), self.manager))
