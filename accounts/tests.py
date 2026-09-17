@@ -9,6 +9,8 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 
 from .models import User
+from .serializers import UserSerializer
+from workspaces.models import Membership, Workspace
 
 
 class AuthenticationSecurityTests(TestCase):
@@ -69,3 +71,30 @@ class AuthenticationSecurityTests(TestCase):
                 token__token=refresh_token
             ).exists()
         )
+
+    def test_signup_uses_membership_role_as_canonical_role(self):
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "email": "canonical-role@example.com",
+                "password": self.password,
+                "confirm_password": self.password,
+                "workspace_name": "Canonical Role Workspace",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        user = User.objects.get(email="canonical-role@example.com")
+        workspace = Workspace.objects.get(owner=user)
+        membership = Membership.objects.get(workspace=workspace, user=user)
+
+        self.assertEqual(membership.role, Membership.ROLE_OWNER)
+        self.assertNotIn("role", response.data["user"])
+        self.assertFalse(hasattr(user, "role"))
+
+    def test_user_serializer_does_not_expose_role(self):
+        data = UserSerializer(self.user).data
+
+        self.assertEqual(set(data.keys()), {"id", "email"})
+        self.assertNotIn("role", data)
