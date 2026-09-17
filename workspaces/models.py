@@ -28,13 +28,13 @@ class Membership(models.Model):
     ROLE_OWNER = "owner"
     ROLE_ADMIN = "admin"
     ROLE_MANAGER = "manager"
-    ROLE_STAFF = "staff"
+    ROLE_VIEWER = "viewer"
 
     ROLE_CHOICES = (
         (ROLE_OWNER, "Owner"),
         (ROLE_ADMIN, "Admin"),
         (ROLE_MANAGER, "Manager"),
-        (ROLE_STAFF, "Staff"),
+        (ROLE_VIEWER, "Viewer"),
     )
 
     workspace = models.ForeignKey(
@@ -47,7 +47,7 @@ class Membership(models.Model):
         on_delete=models.CASCADE,
         related_name="workspace_memberships",
     )
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default=ROLE_STAFF)
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default=ROLE_VIEWER)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
