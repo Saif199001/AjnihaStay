@@ -7,7 +7,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from rest_framework.decorators import api_view, permission_classes
@@ -49,15 +49,12 @@ def login_api(request):
     if user is None:
         return Response({"error": "Invalid credentials"}, status=401)
 
-    if not user.email_verified:
-        return Response({"error": "Email verification required"}, status=403)
+    try:
+        tokens = get_tokens_for_user(user)
+    except ValidationError as exc:
+        return Response({"error": exc.messages}, status=403)
 
-    refresh = RefreshToken.for_user(user)
-    return Response({
-        "message": "Login successful",
-        "access": str(refresh.access_token),
-        "refresh": str(refresh),
-    })
+    return Response({"message": "Login successful", **tokens})
 
 
 @api_view(["POST"])
@@ -72,7 +69,10 @@ def signup_api(request):
         if not email or not password or not confirm_password:
             return Response({"error": "All fields required"}, status=400)
 
-        user = create_user_account(email, password, confirm_password, workspace_name)
+        try:
+            user = create_user_account(email, password, confirm_password, workspace_name)
+        except IntegrityError:
+            return Response({"error": ["Email already exists"]}, status=400)
 
         verification_email_sent = False
         try:
@@ -133,7 +133,7 @@ def resend_verification_api(request):
     try:
         send_email_verification(user)
     except Exception:
-        return Response({"error": "Unable to send verification email"}, status=503)
+        return Response(generic_response)
 
     return Response(generic_response)
 
@@ -209,16 +209,18 @@ def reset_password_api(request, uidb64, token):
     except (TypeError, ValueError, OverflowError, User.DoesNotExist):
         return Response({"error": "Invalid link"}, status=400)
 
-    if not default_token_generator.check_token(user, token):
-        return Response({"error": "Invalid or expired token"}, status=400)
-
-    try:
-        validate_password(password, user=user)
-    except ValidationError as exc:
-        return Response({"error": exc.messages}, status=400)
-
     try:
         with transaction.atomic():
+            user = User.objects.select_for_update().get(pk=user.pk, is_active=True)
+
+            if not default_token_generator.check_token(user, token):
+                return Response({"error": "Invalid or expired token"}, status=400)
+
+            try:
+                validate_password(password, user=user)
+            except ValidationError as exc:
+                return Response({"error": exc.messages}, status=400)
+
             user.set_password(password)
             user.save(update_fields=["password"])
 
