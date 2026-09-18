@@ -127,7 +127,10 @@ def verify_email_api(request, uidb64, token):
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def resend_verification_api(request):
-    email = _normalized_email(request.data.get("email"))
+    raw_email = request.data.get("email")
+    if not isinstance(raw_email, str):
+        return Response({"error": "Email is required"}, status=400)
+    email = _normalized_email(raw_email)
     if not email:
         return Response({"error": "Email is required"}, status=400)
 
@@ -166,7 +169,10 @@ def logout_api(request):
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def forgot_password_api(request):
-    email = _normalized_email(request.data.get("email"))
+    raw_email = request.data.get("email")
+    if not isinstance(raw_email, str):
+        return Response({"error": "Email is required"}, status=400)
+    email = _normalized_email(raw_email)
     if not email:
         return Response({"error": "Email is required"}, status=400)
 
