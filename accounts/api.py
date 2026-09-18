@@ -72,7 +72,9 @@ def signup_api(request):
         try:
             user = create_user_account(email, password, confirm_password, workspace_name)
         except IntegrityError:
-            return Response({"error": ["Email already exists"]}, status=400)
+            if User.objects.filter(email=email).exists():
+                return Response({"error": ["Email already exists"]}, status=400)
+            raise
 
         verification_email_sent = False
         try:
