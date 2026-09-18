@@ -19,6 +19,10 @@ from workspaces.models import Membership, Workspace
 User = get_user_model()
 
 
+class EmailVerificationDeliveryError(Exception):
+    """Expected email-delivery failure for verification messages."""
+
+
 def _unique_workspace_slug(email):
     base = slugify(email.split("@")[0]) or "workspace"
     slug = base
@@ -120,22 +124,25 @@ def verify_user_email(user, token):
 
 
 def send_email_verification(user):
-    if not settings.RESEND_API_KEY:
-        raise RuntimeError("Email verification service is not configured")
+    try:
+        if not settings.RESEND_API_KEY:
+            raise RuntimeError("Email verification service is not configured")
 
-    uid = urlsafe_base64_encode(force_bytes(user.pk))
-    token = default_token_generator.make_token(user)
-    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
-    verify_url = f"{frontend_url}/verify-email/{uid}/{token}/"
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = default_token_generator.make_token(user)
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+        verify_url = f"{frontend_url}/verify-email/{uid}/{token}/"
 
-    resend.api_key = settings.RESEND_API_KEY
-    resend.Emails.send({
-        "from": os.getenv("EMAIL_FROM", "onboarding@resend.dev"),
-        "to": user.email,
-        "subject": "Verify your AjnihaStay email",
-        "html": (
-            "<h2>Verify your email</h2>"
-            "<p>Confirm your email address to activate your AjnihaStay login.</p>"
-            f'<a href="{verify_url}">Verify Email</a>'
-        ),
-    })
+        resend.api_key = settings.RESEND_API_KEY
+        resend.Emails.send({
+            "from": os.getenv("EMAIL_FROM", "onboarding@resend.dev"),
+            "to": user.email,
+            "subject": "Verify your AjnihaStay email",
+            "html": (
+                "<h2>Verify your email</h2>"
+                "<p>Confirm your email address to activate your AjnihaStay login.</p>"
+                f'<a href="{verify_url}">Verify Email</a>'
+            ),
+        })
+    except Exception as exc:
+        raise EmailVerificationDeliveryError("Unable to send verification email") from exc
