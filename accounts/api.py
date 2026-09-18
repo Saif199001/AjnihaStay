@@ -27,6 +27,13 @@ from .services import (
 User = get_user_model()
 
 
+def _normalized_email(value):
+    if not isinstance(value, str):
+        return None
+    value = value.strip().lower()
+    return value or None
+
+
 def get_tokens_for_user(user):
     if not user.is_active:
         raise ValidationError("Account is inactive")
@@ -40,7 +47,7 @@ def get_tokens_for_user(user):
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def login_api(request):
-    email = request.data.get("email", "").strip().lower()
+    email = _normalized_email(request.data.get("email"))
     password = request.data.get("password")
 
     if not email or not password:
