@@ -6,6 +6,7 @@ from .models import User, UserProfile
 from .services import set_account_active
 
 
+@admin.register(User)
 class UserAdmin(BaseUserAdmin):
 
     model = User
@@ -62,6 +63,7 @@ class UserAdmin(BaseUserAdmin):
             super().save_model(request, obj, form, change)
 
 
+@admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
 
     list_display = ("user", "city", "state")
