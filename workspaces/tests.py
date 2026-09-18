@@ -10,7 +10,7 @@ from properties.models import Property
 from .context import get_workspace_for_request
 from .db import set_workspace_context
 from .models import Membership, Workspace
-from .services import add_member, archive_workspace, change_member_role, deactivate_member, transfer_workspace_ownership
+from .services import add_member, archive_workspace, change_member_role, deactivate_member, transfer_workspace_ownership, update_workspace
 
 
 class WorkspaceFoundationTests(TestCase):
@@ -259,6 +259,19 @@ class WorkspaceFoundationTests(TestCase):
         self.assertTrue(target_membership.is_active)
         self.assertEqual(other_owner_membership.workspace_id, other_workspace.id)
         self.assertEqual(owner.id, workspace.owner_id)
+
+    def test_workspace_update_rejects_actor_from_different_workspace(self):
+        owner, workspace, _ = self.make_workspace(slug="update-boundary-a")
+        _, _, other_owner_membership = self.make_workspace(
+            email="other-update-owner@example.com", slug="update-boundary-b"
+        )
+
+        with self.assertRaises(ValidationError):
+            update_workspace(workspace, other_owner_membership, "Should Not Change")
+
+        workspace.refresh_from_db()
+        self.assertEqual(workspace.name, "Workspace")
+        self.assertEqual(workspace.owner_id, owner.id)
 
     def test_archive_requires_owner_and_blocks_membership_lifecycle(self):
         owner, workspace, owner_membership = self.make_workspace(slug="archive-test")
