@@ -30,7 +30,7 @@ class UserAdmin(BaseUserAdmin):
 
     ordering = ("-date_joined",)
 
-    readonly_fields = ("date_joined", "email_verified_at")
+    readonly_fields = ("date_joined", "email_verified", "email_verified_at")
 
     fieldsets = (
         ("User Info", {
