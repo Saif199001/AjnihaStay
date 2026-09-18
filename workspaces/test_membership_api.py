@@ -181,6 +181,30 @@ class WorkspaceMembershipAPITests(TestCase):
         self.workspace.refresh_from_db()
         self.assertEqual(self.workspace.owner_id, self.owner.id)
 
+    def test_membership_admin_form_locks_existing_identity_fields(self):
+        from .admin import MembershipAdminForm
+
+        form = MembershipAdminForm(instance=self.owner_membership)
+        self.assertTrue(form.fields["workspace"].disabled)
+        self.assertTrue(form.fields["user"].disabled)
+        self.assertTrue(form.fields["role"].disabled)
+        self.assertTrue(form.fields["is_active"].disabled)
+
+    def test_membership_admin_cannot_delete_owner_membership(self):
+        from .admin import MembershipAdmin
+
+        self.assertFalse(MembershipAdmin().has_delete_permission(None, self.owner_membership))
+
+    def test_membership_admin_allows_delete_permission_for_non_owner(self):
+        from .admin import MembershipAdmin
+
+        member = Membership.objects.create(
+            workspace=self.workspace,
+            user=self.viewer,
+            role=Membership.ROLE_VIEWER,
+        )
+        self.assertTrue(MembershipAdmin().has_delete_permission(None, member))
+
     def test_owner_can_update_workspace_name_but_owner_field_is_not_writable(self):
         self.authenticate(self.owner)
         response = self.client.patch(
