@@ -51,6 +51,8 @@ def _create_workspace_with_unique_slug(name, email, owner):
 
 
 def create_user_account(email, password, confirm_password, workspace_name=None):
+    if not isinstance(email, str):
+        raise ValidationError("Email is required")
     email = email.strip().lower()
 
     if password != confirm_password:
