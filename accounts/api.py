@@ -52,7 +52,7 @@ def login_api(request):
     try:
         tokens = get_tokens_for_user(user)
     except ValidationError as exc:
-        return Response({"error": exc.messages}, status=403)
+        return Response({"error": exc.messages[0] if exc.messages else "Authentication rejected"}, status=403)
 
     return Response({"message": "Login successful", **tokens})
 
