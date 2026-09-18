@@ -42,7 +42,9 @@ def add_member(workspace, actor_membership, email, role=Membership.ROLE_VIEWER):
     _ensure_workspace_active(workspace)
     _ensure_admin_can_manage(workspace, actor_membership, target_role=role)
 
-    email = (email or "").strip().lower()
+    if not isinstance(email, str):
+        raise ValidationError("Email is required")
+    email = email.strip().lower()
     if not email:
         raise ValidationError("Email is required")
     if role not in {
