@@ -44,7 +44,8 @@ class User(AbstractUser):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
 
-    is_active_account = models.BooleanField(default=True)
+    email_verified = models.BooleanField(default=True)
+    email_verified_at = models.DateTimeField(blank=True, null=True)
     date_joined = models.DateTimeField(auto_now_add=True)
 
     objects = UserManager()

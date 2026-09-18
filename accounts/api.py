@@ -16,12 +16,22 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .serializers import UserSerializer
-from .services import create_user_account, login_user_service
+from .services import (
+    create_user_account,
+    login_user_service,
+    send_email_verification,
+    verify_user_email,
+)
 
 User = get_user_model()
 
 
 def get_tokens_for_user(user):
+    if not user.is_active:
+        raise ValidationError("Account is inactive")
+    if not user.email_verified:
+        raise ValidationError("Email verification required")
+
     refresh = RefreshToken.for_user(user)
     return {"refresh": str(refresh), "access": str(refresh.access_token)}
 
@@ -39,8 +49,8 @@ def login_api(request):
     if user is None:
         return Response({"error": "Invalid credentials"}, status=401)
 
-    if not user.is_active_account:
-        return Response({"error": "Account is inactive"}, status=403)
+    if not user.email_verified:
+        return Response({"error": "Email verification required"}, status=403)
 
     refresh = RefreshToken.for_user(user)
     return Response({
@@ -63,16 +73,69 @@ def signup_api(request):
             return Response({"error": "All fields required"}, status=400)
 
         user = create_user_account(email, password, confirm_password, workspace_name)
-        tokens = get_tokens_for_user(user)
+
+        verification_email_sent = False
+        try:
+            send_email_verification(user)
+            verification_email_sent = True
+        except Exception:
+            # The account remains safely unverified; the resend endpoint can recover
+            # from temporary email-provider/configuration failures.
+            verification_email_sent = False
 
         return Response({
             "message": "Account created",
             "user": UserSerializer(user).data,
-            "tokens": tokens,
+            "email_verification_required": True,
+            "verification_email_sent": verification_email_sent,
         }, status=201)
 
     except ValidationError as exc:
         return Response({"error": exc.messages}, status=400)
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def verify_email_api(request, uidb64, token):
+    try:
+        uid = force_str(urlsafe_base64_decode(uidb64))
+        user = User.objects.get(pk=uid)
+    except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+        return Response({"error": "Invalid verification link"}, status=400)
+
+    if user.email_verified:
+        return Response({"message": "Email already verified"})
+
+    try:
+        verify_user_email(user, token)
+    except ValidationError as exc:
+        return Response({"error": exc.messages}, status=400)
+
+    return Response({"message": "Email verified successfully"})
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def resend_verification_api(request):
+    email = request.data.get("email", "").strip().lower()
+    if not email:
+        return Response({"error": "Email is required"}, status=400)
+
+    generic_response = {
+        "message": "If the account exists and is not verified, a verification email has been sent"
+    }
+
+    try:
+        user = User.objects.get(email=email, is_active=True, email_verified=False)
+    except User.DoesNotExist:
+        return Response(generic_response)
+
+    try:
+        send_email_verification(user)
+    except Exception:
+        return Response({"error": "Unable to send verification email"}, status=503)
+
+    return Response(generic_response)
 
 
 @api_view(["POST"])
@@ -100,7 +163,7 @@ def forgot_password_api(request):
     generic_response = {"message": "If the account exists, a password reset link has been sent"}
 
     try:
-        user = User.objects.get(email=email, is_active=True, is_active_account=True)
+        user = User.objects.get(email=email, is_active=True)
     except User.DoesNotExist:
         return Response(generic_response)
 
@@ -142,7 +205,7 @@ def reset_password_api(request, uidb64, token):
 
     try:
         uid = force_str(urlsafe_base64_decode(uidb64))
-        user = User.objects.get(pk=uid, is_active=True, is_active_account=True)
+        user = User.objects.get(pk=uid, is_active=True)
     except (TypeError, ValueError, OverflowError, User.DoesNotExist):
         return Response({"error": "Invalid link"}, status=400)
 

@@ -27,7 +27,7 @@ def _ensure_admin_can_manage(actor_membership, target_membership=None, target_ro
 def list_members(workspace):
     return Membership.objects.filter(
         workspace=workspace,
-        user__is_active_account=True,
+        user__is_active=True,
     ).select_related("user").order_by("created_at", "id")
 
 
@@ -51,7 +51,7 @@ def add_member(workspace, actor_membership, email, role=Membership.ROLE_VIEWER):
     except User.DoesNotExist:
         raise ValidationError("User account not found")
 
-    if not user.is_active_account or not user.is_active:
+    if not user.is_active:
         raise ValidationError("User account is inactive")
 
     membership = Membership.objects.filter(workspace=workspace, user=user).first()

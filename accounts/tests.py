@@ -10,6 +10,7 @@ from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, Ou
 
 from .models import User, UserProfile
 from .serializers import UserSerializer
+from .services import set_account_active
 from workspaces.models import Membership, Workspace
 
 
@@ -24,8 +25,20 @@ class AuthenticationSecurityTests(TestCase):
         self.assertEqual(response.status_code, 401)
 
     def test_login_rejects_inactive_account(self):
-        self.user.is_active_account = False
-        self.user.save(update_fields=["is_active_account"])
+        self.user.is_active = False
+        self.user.save(update_fields=["is_active"])
+
+        response = self.client.post(
+            "/api/login/",
+            {"email": self.user.email, "password": self.password},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 401)
+
+    def test_login_rejects_unverified_email(self):
+        self.user.email_verified = False
+        self.user.email_verified_at = None
+        self.user.save(update_fields=["email_verified", "email_verified_at"])
 
         response = self.client.post(
             "/api/login/",
@@ -33,6 +46,129 @@ class AuthenticationSecurityTests(TestCase):
             format="json",
         )
         self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.data, {"error": "Email verification required"})
+
+    @override_settings(RESEND_API_KEY="test-key", FRONTEND_URL="https://app.example.com")
+    @patch("accounts.api.resend.Emails.send")
+    @patch("rest_framework.throttling.SimpleRateThrottle.allow_request", return_value=True)
+    def test_signup_creates_unverified_account_and_sends_verification_email(
+        self, allow_request_mock, send_mock
+    ):
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "email": "verify@example.com",
+                "password": self.password,
+                "confirm_password": self.password,
+                "workspace_name": "Verify Workspace",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        user = User.objects.get(email="verify@example.com")
+        self.assertFalse(user.email_verified)
+        self.assertIsNone(user.email_verified_at)
+        self.assertTrue(response.data["email_verification_required"])
+        self.assertTrue(response.data["verification_email_sent"])
+        self.assertNotIn("tokens", response.data)
+        send_mock.assert_called_once()
+        self.assertIn("/verify-email/", send_mock.call_args.args[0]["html"])
+        allow_request_mock.assert_called()
+
+    def test_verify_email_allows_login(self):
+        self.user.email_verified = False
+        self.user.email_verified_at = None
+        self.user.save(update_fields=["email_verified", "email_verified_at"])
+        uid = urlsafe_base64_encode(force_bytes(self.user.pk))
+        token = default_token_generator.make_token(self.user)
+
+        response = self.client.post(f"/api/verify-email/{uid}/{token}/", {}, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.email_verified)
+        self.assertIsNotNone(self.user.email_verified_at)
+
+        login = self.client.post(
+            "/api/login/",
+            {"email": self.user.email, "password": self.password},
+            format="json",
+        )
+        self.assertEqual(login.status_code, 200)
+        self.assertIn("access", login.data)
+        self.assertIn("refresh", login.data)
+
+    def test_invalid_email_verification_token_is_rejected(self):
+        self.user.email_verified = False
+        self.user.email_verified_at = None
+        self.user.save(update_fields=["email_verified", "email_verified_at"])
+        uid = urlsafe_base64_encode(force_bytes(self.user.pk))
+
+        response = self.client.post(
+            f"/api/verify-email/{uid}/invalid-token/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Invalid or expired verification link", str(response.data))
+
+    @override_settings(RESEND_API_KEY="test-key")
+    @patch("accounts.api.resend.Emails.send")
+    @patch("rest_framework.throttling.SimpleRateThrottle.allow_request", return_value=True)
+    def test_resend_verification_uses_generic_response(self, allow_request_mock, send_mock):
+        self.user.email_verified = False
+        self.user.save(update_fields=["email_verified"])
+
+        response = self.client.post(
+            "/api/resend-verification/",
+            {"email": self.user.email},
+            format="json",
+        )
+
+        unknown = self.client.post(
+            "/api/resend-verification/",
+            {"email": "missing@example.com"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, unknown.data)
+        send_mock.assert_called_once()
+        allow_request_mock.assert_called()
+
+    def test_account_deactivation_revokes_outstanding_tokens(self):
+        refresh = RefreshToken.for_user(self.user)
+        token_string = str(refresh)
+
+        updated = set_account_active(self.user, False)
+
+        self.assertFalse(updated.is_active)
+        self.assertTrue(
+            BlacklistedToken.objects.filter(token__token=token_string).exists()
+        )
+
+        login = self.client.post(
+            "/api/login/",
+            {"email": self.user.email, "password": self.password},
+            format="json",
+        )
+        self.assertEqual(login.status_code, 401)
+
+    @patch(
+        "rest_framework_simplejwt.token_blacklist.models.BlacklistedToken.objects.get_or_create",
+        side_effect=RuntimeError("blacklist unavailable"),
+    )
+    def test_account_deactivation_rolls_back_on_token_revocation_failure(self, blacklist_mock):
+        RefreshToken.for_user(self.user)
+
+        with self.assertRaises(RuntimeError):
+            set_account_active(self.user, False)
+
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.is_active)
+        blacklist_mock.assert_called_once()
 
     @override_settings(RESEND_API_KEY="test-key")
     @patch("accounts.api.resend.Emails.send")
@@ -119,6 +255,8 @@ class AuthenticationSecurityTests(TestCase):
         self.assertEqual(membership.role, Membership.ROLE_OWNER)
         self.assertNotIn("role", response.data["user"])
         self.assertFalse(hasattr(user, "role"))
+        self.assertFalse(user.email_verified)
+        self.assertNotIn("tokens", response.data)
         allow_request_mock.assert_called()
 
     def test_user_creation_creates_user_profile(self):

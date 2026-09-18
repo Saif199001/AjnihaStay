@@ -1,6 +1,9 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+from django.db import transaction
+
 from .models import User, UserProfile, Staff
+from .services import set_account_active
 
 
 class UserAdmin(BaseUserAdmin):
@@ -11,7 +14,7 @@ class UserAdmin(BaseUserAdmin):
         "email",
         "is_active",
         "is_staff",
-        "is_active_account",
+        "email_verified",
         "date_joined",
     )
 
@@ -19,13 +22,14 @@ class UserAdmin(BaseUserAdmin):
         "is_active",
         "is_staff",
         "is_superuser",
+        "email_verified",
     )
 
     search_fields = ("email", "phone")
 
     ordering = ("-date_joined",)
 
-    readonly_fields = ("date_joined",)
+    readonly_fields = ("date_joined", "email_verified_at")
 
     fieldsets = (
         ("User Info", {
@@ -35,7 +39,7 @@ class UserAdmin(BaseUserAdmin):
             "fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")
         }),
         ("Account Info", {
-            "fields": ("phone", "is_active_account")
+            "fields": ("phone", "email_verified", "email_verified_at")
         }),
         ("Important Dates", {
             "fields": ("date_joined",)
@@ -48,6 +52,14 @@ class UserAdmin(BaseUserAdmin):
             "fields": ("email", "password1", "password2"),
         }),
     )
+
+    def save_model(self, request, obj, form, change):
+        with transaction.atomic():
+            if change:
+                previous = User.objects.get(pk=obj.pk)
+                if previous.is_active and not obj.is_active:
+                    set_account_active(obj, False)
+            super().save_model(request, obj, form, change)
 
 
 class UserProfileAdmin(admin.ModelAdmin):
@@ -69,7 +81,13 @@ class StaffAdmin(admin.ModelAdmin):
 
     autocomplete_fields = ("owner", "user")
 
-    readonly_fields = ("created_at",)
+    readonly_fields = ("owner", "user", "is_active", "created_at")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 admin.site.register(User, UserAdmin)

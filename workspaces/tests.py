@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from django.db import connection, transaction
 from django.test import TestCase
 from rest_framework.exceptions import ValidationError
@@ -26,7 +28,8 @@ class WorkspaceFoundationTests(TestCase):
         )
         return owner, workspace, membership
 
-    def test_signup_creates_workspace_and_owner_membership(self):
+    @patch("rest_framework.throttling.SimpleRateThrottle.allow_request", return_value=True)
+    def test_signup_creates_workspace_and_owner_membership(self, allow_request_mock):
         response = self.client.post(
             "/api/signup/",
             {
@@ -46,6 +49,10 @@ class WorkspaceFoundationTests(TestCase):
         self.assertEqual(workspace.name, "New Owner Rentals")
         self.assertEqual(membership.role, Membership.ROLE_OWNER)
         self.assertTrue(membership.is_active)
+        self.assertFalse(user.email_verified)
+        self.assertIn("email_verification_required", response.data)
+        self.assertNotIn("tokens", response.data)
+        allow_request_mock.assert_called()
 
     def test_workspace_owner_and_owner_membership_are_consistent(self):
         owner, workspace, membership = self.make_workspace()

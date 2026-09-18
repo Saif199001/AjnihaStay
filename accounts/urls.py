@@ -1,6 +1,14 @@
 from django.urls import path
 from .views import login_view, signup_view, logout_view
-from .api import signup_api, login_api, logout_api, forgot_password_api, reset_password_api
+from .api import (
+    signup_api,
+    login_api,
+    logout_api,
+    forgot_password_api,
+    reset_password_api,
+    verify_email_api,
+    resend_verification_api,
+)
 
 urlpatterns = [
     # Legacy HTML endpoints retained for compatibility.
@@ -15,6 +23,8 @@ urlpatterns = [
     path("api/logout/", logout_api),
     path("api/forgot-password/", forgot_password_api),
     path("api/reset-password/<uidb64>/<token>/", reset_password_api),
+    path("api/verify-email/<uidb64>/<token>/", verify_email_api),
+    path("api/resend-verification/", resend_verification_api),
 
     # Backward-compatible API aliases without the /api prefix.
     path("signup/", signup_api),
@@ -22,4 +32,6 @@ urlpatterns = [
     path("logout/", logout_api),
     path("forgot-password/", forgot_password_api),
     path("reset-password/<uidb64>/<token>/", reset_password_api),
+    path("verify-email/<uidb64>/<token>/", verify_email_api),
+    path("resend-verification/", resend_verification_api),
 ]
