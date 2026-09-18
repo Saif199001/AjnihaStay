@@ -18,7 +18,7 @@ class UserManager(BaseUserManager):
 
         user.set_password(password)
 
-        user.save()
+        user.save(using=self._db)
 
         return user
 
@@ -26,8 +26,8 @@ class UserManager(BaseUserManager):
     def create_superuser(self, email, password=None, **extra_fields):
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
-        extra_fields.setdefault("email_verified", True)
-        extra_fields.setdefault("email_verified_at", timezone.now())
+        extra_fields["email_verified"] = True
+        extra_fields["email_verified_at"] = timezone.now()
 
         if extra_fields.get("is_staff") is not True:
             raise ValueError("Superuser must have is_staff=True")
