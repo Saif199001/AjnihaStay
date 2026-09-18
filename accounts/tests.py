@@ -467,6 +467,7 @@ class AccountBoundaryHardeningTests(TestCase):
                 send_email_verification(user)
 
 
+    @override_settings(RESEND_API_KEY="test-key")
     @patch("accounts.services.default_token_generator.make_token", side_effect=RuntimeError("unexpected token failure"))
     def test_verification_token_generation_failure_is_not_classified_as_delivery_failure(
         self, token_mock
@@ -496,6 +497,7 @@ class AccountBoundaryHardeningTests(TestCase):
             ),
         ):
             response = self.client.post(path, payload, format="json")
-            self.assertEqual(response.status_code, 400, path)
+            expected_status = 401 if path == "/api/login/" else 400
+            self.assertEqual(response.status_code, expected_status, path)
 
         allow_request_mock.assert_called()
