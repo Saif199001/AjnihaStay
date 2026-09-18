@@ -38,6 +38,19 @@ def list_members(workspace):
 
 
 @transaction.atomic
+def update_workspace(workspace, actor_membership, name):
+    _ensure_workspace_active(workspace)
+    _ensure_admin_can_manage(workspace, actor_membership)
+
+    workspace = Workspace.objects.select_for_update().get(pk=workspace.pk)
+    workspace.name = name.strip()
+    if not workspace.name:
+        raise ValidationError("Workspace name is required")
+    workspace.save(update_fields=["name", "updated_at"])
+    return workspace
+
+
+@transaction.atomic
 def add_member(workspace, actor_membership, email, role=Membership.ROLE_VIEWER):
     _ensure_workspace_active(workspace)
     _ensure_admin_can_manage(workspace, actor_membership, target_role=role)
