@@ -71,29 +71,6 @@ class UserProfileAdmin(admin.ModelAdmin):
     list_filter = ("city", "state")
 
 
-class StaffAdmin(admin.ModelAdmin):
-
-    list_display = ("user", "owner", "is_active", "created_at")
-
-    list_filter = ("is_active",)
-
-    search_fields = ("user__email", "owner__email")
-
-    autocomplete_fields = ("owner", "user")
-
-    readonly_fields = ("owner", "user", "is_active", "created_at")
-
-    def has_add_permission(self, request):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
-        return False
-
-
-admin.site.register(User, UserAdmin)
-admin.site.register(UserProfile, UserProfileAdmin)
-admin.site.register(Staff, StaffAdmin)
-
 admin.site.site_header = "AjnihaStay Admin"
 admin.site.site_title = "AjnihaStay"
 admin.site.index_title = "Welcome to AjnihaStay Dashboard"
