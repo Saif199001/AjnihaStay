@@ -465,3 +465,37 @@ class AccountBoundaryHardeningTests(TestCase):
 
             with self.assertRaises(EmailVerificationDeliveryError):
                 send_email_verification(user)
+
+
+    @patch("accounts.services.default_token_generator.make_token", side_effect=RuntimeError("unexpected token failure"))
+    def test_verification_token_generation_failure_is_not_classified_as_delivery_failure(
+        self, token_mock
+    ):
+        user = User.objects.create_user("boundary-token@example.com", "StrongPass123!")
+
+        from .services import send_email_verification
+
+        with self.assertRaises(RuntimeError):
+            send_email_verification(user)
+
+        token_mock.assert_called_once_with(user)
+
+    @patch("rest_framework.throttling.SimpleRateThrottle.allow_request", return_value=True)
+    def test_email_endpoints_reject_non_string_email_input(self, allow_request_mock):
+        for path, payload in (
+            ("/api/login/", {"email": 123, "password": "StrongPass123!"}),
+            ("/api/resend-verification/", {"email": 123}),
+            ("/api/forgot-password/", {"email": 123}),
+            (
+                "/api/signup/",
+                {
+                    "email": 123,
+                    "password": "StrongPass123!",
+                    "confirm_password": "StrongPass123!",
+                },
+            ),
+        ):
+            response = self.client.post(path, payload, format="json")
+            self.assertEqual(response.status_code, 400, path)
+
+        allow_request_mock.assert_called()
