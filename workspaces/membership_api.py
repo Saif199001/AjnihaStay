@@ -43,7 +43,7 @@ def workspace_member_role_api(request, user_id):
             user_id,
             serializer.validated_data["role"],
         )
-    except Exception as exc:
+    except ValidationError as exc:
         return Response({"error": str(exc)}, status=400)
     return Response({"data": MembershipSerializer(membership).data})
 
@@ -57,6 +57,6 @@ def workspace_member_deactivate_api(request, user_id):
             request.workspace_membership,
             user_id,
         )
-    except Exception as exc:
+    except ValidationError as exc:
         return Response({"error": str(exc)}, status=400)
     return Response({"data": MembershipSerializer(membership).data})
