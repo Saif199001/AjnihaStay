@@ -1,5 +1,6 @@
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
+from django.utils import timezone
 
 
 class UserManager(BaseUserManager):
@@ -10,6 +11,8 @@ class UserManager(BaseUserManager):
             raise ValueError("Email is required")
 
         email = email.strip().lower()
+        extra_fields.setdefault("email_verified", False)
+        extra_fields.setdefault("email_verified_at", None)
 
         user = self.model(email=email, **extra_fields)
 
@@ -23,6 +26,8 @@ class UserManager(BaseUserManager):
     def create_superuser(self, email, password=None, **extra_fields):
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
+        extra_fields.setdefault("email_verified", True)
+        extra_fields.setdefault("email_verified_at", timezone.now())
 
         if extra_fields.get("is_staff") is not True:
             raise ValueError("Superuser must have is_staff=True")
@@ -44,7 +49,7 @@ class User(AbstractUser):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
 
-    email_verified = models.BooleanField(default=True)
+    email_verified = models.BooleanField(default=False)
     email_verified_at = models.DateTimeField(blank=True, null=True)
     date_joined = models.DateTimeField(auto_now_add=True)
 
