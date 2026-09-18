@@ -426,3 +426,21 @@ class AuthenticationSecurityTests(TestCase):
         self.assertEqual(first.status_code, 200)
         self.assertEqual(second.status_code, 400)
         self.assertIn("Invalid or expired token", str(second.data))
+
+
+class AccountBoundaryHardeningTests(TestCase):
+    def test_create_user_defaults_to_unverified(self):
+        user = User.objects.create_user("boundary@example.com", "StrongPass123!")
+        self.assertFalse(user.email_verified)
+        self.assertIsNone(user.email_verified_at)
+
+    def test_create_superuser_is_verified(self):
+        user = User.objects.create_superuser("admin@example.com", "StrongPass123!")
+        self.assertTrue(user.email_verified)
+        self.assertIsNotNone(user.email_verified_at)
+
+    def test_user_admin_cannot_edit_email_verification_state_directly(self):
+        from django.contrib import admin
+        user_admin = admin.site._registry[User]
+        self.assertIn("email_verified", user_admin.readonly_fields)
+        self.assertIn("email_verified_at", user_admin.readonly_fields)
