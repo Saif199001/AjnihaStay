@@ -138,6 +138,34 @@ class AuthenticationSecurityTests(TestCase):
         send_mock.assert_called_once()
         allow_request_mock.assert_called()
 
+    def test_user_admin_deactivation_uses_account_service(self):
+        from django.contrib import admin
+
+        refresh = RefreshToken.for_user(self.user)
+        token_string = str(refresh)
+        self.user.is_active = False
+
+        user_admin = admin.site._registry[User]
+        user_admin.save_model(None, self.user, None, True)
+
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.is_active)
+        self.assertTrue(
+            BlacklistedToken.objects.filter(token__token=token_string).exists()
+        )
+
+    def test_legacy_staff_admin_is_read_only_and_cannot_create_or_delete(self):
+        from django.contrib import admin
+        from accounts.models import Staff
+
+        staff_admin = admin.site._registry[Staff]
+        self.assertFalse(staff_admin.has_add_permission(None))
+        self.assertFalse(staff_admin.has_delete_permission(None))
+        self.assertEqual(
+            set(staff_admin.readonly_fields),
+            {"owner", "user", "is_active", "created_at"},
+        )
+
     def test_account_deactivation_revokes_outstanding_tokens(self):
         refresh = RefreshToken.for_user(self.user)
         token_string = str(refresh)
