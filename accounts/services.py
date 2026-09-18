@@ -8,27 +8,20 @@ from .models import User
 from workspaces.models import Membership, Workspace
 
 
-def _workspace_slug_candidates(email):
-    base = slugify(email.split("@")[0]) or "workspace"
-    yield base
-    counter = 2
-    while True:
-        yield f"{base}-{counter}"
-        counter += 1
-
-
 def _unique_workspace_slug(email):
-    return next(
-        slug
-        for slug in _workspace_slug_candidates(email)
-        if not Workspace.objects.filter(slug=slug).exists()
-    )
+    base = slugify(email.split("@")[0]) or "workspace"
+    slug = base
+    counter = 2
+    while Workspace.objects.filter(slug=slug).exists():
+        slug = f"{base}-{counter}"
+        counter += 1
+    return slug
 
 
 def _create_workspace_with_unique_slug(name, email, owner):
+    base = slugify(email.split("@")[0]) or "workspace"
     slug = _unique_workspace_slug(email)
     counter = 2
-    base = slug
 
     while True:
         try:
