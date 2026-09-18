@@ -61,7 +61,7 @@ def workspace_current_api(request):
 def workspace_transfer_ownership_api(request):
     try:
         workspace, membership = get_workspace_for_request(request)
-    except Exception as exc:
+    except (NotAuthenticated, PermissionDenied, ValidationError) as exc:
         return Response({"error": str(exc)}, status=403)
 
     serializer = WorkspaceTransferOwnershipSerializer(data=request.data)
@@ -72,7 +72,7 @@ def workspace_transfer_ownership_api(request):
             membership,
             serializer.validated_data["target_user_id"],
         )
-    except Exception as exc:
+    except (NotAuthenticated, PermissionDenied, ValidationError) as exc:
         return Response({"error": str(exc)}, status=400)
 
     workspace.current_membership = workspace.memberships.get(user=request.user)
@@ -84,12 +84,12 @@ def workspace_transfer_ownership_api(request):
 def workspace_archive_api(request):
     try:
         workspace, membership = get_workspace_for_request(request)
-    except Exception as exc:
+    except (NotAuthenticated, PermissionDenied, ValidationError) as exc:
         return Response({"error": str(exc)}, status=403)
 
     try:
         workspace = archive_workspace(workspace, membership)
-    except Exception as exc:
+    except (NotAuthenticated, PermissionDenied, ValidationError) as exc:
         return Response({"error": str(exc)}, status=400)
 
     workspace.current_membership = membership
