@@ -323,3 +323,104 @@ class AuthenticationSecurityTests(TestCase):
 
         self.assertEqual(set(data.keys()), {"id", "email"})
         self.assertNotIn("role", data)
+
+
+    @patch("accounts.api.get_tokens_for_user")
+    @patch("rest_framework.throttling.SimpleRateThrottle.allow_request", return_value=True)
+    def test_login_uses_canonical_token_issuer(self, allow_request_mock, token_mock):
+        token_mock.return_value = {"access": "access-token", "refresh": "refresh-token"}
+        response = self.client.post(
+            "/api/login/",
+            {"email": self.user.email, "password": self.password},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["access"], "access-token")
+        self.assertEqual(response.data["refresh"], "refresh-token")
+        token_mock.assert_called_once_with(self.user)
+
+    @override_settings(RESEND_API_KEY="test-key")
+    @patch("accounts.api.resend.Emails.send", side_effect=RuntimeError("provider down"))
+    def test_resend_verification_provider_failure_keeps_generic_response(self, send_mock):
+        self.user.email_verified = False
+        self.user.save(update_fields=["email_verified"])
+
+        existing = self.client.post(
+            "/api/resend-verification/",
+            {"email": self.user.email},
+            format="json",
+        )
+        unknown = self.client.post(
+            "/api/resend-verification/",
+            {"email": "missing@example.com"},
+            format="json",
+        )
+
+        self.assertEqual(existing.status_code, 200)
+        self.assertEqual(existing.data, unknown.data)
+        send_mock.assert_called_once()
+
+    @override_settings(RESEND_API_KEY="test-key")
+    @patch("accounts.api.resend.Emails.send", side_effect=RuntimeError("provider down"))
+    @patch("rest_framework.throttling.SimpleRateThrottle.allow_request", return_value=True)
+    def test_signup_provider_failure_creates_unverified_account_without_tokens(
+        self, allow_request_mock, send_mock
+    ):
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "email": "provider-failure@example.com",
+                "password": self.password,
+                "confirm_password": self.password,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        user = User.objects.get(email="provider-failure@example.com")
+        self.assertFalse(user.email_verified)
+        self.assertFalse(response.data["verification_email_sent"])
+        self.assertNotIn("access", response.data)
+        self.assertNotIn("refresh", response.data)
+        send_mock.assert_called_once()
+
+    @patch("rest_framework.throttling.SimpleRateThrottle.allow_request", return_value=True)
+    def test_signup_duplicate_email_returns_conflict_as_validation_error(
+        self, allow_request_mock
+    ):
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "email": self.user.email.upper(),
+                "password": self.password,
+                "confirm_password": self.password,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data, {"error": ["Email already exists"]})
+
+    def test_user_manager_canonicalizes_email(self):
+        user = User.objects.create_user("MixedCase@Example.COM", self.password)
+        self.assertEqual(user.email, "mixedcase@example.com")
+
+    @patch("rest_framework.throttling.SimpleRateThrottle.allow_request", return_value=True)
+    def test_password_reset_invalidates_same_reset_token_after_success(
+        self, allow_request_mock
+    ):
+        uid = urlsafe_base64_encode(force_bytes(self.user.pk))
+        token = default_token_generator.make_token(self.user)
+        payload = {
+            "password": "NewStrongPass123!",
+            "confirm_password": "NewStrongPass123!",
+        }
+
+        first = self.client.post(
+            f"/api/reset-password/{uid}/{token}/", payload, format="json"
+        )
+        second = self.client.post(
+            f"/api/reset-password/{uid}/{token}/", payload, format="json"
+        )
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 400)
+        self.assertIn("Invalid or expired token", str(second.data))
