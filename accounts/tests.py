@@ -124,8 +124,8 @@ class AuthenticationSecurityTests(TestCase):
     def test_user_creation_creates_user_profile(self):
         self.assertTrue(UserProfile.objects.filter(user=self.user).exists())
 
-    @override_settings(DEFAULT_THROTTLE_CLASSES=[])
-    def test_signup_uses_next_available_workspace_slug(self):
+    @patch("rest_framework.throttling.SimpleRateThrottle.allow_request", return_value=True)
+    def test_signup_uses_next_available_workspace_slug(self, allow_request_mock):
         existing_owner = User.objects.create_user(
             "collision-owner@example.com",
             self.password,
