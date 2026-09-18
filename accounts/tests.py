@@ -8,7 +8,7 @@ from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 
-from .models import User
+from .models import User, UserProfile
 from .serializers import UserSerializer
 from workspaces.models import Membership, Workspace
 
@@ -120,6 +120,42 @@ class AuthenticationSecurityTests(TestCase):
         self.assertNotIn("role", response.data["user"])
         self.assertFalse(hasattr(user, "role"))
         allow_request_mock.assert_called()
+
+    def test_user_creation_creates_user_profile(self):
+        self.assertTrue(UserProfile.objects.filter(user=self.user).exists())
+
+    def test_signup_uses_next_available_workspace_slug(self):
+        existing_owner = User.objects.create_user(
+            "collision-owner@example.com",
+            self.password,
+        )
+        Workspace.objects.create(
+            name="Existing Workspace",
+            slug="collision",
+            owner=existing_owner,
+        )
+        Membership.objects.create(
+            workspace=Workspace.objects.get(slug="collision"),
+            user=existing_owner,
+            role=Membership.ROLE_OWNER,
+            is_active=True,
+        )
+
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "email": "collision@example.com",
+                "password": self.password,
+                "confirm_password": self.password,
+                "workspace_name": "Collision Workspace",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        workspace = Workspace.objects.get(owner__email="collision@example.com")
+        self.assertEqual(workspace.slug, "collision-2")
+        self.assertTrue(UserProfile.objects.filter(user=workspace.owner).exists())
 
     def test_user_serializer_does_not_expose_role(self):
         data = UserSerializer(self.user).data
