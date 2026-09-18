@@ -56,7 +56,11 @@ class MembershipAdmin(admin.ModelAdmin):
     search_fields = ("workspace__name", "user__email")
     list_filter = ("role", "is_active")
 
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
     def has_delete_permission(self, request, obj=None):
-        if obj is not None and obj.role == Membership.ROLE_OWNER:
-            return False
-        return super().has_delete_permission(request, obj)
+        return False
