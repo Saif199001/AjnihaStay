@@ -191,19 +191,23 @@ class WorkspaceMembershipAPITests(TestCase):
         self.assertTrue(form.fields["is_active"].disabled)
 
     def test_membership_admin_cannot_delete_owner_membership(self):
-        from .admin import MembershipAdmin
+        from django.contrib import admin
 
-        self.assertFalse(MembershipAdmin().has_delete_permission(None, self.owner_membership))
+        membership_admin = admin.site._registry[Membership]
+        self.assertFalse(
+            membership_admin.has_delete_permission(None, self.owner_membership)
+        )
 
     def test_membership_admin_allows_delete_permission_for_non_owner(self):
-        from .admin import MembershipAdmin
+        from django.contrib import admin
 
         member = Membership.objects.create(
             workspace=self.workspace,
             user=self.viewer,
             role=Membership.ROLE_VIEWER,
         )
-        self.assertTrue(MembershipAdmin().has_delete_permission(None, member))
+        membership_admin = admin.site._registry[Membership]
+        self.assertTrue(membership_admin.has_delete_permission(None, member))
 
     def test_owner_can_update_workspace_name_but_owner_field_is_not_writable(self):
         self.authenticate(self.owner)
