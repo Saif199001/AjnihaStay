@@ -13,7 +13,13 @@ def _ensure_workspace_active(workspace):
         raise ValidationError("Workspace is archived")
 
 
-def _ensure_admin_can_manage(actor_membership, target_membership=None, target_role=None):
+def _ensure_actor_membership_matches_workspace(workspace, actor_membership):
+    if actor_membership is None or actor_membership.workspace_id != workspace.id:
+        raise ValidationError("Workspace membership mismatch")
+
+
+def _ensure_admin_can_manage(workspace, actor_membership, target_membership=None, target_role=None):
+    _ensure_actor_membership_matches_workspace(workspace, actor_membership)
     if ROLE_RANK[actor_membership.role] < ROLE_RANK[Membership.ROLE_ADMIN]:
         raise ValidationError("Workspace admin permission required")
 
@@ -34,7 +40,7 @@ def list_members(workspace):
 @transaction.atomic
 def add_member(workspace, actor_membership, email, role=Membership.ROLE_VIEWER):
     _ensure_workspace_active(workspace)
-    _ensure_admin_can_manage(actor_membership, target_role=role)
+    _ensure_admin_can_manage(workspace, actor_membership, target_role=role)
 
     email = (email or "").strip().lower()
     if not email:
@@ -77,7 +83,7 @@ def change_member_role(workspace, actor_membership, target_user_id, role):
     except Membership.DoesNotExist:
         raise ValidationError("Workspace member not found")
 
-    _ensure_admin_can_manage(actor_membership, target_membership=target, target_role=role)
+    _ensure_admin_can_manage(workspace, actor_membership, target_membership=target, target_role=role)
     if role not in {
         Membership.ROLE_ADMIN,
         Membership.ROLE_MANAGER,
@@ -103,7 +109,7 @@ def deactivate_member(workspace, actor_membership, target_user_id):
     except Membership.DoesNotExist:
         raise ValidationError("Workspace member not found")
 
-    _ensure_admin_can_manage(actor_membership, target_membership=target)
+    _ensure_admin_can_manage(workspace, actor_membership, target_membership=target)
     if not target.is_active:
         return target
 
@@ -114,6 +120,7 @@ def deactivate_member(workspace, actor_membership, target_user_id):
 
 @transaction.atomic
 def transfer_workspace_ownership(workspace, actor_membership, target_user_id):
+    _ensure_actor_membership_matches_workspace(workspace, actor_membership)
     if actor_membership.workspace_id != workspace.id:
         raise ValidationError("Workspace membership mismatch")
     if actor_membership.role != Membership.ROLE_OWNER:
@@ -159,6 +166,7 @@ def transfer_workspace_ownership(workspace, actor_membership, target_user_id):
 
 @transaction.atomic
 def archive_workspace(workspace, actor_membership):
+    _ensure_actor_membership_matches_workspace(workspace, actor_membership)
     if actor_membership.workspace_id != workspace.id:
         raise ValidationError("Workspace membership mismatch")
     if actor_membership.role != Membership.ROLE_OWNER:
