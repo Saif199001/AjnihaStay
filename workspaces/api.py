@@ -9,7 +9,7 @@ from .serializers import (
     WorkspaceTransferOwnershipSerializer,
     WorkspaceUpdateSerializer,
 )
-from .services import archive_workspace, transfer_workspace_ownership
+from .services import archive_workspace, transfer_workspace_ownership, update_workspace
 
 
 @api_view(["GET"])
@@ -41,14 +41,16 @@ def workspace_current_api(request):
         return Response({"error": str(exc)}, status=403)
 
     if request.method == "PATCH":
-        from .permissions import ROLE_RANK
-        from .models import Membership
-
-        if ROLE_RANK.get(membership.role, 0) < ROLE_RANK[Membership.ROLE_ADMIN]:
-            return Response({"error": "Workspace admin permission required"}, status=403)
         serializer = WorkspaceUpdateSerializer(workspace, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        try:
+            workspace = update_workspace(
+                workspace,
+                membership,
+                serializer.validated_data["name"],
+            )
+        except ValidationError as exc:
+            return Response({"error": str(exc)}, status=400)
 
     workspace.current_membership = membership
     return Response({"data": {"workspace": WorkspaceSerializer(workspace).data}})
