@@ -35,7 +35,8 @@ class AuthenticationSecurityTests(TestCase):
         )
         self.assertEqual(response.status_code, 401)
 
-    def test_login_rejects_unverified_email(self):
+    @patch("rest_framework.throttling.SimpleRateThrottle.allow_request", return_value=True)
+    def test_login_rejects_unverified_email(self, allow_request_mock):
         self.user.email_verified = False
         self.user.email_verified_at = None
         self.user.save(update_fields=["email_verified", "email_verified_at"])
@@ -76,7 +77,8 @@ class AuthenticationSecurityTests(TestCase):
         self.assertIn("/verify-email/", send_mock.call_args.args[0]["html"])
         allow_request_mock.assert_called()
 
-    def test_verify_email_allows_login(self):
+    @patch("rest_framework.throttling.SimpleRateThrottle.allow_request", return_value=True)
+    def test_verify_email_allows_login(self, allow_request_mock):
         self.user.email_verified = False
         self.user.email_verified_at = None
         self.user.save(update_fields=["email_verified", "email_verified_at"])
@@ -217,7 +219,8 @@ class AuthenticationSecurityTests(TestCase):
         self.assertEqual(existing.data, unknown.data)
         send_mock.assert_called_once()
 
-    def test_password_reset_revokes_all_outstanding_refresh_tokens(self):
+    @patch("rest_framework.throttling.SimpleRateThrottle.allow_request", return_value=True)
+    def test_password_reset_revokes_all_outstanding_refresh_tokens(self, allow_request_mock):
         refresh_one = RefreshToken.for_user(self.user)
         refresh_two = RefreshToken.for_user(self.user)
         refresh_one_token = str(refresh_one)
@@ -239,11 +242,14 @@ class AuthenticationSecurityTests(TestCase):
             BlacklistedToken.objects.filter(token__token=refresh_two_token).exists()
         )
 
+    @patch("rest_framework.throttling.SimpleRateThrottle.allow_request", return_value=True)
     @patch(
         "rest_framework_simplejwt.token_blacklist.models.BlacklistedToken.objects.get_or_create",
         side_effect=RuntimeError("blacklist unavailable"),
     )
-    def test_password_reset_rolls_back_password_when_token_revocation_fails(self, blacklist_mock):
+    def test_password_reset_rolls_back_password_when_token_revocation_fails(
+        self, blacklist_mock, allow_request_mock
+    ):
         RefreshToken.for_user(self.user)
         uid = urlsafe_base64_encode(force_bytes(self.user.pk))
         token = default_token_generator.make_token(self.user)
