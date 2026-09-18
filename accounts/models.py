@@ -62,25 +62,3 @@ class UserProfile(models.Model):
     def __str__(self):
         return self.user.email
 
-
-class Staff(models.Model):
-    """Legacy staff profile; workspace authorization is owned by Membership.role."""
-
-    owner = models.ForeignKey(
-        User,
-        on_delete=models.CASCADE,
-        related_name="staff_members"
-    )
-
-    user = models.OneToOneField(
-        User,
-        on_delete=models.CASCADE,
-        related_name="staff_profile"
-    )
-
-    is_active = models.BooleanField(default=True)
-
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return self.user.email
