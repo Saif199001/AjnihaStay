@@ -17,6 +17,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from .serializers import UserSerializer
 from .services import (
+    EmailVerificationDeliveryError,
     create_user_account,
     login_user_service,
     send_email_verification,
@@ -80,7 +81,7 @@ def signup_api(request):
         try:
             send_email_verification(user)
             verification_email_sent = True
-        except Exception:
+        except EmailVerificationDeliveryError:
             # The account remains safely unverified; the resend endpoint can recover
             # from temporary email-provider/configuration failures.
             verification_email_sent = False
@@ -134,7 +135,7 @@ def resend_verification_api(request):
 
     try:
         send_email_verification(user)
-    except Exception:
+    except EmailVerificationDeliveryError:
         return Response(generic_response)
 
     return Response(generic_response)
