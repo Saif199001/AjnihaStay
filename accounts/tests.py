@@ -10,7 +10,7 @@ from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, Ou
 
 from .models import User, UserProfile
 from .serializers import UserSerializer
-from .services import set_account_active
+from .services import EmailVerificationDeliveryError, set_account_active
 from workspaces.models import Membership, Workspace
 
 
@@ -439,8 +439,29 @@ class AccountBoundaryHardeningTests(TestCase):
         self.assertTrue(user.email_verified)
         self.assertIsNotNone(user.email_verified_at)
 
+    def test_create_superuser_forces_verification_state(self):
+        user = User.objects.create_superuser(
+            "forced-admin@example.com",
+            "StrongPass123!",
+            email_verified=False,
+            email_verified_at=None,
+        )
+        self.assertTrue(user.email_verified)
+        self.assertIsNotNone(user.email_verified_at)
+
     def test_user_admin_cannot_edit_email_verification_state_directly(self):
         from django.contrib import admin
         user_admin = admin.site._registry[User]
         self.assertIn("email_verified", user_admin.readonly_fields)
         self.assertIn("email_verified_at", user_admin.readonly_fields)
+
+    def test_verification_delivery_failure_is_classified(self):
+        user = User.objects.create_user("delivery@example.com", "StrongPass123!")
+        with patch(
+            "accounts.services.resend.Emails.send",
+            side_effect=RuntimeError("provider down"),
+        ):
+            from .services import send_email_verification
+
+            with self.assertRaises(EmailVerificationDeliveryError):
+                send_email_verification(user)
