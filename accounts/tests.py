@@ -341,7 +341,8 @@ class AuthenticationSecurityTests(TestCase):
 
     @override_settings(RESEND_API_KEY="test-key")
     @patch("accounts.api.resend.Emails.send", side_effect=RuntimeError("provider down"))
-    def test_resend_verification_provider_failure_keeps_generic_response(self, send_mock):
+    @patch("rest_framework.throttling.SimpleRateThrottle.allow_request", return_value=True)
+    def test_resend_verification_provider_failure_keeps_generic_response(self, allow_request_mock, send_mock):
         self.user.email_verified = False
         self.user.save(update_fields=["email_verified"])
 
@@ -359,6 +360,7 @@ class AuthenticationSecurityTests(TestCase):
         self.assertEqual(existing.status_code, 200)
         self.assertEqual(existing.data, unknown.data)
         send_mock.assert_called_once()
+        allow_request_mock.assert_called()
 
     @override_settings(RESEND_API_KEY="test-key")
     @patch("accounts.api.resend.Emails.send", side_effect=RuntimeError("provider down"))
