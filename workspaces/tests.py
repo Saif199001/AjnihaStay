@@ -10,7 +10,7 @@ from properties.models import Property
 from .context import get_workspace_for_request
 from .db import set_workspace_context
 from .models import Membership, Workspace
-from .services import archive_workspace, transfer_workspace_ownership
+from .services import add_member, archive_workspace, change_member_role, deactivate_member, transfer_workspace_ownership
 
 
 class WorkspaceFoundationTests(TestCase):
@@ -234,6 +234,31 @@ class WorkspaceFoundationTests(TestCase):
         workspace.refresh_from_db()
         self.assertEqual(workspace.owner_id, owner.id)
         self.assertEqual(owner_membership.role, Membership.ROLE_OWNER)
+
+    def test_membership_mutations_reject_actor_from_different_workspace(self):
+        owner, workspace, _ = self.make_workspace(slug="boundary-a")
+        _, other_workspace, other_owner_membership = self.make_workspace(
+            email="other-owner@example.com", slug="boundary-b"
+        )
+        target = User.objects.create_user("target-boundary@example.com", self.password)
+        target_membership = Membership.objects.create(
+            workspace=workspace,
+            user=target,
+            role=Membership.ROLE_VIEWER,
+        )
+
+        with self.assertRaises(ValidationError):
+            add_member(workspace, other_owner_membership, target.email, Membership.ROLE_VIEWER)
+        with self.assertRaises(ValidationError):
+            change_member_role(workspace, other_owner_membership, target.id, Membership.ROLE_MANAGER)
+        with self.assertRaises(ValidationError):
+            deactivate_member(workspace, other_owner_membership, target.id)
+
+        target_membership.refresh_from_db()
+        self.assertEqual(target_membership.role, Membership.ROLE_VIEWER)
+        self.assertTrue(target_membership.is_active)
+        self.assertEqual(other_owner_membership.workspace_id, other_workspace.id)
+        self.assertEqual(owner.id, workspace.owner_id)
 
     def test_archive_requires_owner_and_blocks_membership_lifecycle(self):
         owner, workspace, owner_membership = self.make_workspace(slug="archive-test")
