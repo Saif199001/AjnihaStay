@@ -1,21 +1,45 @@
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils.text import slugify
 
 from .models import User
 from workspaces.models import Membership, Workspace
 
 
-def _unique_workspace_slug(email):
+def _workspace_slug_candidates(email):
     base = slugify(email.split("@")[0]) or "workspace"
-    slug = base
+    yield base
     counter = 2
-    while Workspace.objects.filter(slug=slug).exists():
-        slug = f"{base}-{counter}"
+    while True:
+        yield f"{base}-{counter}"
         counter += 1
-    return slug
+
+
+def _unique_workspace_slug(email):
+    return next(
+        slug
+        for slug in _workspace_slug_candidates(email)
+        if not Workspace.objects.filter(slug=slug).exists()
+    )
+
+
+def _create_workspace_with_unique_slug(name, email, owner):
+    slug = _unique_workspace_slug(email)
+    counter = 2
+    base = slug
+
+    while True:
+        try:
+            with transaction.atomic():
+                return Workspace.objects.create(name=name, slug=slug, owner=owner)
+        except IntegrityError:
+            if Workspace.objects.filter(slug=slug).exists():
+                slug = f"{base}-{counter}"
+                counter += 1
+                continue
+            raise
 
 
 def create_user_account(email, password, confirm_password, workspace_name=None):
@@ -35,11 +59,7 @@ def create_user_account(email, password, confirm_password, workspace_name=None):
             password=password,
         )
         name = (workspace_name or "").strip() or f"{email}'s Workspace"
-        workspace = Workspace.objects.create(
-            name=name,
-            slug=_unique_workspace_slug(email),
-            owner=user,
-        )
+        workspace = _create_workspace_with_unique_slug(name, email, user)
         Membership.objects.create(
             workspace=workspace,
             user=user,
