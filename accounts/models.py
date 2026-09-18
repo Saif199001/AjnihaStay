@@ -9,7 +9,7 @@ class UserManager(BaseUserManager):
         if not email:
             raise ValueError("Email is required")
 
-        email = self.normalize_email(email)
+        email = email.strip().lower()
 
         user = self.model(email=email, **extra_fields)
 
@@ -61,4 +61,3 @@ class UserProfile(models.Model):
 
     def __str__(self):
         return self.user.email
-
