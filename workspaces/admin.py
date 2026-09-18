@@ -11,6 +11,9 @@ class MembershipAdminForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk:
+            self.fields["workspace"].disabled = True
+            self.fields["user"].disabled = True
         if self.instance and self.instance.pk and self.instance.role == Membership.ROLE_OWNER:
             self.fields["role"].disabled = True
             self.fields["is_active"].disabled = True
@@ -52,3 +55,8 @@ class MembershipAdmin(admin.ModelAdmin):
     list_display = ("workspace", "user", "role", "is_active", "created_at")
     search_fields = ("workspace__name", "user__email")
     list_filter = ("role", "is_active")
+
+    def has_delete_permission(self, request, obj=None):
+        if obj is not None and obj.role == Membership.ROLE_OWNER:
+            return False
+        return super().has_delete_permission(request, obj)
