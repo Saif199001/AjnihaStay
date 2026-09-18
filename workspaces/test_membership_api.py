@@ -198,7 +198,7 @@ class WorkspaceMembershipAPITests(TestCase):
             membership_admin.has_delete_permission(None, self.owner_membership)
         )
 
-    def test_membership_admin_allows_delete_permission_for_non_owner(self):
+    def test_membership_admin_is_read_only_for_membership_mutations(self):
         from django.contrib import admin
         from types import SimpleNamespace
 
@@ -211,7 +211,10 @@ class WorkspaceMembershipAPITests(TestCase):
         request = SimpleNamespace(
             user=SimpleNamespace(has_perm=lambda permission: True)
         )
-        self.assertTrue(membership_admin.has_delete_permission(request, member))
+
+        self.assertFalse(membership_admin.has_add_permission(request))
+        self.assertFalse(membership_admin.has_change_permission(request, member))
+        self.assertFalse(membership_admin.has_delete_permission(request, member))
 
     def test_owner_can_update_workspace_name_but_owner_field_is_not_writable(self):
         self.authenticate(self.owner)
