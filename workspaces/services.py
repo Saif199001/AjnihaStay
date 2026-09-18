@@ -1,6 +1,6 @@
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from .models import Membership, Workspace
 from .permissions import ROLE_RANK
@@ -21,7 +21,7 @@ def _ensure_actor_membership_matches_workspace(workspace, actor_membership):
 def _ensure_admin_can_manage(workspace, actor_membership, target_membership=None, target_role=None):
     _ensure_actor_membership_matches_workspace(workspace, actor_membership)
     if ROLE_RANK[actor_membership.role] < ROLE_RANK[Membership.ROLE_ADMIN]:
-        raise ValidationError("Workspace admin permission required")
+        raise PermissionDenied("Workspace admin permission required")
 
     if target_membership and target_membership.role == Membership.ROLE_OWNER:
         raise ValidationError("Workspace owner cannot be modified")
