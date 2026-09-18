@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.db import transaction
 
-from .models import User, UserProfile, Staff
+from .models import User, UserProfile
 from .services import set_account_active
 
 
