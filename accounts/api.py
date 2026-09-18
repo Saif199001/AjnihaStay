@@ -69,7 +69,7 @@ def login_api(request):
 @permission_classes([AllowAny])
 def signup_api(request):
     try:
-        email = request.data.get("email", "").strip().lower()
+        email = _normalized_email(request.data.get("email"))
         password = request.data.get("password")
         confirm_password = request.data.get("confirm_password")
         workspace_name = request.data.get("workspace_name")
@@ -127,7 +127,7 @@ def verify_email_api(request, uidb64, token):
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def resend_verification_api(request):
-    email = request.data.get("email", "").strip().lower()
+    email = _normalized_email(request.data.get("email"))
     if not email:
         return Response({"error": "Email is required"}, status=400)
 
@@ -166,7 +166,7 @@ def logout_api(request):
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def forgot_password_api(request):
-    email = request.data.get("email", "").strip().lower()
+    email = _normalized_email(request.data.get("email"))
     if not email:
         return Response({"error": "Email is required"}, status=400)
 
