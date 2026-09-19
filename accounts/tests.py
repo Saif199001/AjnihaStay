@@ -429,6 +429,9 @@ class AuthenticationSecurityTests(TestCase):
 
 
 class AccountBoundaryHardeningTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
     def test_create_user_defaults_to_unverified(self):
         user = User.objects.create_user("boundary@example.com", "StrongPass123!")
         self.assertFalse(user.email_verified)
