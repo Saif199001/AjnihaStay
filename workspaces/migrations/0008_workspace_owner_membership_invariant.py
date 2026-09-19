@@ -97,7 +97,7 @@ $$;
 
 TRIGGER_CREATE_SQL = r"""
 CREATE CONSTRAINT TRIGGER workspaces_owner_membership_workspace_check
-AFTER INSERT OR UPDATE OF owner ON workspaces_workspace
+AFTER INSERT OR UPDATE OF owner_id ON workspaces_workspace
 DEFERRABLE INITIALLY DEFERRED
 FOR EACH ROW EXECUTE FUNCTION workspaces_enforce_owner_membership();
 
