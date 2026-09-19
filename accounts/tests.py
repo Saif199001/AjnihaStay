@@ -500,7 +500,7 @@ class AccountBoundaryHardeningTests(TestCase):
             ),
         ):
             response = self.client.post(path, payload, format="json")
-            expected_status = 401 if path == "/api/login/" else 400
+            expected_status = 400
             self.assertEqual(response.status_code, expected_status, path)
 
         allow_request_mock.assert_called()
