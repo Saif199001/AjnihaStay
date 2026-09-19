@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
 
 
 class Workspace(models.Model):
@@ -16,9 +17,7 @@ class Workspace(models.Model):
 
     class Meta:
         ordering = ["name"]
-        indexes = [
-            models.Index(fields=["owner", "is_active"]),
-        ]
+        indexes = [models.Index(fields=["owner", "is_active"])]
 
     def __str__(self):
         return self.name
@@ -57,6 +56,11 @@ class Membership(models.Model):
             models.UniqueConstraint(
                 fields=["workspace", "user"],
                 name="unique_workspace_membership",
+            ),
+            models.UniqueConstraint(
+                fields=["workspace"],
+                condition=Q(role="owner", is_active=True),
+                name="unique_active_workspace_owner",
             ),
         ]
         indexes = [
