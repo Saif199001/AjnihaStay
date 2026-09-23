@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
+from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
@@ -60,7 +61,7 @@ class AccountsProductionTests(TestCase):
     def test_create_user_account_rejects_duplicate_email(self):
         self.create_user()
 
-        with self.assertRaisesMessage(Exception, "Email already exists"):
+        with self.assertRaisesMessage(ValidationError, "Email already exists"):
             create_user_account(
                 self.email,
                 self.password,
@@ -148,18 +149,16 @@ class AccountsProductionTests(TestCase):
         self.assertEqual(response.data["error"], "Invalid or expired token")
 
     @patch("accounts.api.send_password_reset_email")
-    def test_forgot_password_keeps_generic_response_on_delivery_failure(self, send_email):
+    def test_forgot_password_does_not_swallow_unexpected_errors(self, send_email):
         self.create_user(verified=True)
-        send_email.side_effect = Exception("unexpected")  # service boundary converts provider failures
+        send_email.side_effect = RuntimeError("unexpected programming failure")
 
-        response = self.client.post(
-            "/api/forgot-password/",
-            {"email": self.email},
-            format="json",
-        )
-
-        # An unexpected exception is intentionally not converted by the API.
-        self.assertEqual(response.status_code, 500)
+        with self.assertRaises(RuntimeError):
+            self.client.post(
+                "/api/forgot-password/",
+                {"email": self.email},
+                format="json",
+            )
 
     @patch("accounts.api.send_password_reset_email")
     def test_forgot_password_returns_generic_response_for_expected_delivery_failure(self, send_email):
