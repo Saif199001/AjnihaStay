@@ -8,12 +8,11 @@ from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.utils.encoding import force_bytes, force_str
+from django.utils.encoding import force_bytes
 from django.utils.text import slugify
 from django.utils.http import urlsafe_base64_encode
 from django.utils import timezone
 
-from .models import User
 from workspaces.models import Membership, Workspace
 
 User = get_user_model()
@@ -27,31 +26,22 @@ class PasswordResetDeliveryError(Exception):
     """Expected email-delivery failure for password-reset messages."""
 
 
-def _unique_workspace_slug(email):
-    base = slugify(email.split("@")[0]) or "workspace"
-    slug = base
-    counter = 2
-    while Workspace.objects.filter(slug=slug).exists():
-        slug = f"{base}-{counter}"
-        counter += 1
-    return slug
+def _workspace_slug_base(email):
+    return slugify(email.split("@")[0]) or "workspace"
 
 
 def _create_workspace_with_unique_slug(name, email, owner):
-    base = slugify(email.split("@")[0]) or "workspace"
-    slug = _unique_workspace_slug(email)
-    counter = 2
-
-    while True:
+    base = _workspace_slug_base(email)
+    for counter in range(1, 1000):
+        slug = base if counter == 1 else f"{base}-{counter}"
         try:
             with transaction.atomic():
                 return Workspace.objects.create(name=name, slug=slug, owner=owner)
         except IntegrityError:
             if Workspace.objects.filter(slug=slug).exists():
-                slug = f"{base}-{counter}"
-                counter += 1
                 continue
             raise
+    raise IntegrityError("Unable to allocate a unique workspace slug")
 
 
 def create_user_account(email, password, confirm_password, workspace_name=None):
