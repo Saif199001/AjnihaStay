@@ -1,23 +1,17 @@
 from django.urls import path
-from .views import login_view, signup_view, logout_view
+
 from .api import (
-    signup_api,
+    forgot_password_api,
     login_api,
     logout_api,
-    forgot_password_api,
-    reset_password_api,
-    verify_email_api,
     resend_verification_api,
+    reset_password_api,
+    signup_api,
+    verify_email_api,
 )
 
 urlpatterns = [
-    # Legacy HTML endpoints retained for compatibility.
-    # path("", login_view),
-    # path("login/", login_view),
-    # path("signup/", signup_view),
-    # path("logout/", logout_view),
-
-    # API endpoints.
+    # Canonical API contract.
     path("api/signup/", signup_api),
     path("api/login/", login_api),
     path("api/logout/", logout_api),
@@ -26,7 +20,7 @@ urlpatterns = [
     path("api/verify-email/<uidb64>/<token>/", verify_email_api),
     path("api/resend-verification/", resend_verification_api),
 
-    # Backward-compatible API aliases without the /api prefix.
+    # Backward-compatible aliases retained until consumers are migrated.
     path("signup/", signup_api),
     path("login/", login_api),
     path("logout/", logout_api),
