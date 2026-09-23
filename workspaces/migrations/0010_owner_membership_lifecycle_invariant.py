@@ -17,7 +17,14 @@ BEGIN
     FROM workspaces_workspace
     WHERE id = p_workspace_id;
 
-    IF NOT FOUND OR v_owner_id IS NULL THEN
+    IF NOT FOUND THEN
+        -- A workspace deletion may cascade-delete its memberships in the same
+        -- transaction. Once the workspace row is gone there is no invariant
+        -- left to validate for that workspace id.
+        RETURN;
+    END IF;
+
+    IF v_owner_id IS NULL THEN
         RAISE EXCEPTION 'Workspace % must have an owner', p_workspace_id
             USING ERRCODE = '23514';
     END IF;
