@@ -18,9 +18,6 @@ BEGIN
     WHERE id = p_workspace_id;
 
     IF NOT FOUND THEN
-        -- A workspace deletion may cascade-delete its memberships in the same
-        -- transaction. Once the workspace row is gone there is no invariant
-        -- left to validate for that workspace id.
         RETURN;
     END IF;
 
@@ -88,11 +85,12 @@ $$;
 DROP TRIGGER IF EXISTS workspaces_owner_membership_workspace_check ON workspaces_workspace;
 DROP TRIGGER IF EXISTS workspaces_owner_membership_membership_check ON workspaces_membership;
 
--- Workspace INSERT is intentionally not a trigger event. A workspace and its
--- initial owner membership are a two-row aggregate and may be inserted in
--- either order inside one transaction. The composite deferred FK below
--- guarantees the owner membership exists by commit; membership/owner triggers
--- guarantee that the matching membership is active and has role='owner'.
+-- Workspace creation is deliberately not validated here. Existing application
+-- flows create Workspace and its initial Membership as two writes inside one
+-- atomic service transaction. Validating the workspace INSERT itself would
+-- reject the legitimate intermediate state before the membership exists.
+-- The deferred membership trigger validates the completed aggregate after the
+-- owner membership write, while owner changes are also validated at commit.
 CREATE CONSTRAINT TRIGGER workspaces_owner_membership_workspace_check
 AFTER UPDATE OF owner_id ON workspaces_workspace
 DEFERRABLE INITIALLY DEFERRED
@@ -117,24 +115,10 @@ DROP FUNCTION IF EXISTS workspaces_enforce_workspace_owner_membership();
 DROP FUNCTION IF EXISTS workspaces_assert_owner_membership(bigint);
 """
 
-FK_SQL = r"""
-ALTER TABLE workspaces_workspace
-    ADD CONSTRAINT workspace_owner_membership_fk
-    FOREIGN KEY (id, owner_id)
-    REFERENCES workspaces_membership (workspace_id, user_id)
-    DEFERRABLE INITIALLY DEFERRED;
-"""
-
-FK_DROP_SQL = r"""
-ALTER TABLE workspaces_workspace
-    DROP CONSTRAINT IF EXISTS workspace_owner_membership_fk;
-"""
-
 
 class Migration(migrations.Migration):
     dependencies = [("workspaces", "0009_harden_owner_membership_trigger")]
 
     operations = [
-        migrations.RunSQL(FK_SQL, reverse_sql=FK_DROP_SQL),
         migrations.RunSQL(TRIGGER_FUNCTION_SQL, reverse_sql=TRIGGER_DROP_SQL),
     ]
