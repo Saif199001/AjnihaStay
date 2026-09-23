@@ -128,6 +128,7 @@ class WorkspaceFoundationTests(TestCase):
     def test_workspace_context_returns_only_callers_membership(self):
         user = User.objects.create_user("context@example.com", self.password)
         workspace = Workspace.objects.create(name="Mine", slug="mine", owner=user)
+        Membership.objects.create(workspace=workspace, user=user, role=Membership.ROLE_OWNER)
         Membership.objects.create(workspace=workspace, user=user, role=Membership.ROLE_MANAGER)
 
         other = User.objects.create_user("intruder@example.com", self.password)
