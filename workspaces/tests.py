@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from django.db import connection, transaction
+from django.db import IntegrityError, connection, transaction
 from django.test import TestCase
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIClient
@@ -302,6 +302,46 @@ class WorkspaceFoundationTests(TestCase):
         archived = archive_workspace(workspace, owner_membership)
         self.assertFalse(archived.is_active)
 
+
+    def test_workspace_and_owner_membership_can_be_created_in_either_order(self):
+        owner = User.objects.create_user("lifecycle-owner@example.com", self.password)
+        with transaction.atomic():
+            workspace = Workspace.objects.create(
+                name="Lifecycle", slug="lifecycle-order", owner=owner
+            )
+            membership = Membership.objects.create(
+                workspace=workspace, user=owner, role=Membership.ROLE_OWNER
+            )
+
+        workspace.refresh_from_db()
+        membership.refresh_from_db()
+        self.assertEqual(workspace.owner_id, owner.id)
+        self.assertEqual(membership.role, Membership.ROLE_OWNER)
+        self.assertTrue(membership.is_active)
+
+    def test_workspace_cannot_commit_without_owner_membership(self):
+        owner = User.objects.create_user("missing-owner@example.com", self.password)
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Workspace.objects.create(
+                    name="Missing Owner Membership",
+                    slug="missing-owner-membership",
+                    owner=owner,
+                )
+
+    def test_workspace_owner_membership_must_be_active_owner_role(self):
+        owner = User.objects.create_user("wrong-role-owner@example.com", self.password)
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                workspace = Workspace.objects.create(
+                    name="Wrong Role", slug="wrong-role-owner", owner=owner
+                )
+                Membership.objects.create(
+                    workspace=workspace,
+                    user=owner,
+                    role=Membership.ROLE_ADMIN,
+                    is_active=True,
+                )
 
     def test_owner_membership_constraint_trigger_supports_atomic_ownership_transfer(self):
         owner, workspace, owner_membership = self.make_workspace(slug="trigger-transfer")
