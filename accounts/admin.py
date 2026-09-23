@@ -8,7 +8,6 @@ from .services import set_account_active
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
-
     model = User
 
     list_display = (
@@ -27,24 +26,16 @@ class UserAdmin(BaseUserAdmin):
     )
 
     search_fields = ("email", "phone")
-
     ordering = ("-date_joined",)
-
     readonly_fields = ("date_joined", "email_verified", "email_verified_at")
 
     fieldsets = (
-        ("User Info", {
-            "fields": ("email", "password")
-        }),
+        ("User Info", {"fields": ("email", "password")}),
         ("Permissions", {
             "fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")
         }),
-        ("Account Info", {
-            "fields": ("phone", "email_verified", "email_verified_at")
-        }),
-        ("Important Dates", {
-            "fields": ("date_joined",)
-        }),
+        ("Account Info", {"fields": ("phone", "email_verified", "email_verified_at")}),
+        ("Important Dates", {"fields": ("date_joined",)}),
     )
 
     add_fieldsets = (
@@ -58,18 +49,16 @@ class UserAdmin(BaseUserAdmin):
         with transaction.atomic():
             if change:
                 previous = User.objects.get(pk=obj.pk)
-                if previous.is_active and not obj.is_active:
-                    set_account_active(obj, False)
+                if previous.is_active != obj.is_active:
+                    locked_user = set_account_active(obj, obj.is_active)
+                    obj.is_active = locked_user.is_active
             super().save_model(request, obj, form, change)
 
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-
     list_display = ("user", "city", "state")
-
     search_fields = ("user__email", "city", "state")
-
     list_filter = ("city", "state")
 
 
