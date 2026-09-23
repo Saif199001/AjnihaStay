@@ -301,3 +301,30 @@ class WorkspaceFoundationTests(TestCase):
         workspace.refresh_from_db()
         archived = archive_workspace(workspace, owner_membership)
         self.assertFalse(archived.is_active)
+
+
+    def test_owner_membership_constraint_trigger_supports_atomic_ownership_transfer(self):
+        owner, workspace, owner_membership = self.make_workspace(slug="trigger-transfer")
+        target = User.objects.create_user("trigger-target@example.com", self.password)
+        target_membership = Membership.objects.create(
+            workspace=workspace,
+            user=target,
+            role=Membership.ROLE_ADMIN,
+        )
+
+        with transaction.atomic():
+            workspace.owner = target
+            workspace.save(update_fields=["owner"])
+            owner_membership.role = Membership.ROLE_ADMIN
+            owner_membership.save(update_fields=["role"])
+            target_membership.role = Membership.ROLE_OWNER
+            target_membership.save(update_fields=["role"])
+
+        workspace.refresh_from_db()
+        owner_membership.refresh_from_db()
+        target_membership.refresh_from_db()
+
+        self.assertEqual(workspace.owner_id, target.id)
+        self.assertEqual(owner_membership.role, Membership.ROLE_ADMIN)
+        self.assertEqual(target_membership.role, Membership.ROLE_OWNER)
+        self.assertTrue(target_membership.is_active)
