@@ -2,7 +2,7 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
-from .models import Membership, Workspace
+from .models import Membership, Workspace, _allow_membership_mutation
 from .permissions import ROLE_RANK
 
 User = get_user_model()
@@ -18,8 +18,21 @@ def _ensure_actor_membership_matches_workspace(workspace, actor_membership):
         raise ValidationError("Workspace membership mismatch")
 
 
+def _get_locked_actor_membership(workspace, actor_membership):
+    _ensure_actor_membership_matches_workspace(workspace, actor_membership)
+    try:
+        return Membership.objects.select_for_update().get(
+            workspace=workspace,
+            user_id=actor_membership.user_id,
+        )
+    except Membership.DoesNotExist:
+        raise ValidationError("Workspace membership mismatch")
+
+
 def _ensure_admin_can_manage(workspace, actor_membership, target_membership=None, target_role=None):
     _ensure_actor_membership_matches_workspace(workspace, actor_membership)
+    if not actor_membership.is_active:
+        raise PermissionDenied("Active workspace membership required")
     if ROLE_RANK[actor_membership.role] < ROLE_RANK[Membership.ROLE_ADMIN]:
         raise PermissionDenied("Workspace admin permission required")
 
@@ -52,7 +65,9 @@ def update_workspace(workspace, actor_membership, name):
 
 @transaction.atomic
 def add_member(workspace, actor_membership, email, role=Membership.ROLE_VIEWER):
+    workspace = Workspace.objects.select_for_update().get(pk=workspace.pk)
     _ensure_workspace_active(workspace)
+    actor_membership = _get_locked_actor_membership(workspace, actor_membership)
     _ensure_admin_can_manage(workspace, actor_membership, target_role=role)
 
     if not isinstance(email, str):
@@ -75,21 +90,33 @@ def add_member(workspace, actor_membership, email, role=Membership.ROLE_VIEWER):
     if not user.is_active:
         raise ValidationError("User account is inactive")
 
-    membership = Membership.objects.filter(workspace=workspace, user=user).first()
+    membership = Membership.objects.select_for_update().filter(
+        workspace=workspace,
+        user=user,
+    ).first()
     if membership:
         if membership.is_active:
             raise ValidationError("User is already an active workspace member")
-        membership.role = role
-        membership.is_active = True
-        membership.save(update_fields=["role", "is_active", "updated_at"])
+        with _allow_membership_mutation():
+            membership.role = role
+            membership.is_active = True
+            membership.save(update_fields=["role", "is_active", "updated_at"])
         return membership
 
-    return Membership.objects.create(workspace=workspace, user=user, role=role)
+    with _allow_membership_mutation():
+        return Membership.objects.create(
+            workspace=workspace,
+            user=user,
+            role=role,
+        )
 
 
 @transaction.atomic
 def change_member_role(workspace, actor_membership, target_user_id, role):
+    workspace = Workspace.objects.select_for_update().get(pk=workspace.pk)
     _ensure_workspace_active(workspace)
+    actor_membership = _get_locked_actor_membership(workspace, actor_membership)
+
     try:
         target = Membership.objects.select_for_update().get(
             workspace=workspace,
@@ -108,14 +135,18 @@ def change_member_role(workspace, actor_membership, target_user_id, role):
     if not target.is_active:
         raise ValidationError("Workspace member is inactive")
 
-    target.role = role
-    target.save(update_fields=["role", "updated_at"])
+    with _allow_membership_mutation():
+        target.role = role
+        target.save(update_fields=["role", "updated_at"])
     return target
 
 
 @transaction.atomic
 def deactivate_member(workspace, actor_membership, target_user_id):
+    workspace = Workspace.objects.select_for_update().get(pk=workspace.pk)
     _ensure_workspace_active(workspace)
+    actor_membership = _get_locked_actor_membership(workspace, actor_membership)
+
     try:
         target = Membership.objects.select_for_update().get(
             workspace=workspace,
@@ -128,8 +159,9 @@ def deactivate_member(workspace, actor_membership, target_user_id):
     if not target.is_active:
         return target
 
-    target.is_active = False
-    target.save(update_fields=["is_active", "updated_at"])
+    with _allow_membership_mutation():
+        target.is_active = False
+        target.save(update_fields=["is_active", "updated_at"])
     return target
 
 
@@ -149,7 +181,7 @@ def transfer_workspace_ownership(workspace, actor_membership, target_user_id):
     except Membership.DoesNotExist:
         raise ValidationError("Workspace membership mismatch")
 
-    if actor_membership.role != Membership.ROLE_OWNER:
+    if not actor_membership.is_active or actor_membership.role != Membership.ROLE_OWNER:
         raise ValidationError("Workspace owner permission required")
 
     current_owner = Membership.objects.select_for_update().get(
@@ -175,11 +207,12 @@ def transfer_workspace_ownership(workspace, actor_membership, target_user_id):
     if not target.user.is_active:
         raise ValidationError("Target user account is inactive")
 
-    current_owner.role = Membership.ROLE_ADMIN
-    current_owner.save(update_fields=["role", "updated_at"])
+    with _allow_membership_mutation():
+        current_owner.role = Membership.ROLE_ADMIN
+        current_owner.save(update_fields=["role", "updated_at"])
 
-    target.role = Membership.ROLE_OWNER
-    target.save(update_fields=["role", "updated_at"])
+        target.role = Membership.ROLE_OWNER
+        target.save(update_fields=["role", "updated_at"])
 
     workspace.owner_id = target.user_id
     workspace.save(update_fields=["owner", "updated_at"])
@@ -190,8 +223,6 @@ def transfer_workspace_ownership(workspace, actor_membership, target_user_id):
 @transaction.atomic
 def archive_workspace(workspace, actor_membership):
     _ensure_actor_membership_matches_workspace(workspace, actor_membership)
-    if actor_membership.workspace_id != workspace.id:
-        raise ValidationError("Workspace membership mismatch")
     if actor_membership.role != Membership.ROLE_OWNER:
         raise ValidationError("Workspace owner permission required")
 
