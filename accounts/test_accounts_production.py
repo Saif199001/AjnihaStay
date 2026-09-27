@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
+from django.core.cache import cache
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import TestCase, override_settings
 from django.utils.encoding import force_bytes
@@ -33,6 +34,7 @@ User = get_user_model()
 )
 class AccountsProductionTests(TestCase):
     def setUp(self):
+        cache.clear()
         self.client = APIClient()
         self.password = "StrongPassword!123"
         self.email = "owner@example.com"
