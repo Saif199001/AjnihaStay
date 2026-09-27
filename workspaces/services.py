@@ -136,14 +136,22 @@ def deactivate_member(workspace, actor_membership, target_user_id):
 @transaction.atomic
 def transfer_workspace_ownership(workspace, actor_membership, target_user_id):
     _ensure_actor_membership_matches_workspace(workspace, actor_membership)
-    if actor_membership.workspace_id != workspace.id:
-        raise ValidationError("Workspace membership mismatch")
-    if actor_membership.role != Membership.ROLE_OWNER:
-        raise ValidationError("Workspace owner permission required")
+
+    workspace = Workspace.objects.select_for_update().get(pk=workspace.pk)
     if not workspace.is_active:
         raise ValidationError("Workspace is archived")
 
-    workspace = Workspace.objects.select_for_update().get(pk=workspace.pk)
+    try:
+        actor_membership = Membership.objects.select_for_update().get(
+            workspace=workspace,
+            user_id=actor_membership.user_id,
+        )
+    except Membership.DoesNotExist:
+        raise ValidationError("Workspace membership mismatch")
+
+    if actor_membership.role != Membership.ROLE_OWNER:
+        raise ValidationError("Workspace owner permission required")
+
     current_owner = Membership.objects.select_for_update().get(
         workspace=workspace,
         user_id=workspace.owner_id,
