@@ -46,17 +46,14 @@ class MembershipMutationBoundaryProductionTests(TransactionTestCase):
 
     def test_direct_create_is_blocked(self):
         owner = self.create_user("owner@example.com")
-        workspace = Workspace.objects.create(
-            name="Workspace",
-            slug="direct-create",
-            owner=owner,
-        )
+        workspace = self.create_owned_workspace(owner, "direct-create")
+        member = self.create_user("member@example.com")
 
         with self.assertRaises(PermissionDenied):
             Membership.objects.create(
                 workspace=workspace,
-                user=owner,
-                role=Membership.ROLE_OWNER,
+                user=member,
+                role=Membership.ROLE_VIEWER,
                 is_active=True,
             )
 
