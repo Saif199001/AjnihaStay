@@ -1,7 +1,7 @@
 from django.contrib.auth import get_user_model
-from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.test import TransactionTestCase
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from .models import Membership, Workspace, _allow_membership_mutation
 from .services import add_member, change_member_role, deactivate_member
@@ -231,7 +231,10 @@ class MembershipMutationBoundaryProductionTests(TransactionTestCase):
         self.create_membership(workspace, member)
         actor = Membership.objects.get(workspace=workspace, user=owner)
 
-        with self.assertRaisesMessage(PermissionDenied, "Workspace admin permission required"):
+        with self.assertRaisesMessage(
+            ValidationError,
+            "Owner role cannot be assigned",
+        ):
             add_member(
                 workspace,
                 actor,
