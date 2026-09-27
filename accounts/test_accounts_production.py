@@ -2,10 +2,11 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import TestCase, override_settings
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
+from django.utils import timezone
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
@@ -385,6 +386,68 @@ class AccountsProductionTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 400)
+
+    def test_direct_save_cannot_change_is_active(self):
+        user = self.create_user(verified=True)
+
+        user.is_active = False
+        with self.assertRaises(PermissionDenied):
+            user.save(update_fields=["is_active"])
+
+        user.refresh_from_db()
+        self.assertTrue(user.is_active)
+
+    def test_direct_save_cannot_change_email_verification_state(self):
+        user = self.create_user()
+
+        user.email_verified = True
+        user.email_verified_at = timezone.now()
+        with self.assertRaises(PermissionDenied):
+            user.save(update_fields=["email_verified", "email_verified_at"])
+
+        user.refresh_from_db()
+        self.assertFalse(user.email_verified)
+        self.assertIsNone(user.email_verified_at)
+
+    def test_queryset_update_cannot_change_sensitive_account_state(self):
+        user = self.create_user(verified=True)
+
+        with self.assertRaises(PermissionDenied):
+            User.objects.filter(pk=user.pk).update(is_active=False)
+
+        user.refresh_from_db()
+        self.assertTrue(user.is_active)
+
+    def test_queryset_update_cannot_change_email_verification_state(self):
+        user = self.create_user()
+
+        with self.assertRaises(PermissionDenied):
+            User.objects.filter(pk=user.pk).update(
+                email_verified=True,
+                email_verified_at=timezone.now(),
+            )
+
+        user.refresh_from_db()
+        self.assertFalse(user.email_verified)
+        self.assertIsNone(user.email_verified_at)
+
+    def test_bulk_update_cannot_change_sensitive_account_state(self):
+        user = self.create_user(verified=True)
+
+        user.is_active = False
+        with self.assertRaises(PermissionDenied):
+            User.objects.bulk_update([user], ["is_active"])
+
+        user.refresh_from_db()
+        self.assertTrue(user.is_active)
+
+    def test_unrelated_user_field_can_still_be_updated_directly(self):
+        user = self.create_user()
+        user.phone = "9876543210"
+        user.save(update_fields=["phone"])
+
+        user.refresh_from_db()
+        self.assertEqual(user.phone, "9876543210")
 
     def test_deactivation_revokes_outstanding_tokens(self):
         user = self.create_user(verified=True)
