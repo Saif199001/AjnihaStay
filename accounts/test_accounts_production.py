@@ -25,6 +25,12 @@ from .services import (
 User = get_user_model()
 
 
+@override_settings(
+    REST_FRAMEWORK={
+        "DEFAULT_THROTTLE_CLASSES": [],
+        "DEFAULT_THROTTLE_RATES": {},
+    }
+)
 class AccountsProductionTests(TestCase):
     def setUp(self):
         self.client = APIClient()
@@ -38,9 +44,6 @@ class AccountsProductionTests(TestCase):
             email_verified=verified,
             is_active=active,
         )
-        if verified:
-            user.email_verified_at = user.date_joined
-            user.save(update_fields=["email_verified_at"])
         return user
 
     def verification_link(self, user):
