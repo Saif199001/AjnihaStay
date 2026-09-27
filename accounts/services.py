@@ -13,7 +13,7 @@ from django.utils.text import slugify
 from django.utils.http import urlsafe_base64_encode
 from django.utils import timezone
 
-from workspaces.models import Membership, Workspace
+from workspaces.models import Membership, Workspace, _allow_membership_mutation
 
 from .models import _allow_account_state_mutation
 
@@ -68,12 +68,13 @@ def create_user_account(email, password, confirm_password, workspace_name=None):
         )
         name = (workspace_name or "").strip() or f"{email}'s Workspace"
         workspace = _create_workspace_with_unique_slug(name, email, user)
-        Membership.objects.create(
-            workspace=workspace,
-            user=user,
-            role=Membership.ROLE_OWNER,
-            is_active=True,
-        )
+        with _allow_membership_mutation():
+            Membership.objects.create(
+                workspace=workspace,
+                user=user,
+                role=Membership.ROLE_OWNER,
+                is_active=True,
+            )
 
     return user
 
