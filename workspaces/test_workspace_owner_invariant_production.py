@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, transaction
 from django.test import TransactionTestCase
 from rest_framework.exceptions import ValidationError
@@ -19,10 +20,9 @@ class WorkspaceOwnerInvariantProductionTests(TransactionTestCase):
             email_verified=True,
         )
 
-
     def create_membership(self, workspace, user, role, is_active=True):
         with _allow_membership_mutation():
-            return self.create_membership(
+            return Membership.objects.create(
                 workspace=workspace,
                 user=user,
                 role=role,
@@ -36,11 +36,10 @@ class WorkspaceOwnerInvariantProductionTests(TransactionTestCase):
                 slug=slug,
                 owner=owner,
             )
-            Membership.objects.create(
-                workspace=workspace,
-                user=owner,
-                role=Membership.ROLE_OWNER,
-                is_active=True,
+            self.create_membership(
+                workspace,
+                owner,
+                Membership.ROLE_OWNER,
             )
         return workspace
 
@@ -53,11 +52,10 @@ class WorkspaceOwnerInvariantProductionTests(TransactionTestCase):
                 slug="valid-workspace",
                 owner=owner,
             )
-            Membership.objects.create(
-                workspace=workspace,
-                user=owner,
-                role=Membership.ROLE_OWNER,
-                is_active=True,
+            self.create_membership(
+                workspace,
+                owner,
+                Membership.ROLE_OWNER,
             )
 
         self.assertEqual(
@@ -91,11 +89,10 @@ class WorkspaceOwnerInvariantProductionTests(TransactionTestCase):
                     slug="wrong-owner-workspace",
                     owner=owner,
                 )
-                Membership.objects.create(
-                    workspace=workspace,
-                    user=other_user,
-                    role=Membership.ROLE_OWNER,
-                    is_active=True,
+                self.create_membership(
+                    workspace,
+                    other_user,
+                    Membership.ROLE_OWNER,
                 )
 
         self.assertFalse(
@@ -109,45 +106,37 @@ class WorkspaceOwnerInvariantProductionTests(TransactionTestCase):
 
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
-                Membership.objects.create(
-                    workspace=workspace,
-                    user=second_user,
-                    role=Membership.ROLE_OWNER,
-                    is_active=True,
+                self.create_membership(
+                    workspace,
+                    second_user,
+                    Membership.ROLE_OWNER,
                 )
 
     def test_owner_membership_cannot_be_deactivated_directly(self):
         owner = self.create_user("owner@example.com")
         workspace = self.create_owned_workspace(owner, "deactivate-owner")
+        membership = Membership.objects.get(workspace=workspace, user=owner)
 
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                Membership.objects.filter(
-                    workspace=workspace,
-                    user=owner,
-                ).update(is_active=False)
+        with self.assertRaises(PermissionDenied):
+            membership.is_active = False
+            membership.save(update_fields=["is_active"])
 
     def test_owner_membership_cannot_be_deleted_directly(self):
         owner = self.create_user("owner@example.com")
         workspace = self.create_owned_workspace(owner, "delete-owner")
+        membership = Membership.objects.get(workspace=workspace, user=owner)
 
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                Membership.objects.filter(
-                    workspace=workspace,
-                    user=owner,
-                ).delete()
+        with self.assertRaises(PermissionDenied):
+            membership.delete()
 
     def test_owner_role_cannot_be_changed_directly(self):
         owner = self.create_user("owner@example.com")
         workspace = self.create_owned_workspace(owner, "change-owner-role")
+        membership = Membership.objects.get(workspace=workspace, user=owner)
 
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                Membership.objects.filter(
-                    workspace=workspace,
-                    user=owner,
-                ).update(role=Membership.ROLE_ADMIN)
+        with self.assertRaises(PermissionDenied):
+            membership.role = Membership.ROLE_ADMIN
+            membership.save(update_fields=["role"])
 
     def test_workspace_owner_cannot_change_to_inconsistent_user(self):
         owner = self.create_user("owner@example.com")
@@ -164,13 +153,7 @@ class WorkspaceOwnerInvariantProductionTests(TransactionTestCase):
         owner = self.create_user("owner@example.com")
         target = self.create_user("target@example.com")
         workspace = self.create_owned_workspace(owner, "transfer-owner")
-
-        Membership.objects.create(
-            workspace=workspace,
-            user=target,
-            role=Membership.ROLE_VIEWER,
-            is_active=True,
-        )
+        self.create_membership(workspace, target, Membership.ROLE_VIEWER)
 
         actor = Membership.objects.get(
             workspace=workspace,
@@ -193,19 +176,8 @@ class WorkspaceOwnerInvariantProductionTests(TransactionTestCase):
         target = self.create_user("target@example.com")
         third_user = self.create_user("third@example.com")
         workspace = self.create_owned_workspace(owner, "stale-owner")
-
-        Membership.objects.create(
-            workspace=workspace,
-            user=target,
-            role=Membership.ROLE_VIEWER,
-            is_active=True,
-        )
-        Membership.objects.create(
-            workspace=workspace,
-            user=third_user,
-            role=Membership.ROLE_VIEWER,
-            is_active=True,
-        )
+        self.create_membership(workspace, target, Membership.ROLE_VIEWER)
+        self.create_membership(workspace, third_user, Membership.ROLE_VIEWER)
 
         stale_owner_membership = Membership.objects.get(
             workspace=workspace,
