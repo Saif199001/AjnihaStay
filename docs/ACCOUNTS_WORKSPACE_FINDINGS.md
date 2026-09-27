@@ -102,7 +102,7 @@ Covered behavior includes:
 ## 3. Workspace — W2: Membership Mutation Boundary
 
 **Severity:** P1  
-**Status:** OPEN — AUDIT STARTING
+**Status:** IMPLEMENTED — VERIFICATION PENDING
 
 ### Scope
 
@@ -152,7 +152,7 @@ Fresh tests must establish, at minimum:
 - ownership transfer remains the supported owner-transition mechanism;
 - valid service-driven membership lifecycle operations continue to work.
 
-**Current checkpoint:** A1 FROZEN → W1 FROZEN → **W2 AUDIT IN PROGRESS**
+**Current checkpoint:** A1 FROZEN → W1 FROZEN → **W2 IMPLEMENTED — VERIFICATION PENDING**
 
 ---
 
@@ -252,3 +252,63 @@ A checkpoint may be frozen only when:
 | W5 | Workspace lifecycle boundary | P2 | OPEN |
 
 **Current active checkpoint: W2 — Membership Mutation Boundary.**
+
+
+---
+
+## 11. W2 Implementation Record
+
+**Status:** IMPLEMENTED — CI verification pending.
+
+### Production boundary
+
+Membership mutation is now protected by a private controlled mutation context.
+
+Protected application-level operations:
+- Membership creation
+- role changes
+- active/inactive changes
+- workspace reassignment
+- user reassignment
+- direct deletion
+- QuerySet `update()`
+- QuerySet `bulk_update()`
+- QuerySet `bulk_create()`
+
+Canonical service paths remain:
+- `add_member()`
+- `change_member_role()`
+- `deactivate_member()`
+- `transfer_workspace_ownership()`
+
+The signup provisioning path uses the same private mutation context for the initial owner Membership.
+
+### Service hardening
+
+Membership management services now:
+- lock the Workspace before membership mutation;
+- reload and lock the actor Membership before authorization;
+- lock the target Membership where applicable;
+- perform state mutation only inside the controlled membership mutation context.
+
+The W1 ownership-transfer flow remains the canonical owner transition and continues to use the existing owner-invariant database protection.
+
+### Fresh tests
+
+New suite:
+- `workspaces/test_membership_mutation_boundary_production.py`
+
+Coverage includes:
+- direct creation;
+- direct role/state/workspace/user mutation;
+- QuerySet update;
+- bulk update;
+- bulk create;
+- QuerySet delete;
+- instance delete;
+- valid service mutations;
+- owner-role boundary;
+- stale admin actor;
+- W1 ownership-transfer regression.
+
+**Next step:** run the production-branch CI and correct only verified W2 regression failures.
