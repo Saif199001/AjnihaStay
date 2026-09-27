@@ -16,7 +16,7 @@
 ## 1. Accounts — A1: Account State Mutation Boundary
 
 **Severity:** P1  
-**Status:** OPEN
+**Status:** IMPLEMENTED — VERIFICATION PENDING
 
 ### Affected production code
 
@@ -451,13 +451,47 @@ The checkpoint can be frozen only when:
 
 | Finding | Area | Severity | Status |
 |---|---|---:|---|
-| A1 | Accounts state mutation boundary | P1 | OPEN |
+| A1 | Accounts state mutation boundary | P1 | IMPLEMENTED — VERIFICATION PENDING |
 | W1 | Workspace owner invariant | P1 | OPEN |
 | W2 | Membership mutation boundary | P1 | OPEN |
 | W3 | Permission exception boundary | P1 | OPEN |
 | W4 | API error contract | P2 | OPEN |
 | W5 | Workspace lifecycle boundary | P2 | OPEN |
 
-**Current checkpoint:** Accounts + Workspace = **AUDIT COMPLETE / CORRECTION PENDING**
+**Current checkpoint:** Accounts + Workspace = **A1 IMPLEMENTED / VERIFICATION PENDING**
 
 **No correction is considered complete until verified by fresh production tests.**
+
+
+---
+
+# 11. A1 Implementation Record
+
+**Implementation commits:**
+
+- `89419f9234baebf68414c35e3097c96551e5af1b` — sensitive account-state model/queryset guards
+- `0ca69555b8dcc0b69e808772dbb150cb02167085` — canonical service mutation context
+- `972a73a29da33094d0872ef73abe342cc80a1243` — fresh A1 production tests
+
+### Implemented design
+
+- `User.save()` detects unauthorized changes to `is_active`, `email_verified`, and `email_verified_at`.
+- `UserQuerySet.update()` blocks sensitive-field bulk updates.
+- `UserQuerySet.bulk_update()` blocks sensitive-field bulk updates.
+- Canonical service transitions use a private mutation context.
+- Existing account deactivation continues to revoke outstanding JWT tokens.
+- Existing email verification continues to set both verification state and timestamp atomically.
+- Unrelated User fields remain directly mutable through normal model operations.
+
+### Verification
+
+Fresh A1 tests were added for:
+
+- direct `save()` bypass;
+- `QuerySet.update()` bypass;
+- `bulk_update()` bypass;
+- email verification state protection;
+- normal unrelated User-field updates;
+- existing service-driven deactivation/reactivation behavior.
+
+**CI verification:** pending on the latest `production-branch` workflow runs.
