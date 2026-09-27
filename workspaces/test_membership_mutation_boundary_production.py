@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.db import transaction
 from django.test import TransactionTestCase
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -35,7 +36,13 @@ class MembershipMutationBoundaryProductionTests(TransactionTestCase):
                 )
         return workspace
 
-    def create_membership(self, workspace, user, role=Membership.ROLE_VIEWER, is_active=True):
+    def create_membership(
+        self,
+        workspace,
+        user,
+        role=Membership.ROLE_VIEWER,
+        is_active=True,
+    ):
         with _allow_membership_mutation():
             return Membership.objects.create(
                 workspace=workspace,
@@ -49,7 +56,7 @@ class MembershipMutationBoundaryProductionTests(TransactionTestCase):
         workspace = self.create_owned_workspace(owner, "direct-create")
         member = self.create_user("member@example.com")
 
-        with self.assertRaises(PermissionDenied):
+        with self.assertRaises(DjangoPermissionDenied):
             Membership.objects.create(
                 workspace=workspace,
                 user=member,
@@ -64,7 +71,7 @@ class MembershipMutationBoundaryProductionTests(TransactionTestCase):
         membership = self.create_membership(workspace, member)
 
         membership.role = Membership.ROLE_ADMIN
-        with self.assertRaises(PermissionDenied):
+        with self.assertRaises(DjangoPermissionDenied):
             membership.save(update_fields=["role"])
 
         membership.refresh_from_db()
@@ -77,7 +84,7 @@ class MembershipMutationBoundaryProductionTests(TransactionTestCase):
         membership = self.create_membership(workspace, member)
 
         membership.is_active = False
-        with self.assertRaises(PermissionDenied):
+        with self.assertRaises(DjangoPermissionDenied):
             membership.save(update_fields=["is_active"])
 
         membership.refresh_from_db()
@@ -92,7 +99,7 @@ class MembershipMutationBoundaryProductionTests(TransactionTestCase):
         membership = self.create_membership(workspace_a, member)
 
         membership.workspace = workspace_b
-        with self.assertRaises(PermissionDenied):
+        with self.assertRaises(DjangoPermissionDenied):
             membership.save(update_fields=["workspace"])
 
         membership.refresh_from_db()
@@ -106,7 +113,7 @@ class MembershipMutationBoundaryProductionTests(TransactionTestCase):
         membership = self.create_membership(workspace, member)
 
         membership.user = other
-        with self.assertRaises(PermissionDenied):
+        with self.assertRaises(DjangoPermissionDenied):
             membership.save(update_fields=["user"])
 
         membership.refresh_from_db()
@@ -118,7 +125,7 @@ class MembershipMutationBoundaryProductionTests(TransactionTestCase):
         workspace = self.create_owned_workspace(owner, "queryset-update")
         membership = self.create_membership(workspace, member)
 
-        with self.assertRaises(PermissionDenied):
+        with self.assertRaises(DjangoPermissionDenied):
             Membership.objects.filter(pk=membership.pk).update(
                 role=Membership.ROLE_ADMIN,
                 is_active=False,
@@ -135,7 +142,7 @@ class MembershipMutationBoundaryProductionTests(TransactionTestCase):
         membership = self.create_membership(workspace, member)
 
         membership.role = Membership.ROLE_ADMIN
-        with self.assertRaises(PermissionDenied):
+        with self.assertRaises(DjangoPermissionDenied):
             Membership.objects.bulk_update([membership], ["role"])
 
         membership.refresh_from_db()
@@ -152,7 +159,7 @@ class MembershipMutationBoundaryProductionTests(TransactionTestCase):
             role=Membership.ROLE_VIEWER,
             is_active=True,
         )
-        with self.assertRaises(PermissionDenied):
+        with self.assertRaises(DjangoPermissionDenied):
             Membership.objects.bulk_create([candidate])
 
     def test_queryset_delete_is_blocked(self):
@@ -161,7 +168,7 @@ class MembershipMutationBoundaryProductionTests(TransactionTestCase):
         workspace = self.create_owned_workspace(owner, "queryset-delete")
         membership = self.create_membership(workspace, member)
 
-        with self.assertRaises(PermissionDenied):
+        with self.assertRaises(DjangoPermissionDenied):
             Membership.objects.filter(pk=membership.pk).delete()
 
         self.assertTrue(Membership.objects.filter(pk=membership.pk).exists())
@@ -172,7 +179,7 @@ class MembershipMutationBoundaryProductionTests(TransactionTestCase):
         workspace = self.create_owned_workspace(owner, "instance-delete")
         membership = self.create_membership(workspace, member)
 
-        with self.assertRaises(PermissionDenied):
+        with self.assertRaises(DjangoPermissionDenied):
             membership.delete()
 
         self.assertTrue(Membership.objects.filter(pk=membership.pk).exists())
