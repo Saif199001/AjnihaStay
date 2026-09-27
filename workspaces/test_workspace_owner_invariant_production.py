@@ -1,6 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.test import TransactionTestCase
+from rest_framework.exceptions import ValidationError
 
 from .models import Membership, Workspace
 from .services import transfer_workspace_ownership
@@ -19,17 +20,18 @@ class WorkspaceOwnerInvariantProductionTests(TransactionTestCase):
         )
 
     def create_owned_workspace(self, owner, slug="workspace"):
-        workspace = Workspace.objects.create(
-            name="Test Workspace",
-            slug=slug,
-            owner=owner,
-        )
-        Membership.objects.create(
-            workspace=workspace,
-            user=owner,
-            role=Membership.ROLE_OWNER,
-            is_active=True,
-        )
+        with transaction.atomic():
+            workspace = Workspace.objects.create(
+                name="Test Workspace",
+                slug=slug,
+                owner=owner,
+            )
+            Membership.objects.create(
+                workspace=workspace,
+                user=owner,
+                role=Membership.ROLE_OWNER,
+                is_active=True,
+            )
         return workspace
 
     def test_valid_workspace_and_owner_membership_can_commit(self):
@@ -206,7 +208,7 @@ class WorkspaceOwnerInvariantProductionTests(TransactionTestCase):
             target.id,
         )
 
-        with self.assertRaises(Exception) as exc:
+        with self.assertRaises(ValidationError) as exc:
             transfer_workspace_ownership(
                 workspace,
                 stale_owner_membership,
