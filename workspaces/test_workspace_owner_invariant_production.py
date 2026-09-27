@@ -216,6 +216,6 @@ class WorkspaceOwnerInvariantProductionTests(TransactionTestCase):
             )
 
         self.assertEqual(
-            str(exc.exception),
-            "Workspace owner permission required",
+            exc.exception.detail,
+            ["Workspace owner permission required"],
         )
