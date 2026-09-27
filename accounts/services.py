@@ -15,6 +15,8 @@ from django.utils import timezone
 
 from workspaces.models import Membership, Workspace
 
+from .models import _allow_account_state_mutation
+
 User = get_user_model()
 
 
@@ -93,8 +95,9 @@ def set_account_active(user, is_active):
         if locked_user.is_active == is_active:
             return locked_user
 
-        locked_user.is_active = is_active
-        locked_user.save(update_fields=["is_active"])
+        with _allow_account_state_mutation():
+            locked_user.is_active = is_active
+            locked_user.save(update_fields=["is_active"])
 
         if not is_active:
             for outstanding in OutstandingToken.objects.filter(user=locked_user):
@@ -113,9 +116,11 @@ def verify_user_email(user, token):
         if not default_token_generator.check_token(locked_user, token):
             raise ValidationError("Invalid or expired verification link")
 
-        locked_user.email_verified = True
-        locked_user.email_verified_at = timezone.now()
-        locked_user.save(update_fields=["email_verified", "email_verified_at"])
+        with _allow_account_state_mutation():
+            locked_user.email_verified = True
+            locked_user.email_verified_at = timezone.now()
+            locked_user.save(update_fields=["email_verified", "email_verified_at"])
+
         return locked_user
 
 
