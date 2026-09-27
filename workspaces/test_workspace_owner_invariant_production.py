@@ -3,7 +3,7 @@ from django.db import IntegrityError, transaction
 from django.test import TransactionTestCase
 from rest_framework.exceptions import ValidationError
 
-from .models import Membership, Workspace
+from .models import Membership, Workspace, _allow_membership_mutation
 from .services import transfer_workspace_ownership
 
 User = get_user_model()
@@ -18,6 +18,16 @@ class WorkspaceOwnerInvariantProductionTests(TransactionTestCase):
             password="StrongPass123!",
             email_verified=True,
         )
+
+
+    def create_membership(self, workspace, user, role, is_active=True):
+        with _allow_membership_mutation():
+            return self.create_membership(
+                workspace=workspace,
+                user=user,
+                role=role,
+                is_active=is_active,
+            )
 
     def create_owned_workspace(self, owner, slug="workspace"):
         with transaction.atomic():
