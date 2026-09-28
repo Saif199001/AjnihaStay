@@ -187,7 +187,7 @@ Fresh W3 tests must prove expected workspace/authentication/authorization except
 ## 5. Workspace — W4: API Error Contract
 
 **Severity:** P2  
-**Status:** OPEN
+**Status:** IMPLEMENTED — VERIFICATION PENDING
 
 Target contract:
 - 401 — missing/invalid authentication
@@ -269,6 +269,23 @@ A checkpoint may be frozen only when:
 | W3 | Permission exception boundary | P1 | FROZEN — GREEN |
 | W4 | API error contract | P2 | OPEN — AUDIT IN PROGRESS |
 | W5 | Workspace lifecycle boundary | P2 | OPEN |
+
+### W4 implementation record
+
+Production correction applied:
+- `workspaces/api.py` now lets DRF preserve the native 401/403/400 exception contract instead of manually remapping authentication, authorization, and validation exceptions.
+- `workspaces/services.py` now raises DRF `PermissionDenied` for ownership authorization failures in ownership transfer and workspace archival.
+- Unexpected exceptions are not converted into client-facing 400/403 responses.
+
+Fresh test suite:
+- `workspaces/test_api_error_contract_production.py`
+
+Implementation commits:
+- `f30630b3d3da26d046c9f965441fa21e0fa74b96` — API error status semantics
+- `3f3a687062c468b0943d679c3cc9c03bbf3fcc56` — authorization exception semantics
+- `de4ef99b655d5622386d770135d16a347ace466f` — fresh W4 tests
+
+**W4 checkpoint: IMPLEMENTED — VERIFICATION PENDING.**
 
 **Current active checkpoint: W4 — API Error Contract.**
 
