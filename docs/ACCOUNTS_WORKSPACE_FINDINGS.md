@@ -215,9 +215,9 @@ Coverage includes:
 ## 6. Workspace — W5: Workspace Lifecycle Mutation Boundary
 
 **Severity:** P2  
-**Status:** OPEN — AUDIT STARTING
+**Status:** FROZEN — GREEN
 
-W5 is the next active checkpoint.
+W5 has completed production correction, fresh-test verification, and CI verification.
 
 ### Scope
 
@@ -263,7 +263,9 @@ Implementation commits:
 - `686dcd7a79cba622494b5473b11ff257825c88ce` — Workspace Admin lifecycle boundary
 - `e064a6308d65b977dbfe0cfea7c06826b4ec323b` — fresh W5 production tests
 
-**W5 checkpoint: IMPLEMENTED — VERIFICATION PENDING.**
+**CI #1330 on `production-branch` was verified GREEN** for commit `a96637c40aa7ab3d43c3a7e27d4866a14395f3fe`.
+
+**W5 checkpoint: FROZEN — GREEN.**
 
 ---
 
@@ -274,7 +276,7 @@ Implementation commits:
 3. **W2 — Membership Mutation Boundary — FROZEN**
 4. **W3 — Permission Exception Boundary — FROZEN**
 5. **W4 — API Error Contract — FROZEN**
-6. **W5 — Workspace Lifecycle Mutation Boundary — CURRENT**
+6. **W5 — Workspace Lifecycle Mutation Boundary — FROZEN**
 
 Reason:
 - W1 establishes authoritative ownership consistency.
@@ -323,7 +325,7 @@ A checkpoint may be frozen only when:
 | W2 | Membership mutation boundary | P1 | FROZEN — GREEN |
 | W3 | Permission exception boundary | P1 | FROZEN — GREEN |
 | W4 | API error contract | P2 | FROZEN — GREEN |
-| W5 | Workspace lifecycle boundary | P2 | IMPLEMENTED — VERIFICATION PENDING |
+| W5 | Workspace lifecycle boundary | P2 | FROZEN — GREEN |
 
 ---
 
@@ -394,12 +396,27 @@ Final verification:
 
 ---
 
-## 14. W5 Entry Record
+## 14. W5 Freeze Record
 
-**Status:** IMPLEMENTED — VERIFICATION PENDING.
+**Status:** FROZEN — GREEN.
 
-W4 is now frozen. The next work must begin with a production-code audit of W5 before any correction is applied.
+W5 completed its production-code audit, correction implementation, fresh production test suite, database/invariant verification, and CI verification.
 
-Do not use UI as an audit criterion. Focus on backend/domain contracts, authorization, database invariants, lifecycle mutation boundaries, concurrency, API behavior, and fresh production tests.
+Final verification:
+- **CI #1330 — GREEN**
+- commit: `a96637c40aa7ab3d43c3a7e27d4866a14395f3fe`
+- branch: `production-branch`
 
-**Next step: verify W5 with the fresh production test suite and CI GREEN before freezing.**
+Frozen scope:
+- Workspace lifecycle mutation boundary;
+- stale actor authorization protection;
+- direct ORM lifecycle mutation protection;
+- Workspace Admin lifecycle mutation boundary;
+- preservation of W1 owner invariant;
+- preservation of W2 membership mutation boundary;
+- preservation of W3 permission exception behavior;
+- preservation of W4 HTTP error semantics.
+
+**W5 checkpoint: FROZEN — GREEN.**
+
+**Next checkpoint: W6 — production-code audit required before implementation.**
