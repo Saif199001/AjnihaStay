@@ -159,7 +159,7 @@ Fresh tests must establish, at minimum:
 ## 4. Workspace — W3: Permission Exception Boundary
 
 **Severity:** P1  
-**Status:** AUDIT IN PROGRESS
+**Status:** FROZEN — GREEN
 
 ### Confirmed production finding
 
@@ -180,7 +180,7 @@ The correction must preserve active workspace membership enforcement, role hiera
 
 Fresh W3 tests must prove expected workspace/authentication/authorization exceptions remain handled, while unexpected exceptions from workspace resolution and `set_workspace_context()` are not swallowed.
 
-**Current checkpoint:** A1 FROZEN → W1 FROZEN → W2 FROZEN — GREEN → **W3 AUDIT IN PROGRESS**
+**Current checkpoint:** A1 FROZEN → W1 FROZEN → W2 FROZEN — GREEN → **W3 FROZEN — GREEN** → W4 OPEN
 
 ---
 
@@ -266,11 +266,11 @@ A checkpoint may be frozen only when:
 | A1 | Accounts state mutation boundary | P1 | FROZEN — GREEN |
 | W1 | Workspace owner invariant | P1 | FROZEN — GREEN |
 | W2 | Membership mutation boundary | P1 | FROZEN — GREEN |
-| W3 | Permission exception boundary | P1 | OPEN — AUDIT IN PROGRESS |
-| W4 | API error contract | P2 | OPEN |
+| W3 | Permission exception boundary | P1 | FROZEN — GREEN |
+| W4 | API error contract | P2 | OPEN — AUDIT IN PROGRESS |
 | W5 | Workspace lifecycle boundary | P2 | OPEN |
 
-**Current active checkpoint: W3 — Permission Exception Boundary.**
+**Current active checkpoint: W4 — API Error Contract.**
 
 
 ---
@@ -340,10 +340,46 @@ The GitHub Actions UI showed Workflow `Django CI`, Run `#1312`, Status Success /
 
 ---
 
-## 12. W3 Audit Record
+## 12. W3 Audit + Freeze Record
+
+**Status:** FROZEN — GREEN.
+
+Production correction narrowed the permission exception boundary in `workspaces/permissions.py` to the deliberate DRF exceptions:
+- `NotAuthenticated`
+- `PermissionDenied`
+- `ValidationError`
+
+Unexpected exceptions from workspace resolution and `set_workspace_context()` now propagate instead of being converted into permission denial.
+
+Fresh test suite:
+- `workspaces/test_permission_exception_boundary_production.py`
+
+Implementation / verification:
+- `257ab7400bfddd6d71c10e6229b5cdf52715a694` — production correction
+- `33acd6cce28376dcd27df8df230c4719f6572b01` — fresh W3 tests
+- CI #1314 — GREEN on `257ab7400bfddd6d71c10e6229b5cdf52715a694`
+- CI #1315 — GREEN on `33acd6cce28376dcd27df8df230c4719f6572b01`
+
+**W3 checkpoint: FROZEN — GREEN.**
+
+## 13. W4 Audit Record
 
 **Status:** AUDIT IN PROGRESS.
 
-Production-code audit confirms the W3 broad-exception boundary issue in `workspaces/permissions.py`. No W3 production correction has been applied yet.
+Initial production-code audit scope:
+- `workspaces/api.py`
+- `workspaces/membership_api.py`
+- `workspaces/serializers.py`
+- `workspaces/context.py`
+- workspace URL contracts
+- DRF authentication/permission configuration
 
-The next implementation step is to define the narrow expected exception set and add fresh regression tests before changing production behavior.
+Confirmed W4 focus:
+- distinguish HTTP 401 authentication failures from HTTP 403 authorization failures;
+- distinguish HTTP 400 validation/workspace-selection failures from authorization failures;
+- avoid broad/manual exception remapping that changes the intended DRF status contract;
+- preserve unexpected server failures as observable 5xx errors.
+
+No W4 production correction has been applied yet.
+
+**Current active checkpoint: W4 — API Error Contract.**
