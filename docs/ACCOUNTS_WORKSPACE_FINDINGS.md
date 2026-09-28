@@ -244,6 +244,27 @@ Establish one clear canonical mutation boundary for workspace lifecycle state wh
 
 **Current active checkpoint: W5 — Workspace Lifecycle Mutation Boundary.**
 
+### W5 production correction record
+
+Implemented:
+- Added a controlled Workspace mutation context and ORM mutation boundary for lifecycle fields.
+- Direct Workspace lifecycle `save()`, QuerySet `update()`, `bulk_update()`, instance `delete()`, and QuerySet `delete()` are blocked outside the canonical lifecycle boundary.
+- `update_workspace()` now locks the Workspace before authorization and reloads the actor Membership under lock.
+- `archive_workspace()` now locks the Workspace and reloads the actor Membership before owner authorization.
+- `transfer_workspace_ownership()` now routes the Workspace.owner mutation through the controlled Workspace mutation context while preserving W1/W2 behavior.
+- Workspace Admin add/change/delete mutations are disabled.
+
+Fresh test suite:
+- `workspaces/test_workspace_lifecycle_mutation_boundary_production.py`
+
+Implementation commits:
+- `4c80d9c16b3c563b2fd361d0b539d0b61b95694c` — Workspace ORM lifecycle mutation boundary
+- `670f3af17359c916c2e2d00eacdf96efabc07870` — fresh actor authorization for lifecycle services
+- `686dcd7a79cba622494b5473b11ff257825c88ce` — Workspace Admin lifecycle boundary
+- `e064a6308d65b977dbfe0cfea7c06826b4ec323b` — fresh W5 production tests
+
+**W5 checkpoint: IMPLEMENTED — VERIFICATION PENDING.**
+
 ---
 
 ## 7. Checkpoint Dependency Order
@@ -302,7 +323,7 @@ A checkpoint may be frozen only when:
 | W2 | Membership mutation boundary | P1 | FROZEN — GREEN |
 | W3 | Permission exception boundary | P1 | FROZEN — GREEN |
 | W4 | API error contract | P2 | FROZEN — GREEN |
-| W5 | Workspace lifecycle boundary | P2 | OPEN — AUDIT STARTING |
+| W5 | Workspace lifecycle boundary | P2 | IMPLEMENTED — VERIFICATION PENDING |
 
 ---
 
@@ -375,10 +396,10 @@ Final verification:
 
 ## 14. W5 Entry Record
 
-**Status:** OPEN — AUDIT STARTING.
+**Status:** IMPLEMENTED — VERIFICATION PENDING.
 
 W4 is now frozen. The next work must begin with a production-code audit of W5 before any correction is applied.
 
 Do not use UI as an audit criterion. Focus on backend/domain contracts, authorization, database invariants, lifecycle mutation boundaries, concurrency, API behavior, and fresh production tests.
 
-**Next checkpoint: W5 — Workspace Lifecycle Mutation Boundary.**
+**Next step: verify W5 with the fresh production test suite and CI GREEN before freezing.**
