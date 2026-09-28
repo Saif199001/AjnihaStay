@@ -4,7 +4,12 @@ from django.db import IntegrityError, transaction
 from django.test import TransactionTestCase
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
-from .models import Membership, Workspace, _allow_membership_mutation
+from .models import (
+    Membership,
+    Workspace,
+    _allow_membership_mutation,
+    _allow_workspace_mutation,
+)
 from .services import transfer_workspace_ownership
 
 User = get_user_model()
@@ -145,9 +150,10 @@ class WorkspaceOwnerInvariantProductionTests(TransactionTestCase):
 
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
-                Workspace.objects.filter(pk=workspace.pk).update(
-                    owner_id=other_user.id
-                )
+                with _allow_workspace_mutation():
+                    Workspace.objects.filter(pk=workspace.pk).update(
+                        owner_id=other_user.id
+                    )
 
     def test_valid_ownership_transfer_preserves_invariant(self):
         owner = self.create_user("owner@example.com")
