@@ -1,5 +1,5 @@
 from django.contrib.auth import get_user_model
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.db import IntegrityError, transaction
 from django.test import TransactionTestCase
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -117,7 +117,7 @@ class WorkspaceOwnerInvariantProductionTests(TransactionTestCase):
         workspace = self.create_owned_workspace(owner, "deactivate-owner")
         membership = Membership.objects.get(workspace=workspace, user=owner)
 
-        with self.assertRaises(PermissionDenied):
+        with self.assertRaises(DjangoPermissionDenied):
             membership.is_active = False
             membership.save(update_fields=["is_active"])
 
@@ -126,7 +126,7 @@ class WorkspaceOwnerInvariantProductionTests(TransactionTestCase):
         workspace = self.create_owned_workspace(owner, "delete-owner")
         membership = Membership.objects.get(workspace=workspace, user=owner)
 
-        with self.assertRaises(PermissionDenied):
+        with self.assertRaises(DjangoPermissionDenied):
             membership.delete()
 
     def test_owner_role_cannot_be_changed_directly(self):
@@ -134,7 +134,7 @@ class WorkspaceOwnerInvariantProductionTests(TransactionTestCase):
         workspace = self.create_owned_workspace(owner, "change-owner-role")
         membership = Membership.objects.get(workspace=workspace, user=owner)
 
-        with self.assertRaises(PermissionDenied):
+        with self.assertRaises(DjangoPermissionDenied):
             membership.role = Membership.ROLE_ADMIN
             membership.save(update_fields=["role"])
 
