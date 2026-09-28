@@ -85,7 +85,7 @@ class WorkspaceApiErrorContractProductionTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
-            response.data["workspace"][0],
+            response.data["workspace"],
             "X-Workspace-ID header is required when you have multiple workspaces",
         )
 
@@ -177,7 +177,7 @@ class WorkspaceApiErrorContractProductionTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
-            response.data["detail"],
+            response.data[0],
             "Target user must be an active workspace member",
         )
 
