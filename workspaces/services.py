@@ -2,7 +2,12 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
-from .models import Membership, Workspace, _allow_membership_mutation
+from .models import (
+    Membership,
+    Workspace,
+    _allow_membership_mutation,
+    _allow_workspace_mutation,
+)
 from .permissions import ROLE_RANK
 
 User = get_user_model()
@@ -52,14 +57,18 @@ def list_members(workspace):
 
 @transaction.atomic
 def update_workspace(workspace, actor_membership, name):
+    workspace = Workspace.objects.select_for_update().get(pk=workspace.pk)
     _ensure_workspace_active(workspace)
+    actor_membership = _get_locked_actor_membership(workspace, actor_membership)
     _ensure_admin_can_manage(workspace, actor_membership)
 
-    workspace = Workspace.objects.select_for_update().get(pk=workspace.pk)
-    workspace.name = name.strip()
-    if not workspace.name:
+    name = name.strip()
+    if not name:
         raise ValidationError("Workspace name is required")
-    workspace.save(update_fields=["name", "updated_at"])
+
+    with _allow_workspace_mutation():
+        workspace.name = name
+        workspace.save(update_fields=["name", "updated_at"])
     return workspace
 
 
@@ -214,8 +223,9 @@ def transfer_workspace_ownership(workspace, actor_membership, target_user_id):
         target.role = Membership.ROLE_OWNER
         target.save(update_fields=["role", "updated_at"])
 
-    workspace.owner_id = target.user_id
-    workspace.save(update_fields=["owner", "updated_at"])
+    with _allow_workspace_mutation():
+        workspace.owner_id = target.user_id
+        workspace.save(update_fields=["owner", "updated_at"])
 
     return workspace
 
@@ -223,13 +233,15 @@ def transfer_workspace_ownership(workspace, actor_membership, target_user_id):
 @transaction.atomic
 def archive_workspace(workspace, actor_membership):
     _ensure_actor_membership_matches_workspace(workspace, actor_membership)
-    if actor_membership.role != Membership.ROLE_OWNER:
-        raise PermissionDenied("Workspace owner permission required")
 
     workspace = Workspace.objects.select_for_update().get(pk=workspace.pk)
-    if not workspace.is_active:
-        return workspace
+    _ensure_workspace_active(workspace)
+    actor_membership = _get_locked_actor_membership(workspace, actor_membership)
 
-    workspace.is_active = False
-    workspace.save(update_fields=["is_active", "updated_at"])
+    if not actor_membership.is_active or actor_membership.role != Membership.ROLE_OWNER:
+        raise PermissionDenied("Workspace owner permission required")
+
+    with _allow_workspace_mutation():
+        workspace.is_active = False
+        workspace.save(update_fields=["is_active", "updated_at"])
     return workspace
