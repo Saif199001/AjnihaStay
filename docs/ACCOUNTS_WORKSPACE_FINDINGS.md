@@ -102,7 +102,7 @@ Covered behavior includes:
 ## 3. Workspace — W2: Membership Mutation Boundary
 
 **Severity:** P1  
-**Status:** IMPLEMENTED — VERIFICATION PENDING
+**Status:** FROZEN — GREEN
 
 ### Scope
 
@@ -152,16 +152,35 @@ Fresh tests must establish, at minimum:
 - ownership transfer remains the supported owner-transition mechanism;
 - valid service-driven membership lifecycle operations continue to work.
 
-**Current checkpoint:** A1 FROZEN → W1 FROZEN → **W2 IMPLEMENTED — VERIFICATION PENDING**
+**Current checkpoint:** A1 FROZEN → W1 FROZEN → **W2 FROZEN — GREEN** → W3 OPEN
 
 ---
 
 ## 4. Workspace — W3: Permission Exception Boundary
 
 **Severity:** P1  
-**Status:** OPEN
+**Status:** AUDIT IN PROGRESS
 
-Replace broad `except Exception` handling in workspace permission checks with explicit expected exception handling. Unexpected application/database failures must remain observable.
+### Confirmed production finding
+
+`workspaces/permissions.py` currently catches broad `Exception` in two permission-boundary locations:
+
+1. `get_workspace_for_request(request)` is wrapped in `except Exception: return False`.
+2. `set_workspace_context(workspace.id)` is wrapped in `except Exception: return False`.
+
+This can convert unexpected application/database failures into an ordinary permission denial instead of allowing the failure to remain observable.
+
+### W3 target
+
+Catch only expected domain/request exceptions that represent an unavailable workspace context or authorization failure. Unexpected database, configuration, programming, or infrastructure exceptions must propagate normally.
+
+The correction must preserve active workspace membership enforcement, role hierarchy enforcement, RLS workspace context setup, DRF permission semantics, and workspace isolation.
+
+### Fresh test requirement
+
+Fresh W3 tests must prove expected workspace/authentication/authorization exceptions remain handled, while unexpected exceptions from workspace resolution and `set_workspace_context()` are not swallowed.
+
+**Current checkpoint:** A1 FROZEN → W1 FROZEN → W2 FROZEN — GREEN → **W3 AUDIT IN PROGRESS**
 
 ---
 
@@ -198,8 +217,8 @@ Keep authorization-sensitive lifecycle transitions behind canonical services, in
 
 1. **A1 — Account State Mutation Boundary — FROZEN**
 2. **W1 — Workspace Owner Invariant — FROZEN**
-3. **W2 — Membership Mutation Boundary — CURRENT**
-4. **W3 — Permission Exception Boundary**
+3. **W2 — Membership Mutation Boundary — FROZEN**
+4. **W3 — Permission Exception Boundary — CURRENT**
 5. **W4 — API Error Contract**
 6. **W5 — Workspace Lifecycle Mutation Boundary**
 
@@ -246,19 +265,19 @@ A checkpoint may be frozen only when:
 |---|---|---:|---|
 | A1 | Accounts state mutation boundary | P1 | FROZEN — GREEN |
 | W1 | Workspace owner invariant | P1 | FROZEN — GREEN |
-| W2 | Membership mutation boundary | P1 | OPEN — AUDIT IN PROGRESS |
-| W3 | Permission exception boundary | P1 | OPEN |
+| W2 | Membership mutation boundary | P1 | FROZEN — GREEN |
+| W3 | Permission exception boundary | P1 | OPEN — AUDIT IN PROGRESS |
 | W4 | API error contract | P2 | OPEN |
 | W5 | Workspace lifecycle boundary | P2 | OPEN |
 
-**Current active checkpoint: W2 — Membership Mutation Boundary.**
+**Current active checkpoint: W3 — Permission Exception Boundary.**
 
 
 ---
 
 ## 11. W2 Implementation Record
 
-**Status:** IMPLEMENTED — CI verification pending.
+**Status:** FROZEN — GREEN.
 
 ### Production boundary
 
@@ -311,4 +330,20 @@ Coverage includes:
 - stale admin actor;
 - W1 ownership-transfer regression.
 
-**Next step:** run the production-branch CI and correct only verified W2 regression failures.
+### W2 verification and freeze
+
+CI #1312 on `production-branch` was verified GREEN for commit `71a614bd41caf82839db88a865363aafbf14229a`.
+
+The GitHub Actions UI showed Workflow `Django CI`, Run `#1312`, Status Success / GREEN, Branch `production-branch`, and the same commit.
+
+**W2 checkpoint: FROZEN — GREEN.**
+
+---
+
+## 12. W3 Audit Record
+
+**Status:** AUDIT IN PROGRESS.
+
+Production-code audit confirms the W3 broad-exception boundary issue in `workspaces/permissions.py`. No W3 production correction has been applied yet.
+
+The next implementation step is to define the narrow expected exception set and add fresh regression tests before changing production behavior.
