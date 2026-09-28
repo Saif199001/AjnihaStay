@@ -119,31 +119,9 @@ Canonical membership operations include:
 - `deactivate_member()`
 - `transfer_workspace_ownership()`
 
-### Audit objective
-
-Determine exactly which Membership mutations are canonical service operations and which direct ORM paths can bypass authorization, ownership protection, lifecycle rules, or future audit/event requirements.
-
-The audit must explicitly inspect:
-- `Membership.save()`
-- `Membership.objects.update()`
-- `Membership.objects.bulk_update()`
-- Membership deletion
-- role changes
-- `is_active` changes
-- workspace reassignment
-- owner-role assignment
-- direct Membership creation
-- admin mutation paths
-- serializer/API mutation paths
-- interactions with the W1 owner-invariant triggers
-
-### Important design constraint
-
-W2 must **not** blindly block every direct Membership write. Legitimate internal creation and controlled maintenance may exist. The correction must establish a precise mutation authority boundary while preserving W1's authoritative owner invariant.
-
 ### Acceptance criteria
 
-Fresh tests must establish, at minimum:
+Fresh tests establish:
 - owner role cannot be assigned through ordinary member-management paths;
 - owner cannot be deactivated through ordinary member-management paths;
 - unauthorized role changes are rejected;
@@ -152,7 +130,11 @@ Fresh tests must establish, at minimum:
 - ownership transfer remains the supported owner-transition mechanism;
 - valid service-driven membership lifecycle operations continue to work.
 
-**Current checkpoint:** A1 FROZEN → W1 FROZEN → **W2 FROZEN — GREEN** → W3 OPEN
+### W2 verification and freeze
+
+CI #1312 on `production-branch` was verified GREEN for commit `71a614bd41caf82839db88a865363aafbf14229a`.
+
+**W2 checkpoint: FROZEN — GREEN.**
 
 ---
 
@@ -161,55 +143,106 @@ Fresh tests must establish, at minimum:
 **Severity:** P1  
 **Status:** FROZEN — GREEN
 
-### Confirmed production finding
+Production correction narrowed the permission exception boundary in `workspaces/permissions.py` to deliberate DRF exceptions:
+- `NotAuthenticated`
+- `PermissionDenied`
+- `ValidationError`
 
-`workspaces/permissions.py` currently catches broad `Exception` in two permission-boundary locations:
+Unexpected exceptions from workspace resolution and `set_workspace_context()` now propagate instead of being converted into permission denial.
 
-1. `get_workspace_for_request(request)` is wrapped in `except Exception: return False`.
-2. `set_workspace_context(workspace.id)` is wrapped in `except Exception: return False`.
+Fresh test suite:
+- `workspaces/test_permission_exception_boundary_production.py`
 
-This can convert unexpected application/database failures into an ordinary permission denial instead of allowing the failure to remain observable.
+Implementation / verification:
+- `257ab7400bfddd6d71c10e6229b5cdf52715a694` — production correction
+- `33acd6cce28376dcd27df8df230c4719f6572b01` — fresh W3 tests
+- CI #1314 — GREEN
+- CI #1315 — GREEN
 
-### W3 target
-
-Catch only expected domain/request exceptions that represent an unavailable workspace context or authorization failure. Unexpected database, configuration, programming, or infrastructure exceptions must propagate normally.
-
-The correction must preserve active workspace membership enforcement, role hierarchy enforcement, RLS workspace context setup, DRF permission semantics, and workspace isolation.
-
-### Fresh test requirement
-
-Fresh W3 tests must prove expected workspace/authentication/authorization exceptions remain handled, while unexpected exceptions from workspace resolution and `set_workspace_context()` are not swallowed.
-
-**Current checkpoint:** A1 FROZEN → W1 FROZEN → W2 FROZEN — GREEN → **W3 FROZEN — GREEN** → W4 OPEN
+**W3 checkpoint: FROZEN — GREEN.**
 
 ---
 
 ## 5. Workspace — W4: API Error Contract
 
 **Severity:** P2  
-**Status:** IMPLEMENTED — VERIFICATION PENDING
+**Status:** FROZEN — GREEN
 
-Target contract:
-- 401 — missing/invalid authentication
-- 403 — authenticated but unauthorized
-- 400 — invalid request/workspace selection
-- unexpected failures — normal observable server error
+### Target contract
 
-Fresh tests required for affected endpoints.
+- **401** — missing/invalid authentication
+- **403** — authenticated but unauthorized
+- **400** — invalid request/workspace selection
+- **unexpected failures** — remain observable as server errors rather than being remapped into ordinary client errors
+
+### Production corrections
+
+- `workspaces/api.py` preserves native DRF exception semantics instead of manually remapping authentication, authorization, and validation failures.
+- `workspaces/services.py` uses DRF `PermissionDenied` for authorization failures in ownership transfer and workspace archival.
+- Unexpected exceptions are not converted into client-facing 400/403 responses.
+
+### Fresh test suite
+
+- `workspaces/test_api_error_contract_production.py`
+
+Coverage includes:
+- unauthenticated access → 401;
+- authenticated non-member access → 403;
+- missing workspace selection → 400;
+- inaccessible workspace selection → 403;
+- validation failure → 400;
+- unauthorized workspace update → 403;
+- unauthorized ownership transfer → 403;
+- invalid transfer target → 400;
+- unauthorized archive → 403;
+- unexpected service failure propagates.
+
+### Implementation and verification record
+
+- `f30630b3d3da26d046c9f965441fa21e0fa74b96` — API error status semantics
+- `3f3a687062c468b0943d679c3cc9c03bbf3fcc56` — authorization exception semantics
+- `de4ef99b655d5622386d770135d16a347ace466f` — fresh W4 tests
+- `b8083a5d57cec79b5e04121bca1c6870900d45c9` — W1 test aligned with W4 permission semantics
+- `2fac2cd26b407151af95af3017aca48d2b7b3063` — W4 response-shape assertions corrected
+- `3d61645a17fba49ccde7f91954475506dea176fd` — model/service permission exception classes separated
+
+**CI #1323 on `production-branch` was verified GREEN** for commit `3d61645a17fba49ccde7f91954475506dea176fd`.
+
+**W4 checkpoint: FROZEN — GREEN.**
 
 ---
 
 ## 6. Workspace — W5: Workspace Lifecycle Mutation Boundary
 
 **Severity:** P2  
-**Status:** OPEN
+**Status:** OPEN — AUDIT STARTING
 
-Keep authorization-sensitive lifecycle transitions behind canonical services, including:
-- ownership transfer;
+W5 is the next active checkpoint.
+
+### Scope
+
+Audit authorization-sensitive workspace lifecycle transitions, including:
+- workspace archival;
+- ownership transfer lifecycle;
 - member role transitions;
 - member activation/deactivation;
-- workspace archival;
-- other tenancy/authorization-sensitive state transitions.
+- workspace state changes;
+- stale actor authorization during lifecycle mutations;
+- direct ORM bypasses of lifecycle services;
+- concurrency/locking semantics;
+- API/admin mutation paths;
+- interactions with W1 owner invariant and W2 membership mutation boundary.
+
+### W5 objective
+
+Establish one clear canonical mutation boundary for workspace lifecycle state while preserving:
+- workspace isolation;
+- W1 owner invariant;
+- W2 membership mutation boundary;
+- W3 permission exception behavior;
+- W4 HTTP 401/403/400 contract.
+
+**Current active checkpoint: W5 — Workspace Lifecycle Mutation Boundary.**
 
 ---
 
@@ -218,15 +251,16 @@ Keep authorization-sensitive lifecycle transitions behind canonical services, in
 1. **A1 — Account State Mutation Boundary — FROZEN**
 2. **W1 — Workspace Owner Invariant — FROZEN**
 3. **W2 — Membership Mutation Boundary — FROZEN**
-4. **W3 — Permission Exception Boundary — CURRENT**
-5. **W4 — API Error Contract**
-6. **W5 — Workspace Lifecycle Mutation Boundary**
+4. **W3 — Permission Exception Boundary — FROZEN**
+5. **W4 — API Error Contract — FROZEN**
+6. **W5 — Workspace Lifecycle Mutation Boundary — CURRENT**
 
 Reason:
 - W1 establishes authoritative ownership consistency.
-- W2 must preserve W1 while defining membership mutation authority.
-- W3/W4 harden request and authorization contracts.
-- W5 consolidates the final lifecycle mutation boundary.
+- W2 establishes membership mutation authority while preserving W1.
+- W3 hardens request/permission exception behavior.
+- W4 establishes the HTTP error contract.
+- W5 consolidates authorization-sensitive workspace lifecycle mutation boundaries.
 
 ---
 
@@ -267,28 +301,8 @@ A checkpoint may be frozen only when:
 | W1 | Workspace owner invariant | P1 | FROZEN — GREEN |
 | W2 | Membership mutation boundary | P1 | FROZEN — GREEN |
 | W3 | Permission exception boundary | P1 | FROZEN — GREEN |
-| W4 | API error contract | P2 | OPEN — AUDIT IN PROGRESS |
-| W5 | Workspace lifecycle boundary | P2 | OPEN |
-
-### W4 implementation record
-
-Production correction applied:
-- `workspaces/api.py` now lets DRF preserve the native 401/403/400 exception contract instead of manually remapping authentication, authorization, and validation exceptions.
-- `workspaces/services.py` now raises DRF `PermissionDenied` for ownership authorization failures in ownership transfer and workspace archival.
-- Unexpected exceptions are not converted into client-facing 400/403 responses.
-
-Fresh test suite:
-- `workspaces/test_api_error_contract_production.py`
-
-Implementation commits:
-- `f30630b3d3da26d046c9f965441fa21e0fa74b96` — API error status semantics
-- `3f3a687062c468b0943d679c3cc9c03bbf3fcc56` — authorization exception semantics
-- `de4ef99b655d5622386d770135d16a347ace466f` — fresh W4 tests
-
-**W4 checkpoint: IMPLEMENTED — VERIFICATION PENDING.**
-
-**Current active checkpoint: W4 — API Error Contract.**
-
+| W4 | API error contract | P2 | FROZEN — GREEN |
+| W5 | Workspace lifecycle boundary | P2 | OPEN — AUDIT STARTING |
 
 ---
 
@@ -296,64 +310,31 @@ Implementation commits:
 
 **Status:** FROZEN — GREEN.
 
-### Production boundary
+Membership mutation is protected by a private controlled mutation context.
 
-Membership mutation is now protected by a private controlled mutation context.
-
-Protected application-level operations:
-- Membership creation
-- role changes
-- active/inactive changes
-- workspace reassignment
-- user reassignment
-- direct deletion
-- QuerySet `update()`
-- QuerySet `bulk_update()`
-- QuerySet `bulk_create()`
-
-Canonical service paths remain:
+Canonical service paths:
 - `add_member()`
 - `change_member_role()`
 - `deactivate_member()`
 - `transfer_workspace_ownership()`
 
-The signup provisioning path uses the same private mutation context for the initial owner Membership.
+Protected application-level operations include:
+- Membership creation;
+- role changes;
+- active/inactive changes;
+- workspace reassignment;
+- user reassignment;
+- direct deletion;
+- QuerySet `update()`;
+- QuerySet `bulk_update()`;
+- QuerySet `bulk_create()`.
 
-### Service hardening
+Service paths lock the Workspace, reload and lock the actor Membership, lock target Memberships where applicable, and mutate only inside the controlled context.
 
-Membership management services now:
-- lock the Workspace before membership mutation;
-- reload and lock the actor Membership before authorization;
-- lock the target Membership where applicable;
-- perform state mutation only inside the controlled membership mutation context.
-
-The W1 ownership-transfer flow remains the canonical owner transition and continues to use the existing owner-invariant database protection.
-
-### Fresh tests
-
-New suite:
+Fresh suite:
 - `workspaces/test_membership_mutation_boundary_production.py`
 
-Coverage includes:
-- direct creation;
-- direct role/state/workspace/user mutation;
-- QuerySet update;
-- bulk update;
-- bulk create;
-- QuerySet delete;
-- instance delete;
-- valid service mutations;
-- owner-role boundary;
-- stale admin actor;
-- W1 ownership-transfer regression.
-
-### W2 verification and freeze
-
-CI #1312 on `production-branch` was verified GREEN for commit `71a614bd41caf82839db88a865363aafbf14229a`.
-
-The GitHub Actions UI showed Workflow `Django CI`, Run `#1312`, Status Success / GREEN, Branch `production-branch`, and the same commit.
-
-**W2 checkpoint: FROZEN — GREEN.**
+CI #1312 was verified GREEN.
 
 ---
 
@@ -361,42 +342,43 @@ The GitHub Actions UI showed Workflow `Django CI`, Run `#1312`, Status Success /
 
 **Status:** FROZEN — GREEN.
 
-Production correction narrowed the permission exception boundary in `workspaces/permissions.py` to the deliberate DRF exceptions:
-- `NotAuthenticated`
-- `PermissionDenied`
-- `ValidationError`
+The permission boundary now catches only expected DRF exceptions and allows unexpected failures to propagate.
 
-Unexpected exceptions from workspace resolution and `set_workspace_context()` now propagate instead of being converted into permission denial.
-
-Fresh test suite:
+Fresh suite:
 - `workspaces/test_permission_exception_boundary_production.py`
 
-Implementation / verification:
-- `257ab7400bfddd6d71c10e6229b5cdf52715a694` — production correction
-- `33acd6cce28376dcd27df8df230c4719f6572b01` — fresh W3 tests
-- CI #1314 — GREEN on `257ab7400bfddd6d71c10e6229b5cdf52715a694`
-- CI #1315 — GREEN on `33acd6cce28376dcd27df8df230c4719f6572b01`
+CI #1314 and #1315 were verified GREEN.
 
-**W3 checkpoint: FROZEN — GREEN.**
+---
 
-## 13. W4 Audit Record
+## 13. W4 Audit + Freeze Record
 
-**Status:** AUDIT IN PROGRESS.
+**Status:** FROZEN — GREEN.
 
-Initial production-code audit scope:
-- `workspaces/api.py`
-- `workspaces/membership_api.py`
-- `workspaces/serializers.py`
-- `workspaces/context.py`
-- workspace URL contracts
-- DRF authentication/permission configuration
+W4 established the HTTP error contract across the affected workspace APIs:
+- 401 for unauthenticated access;
+- 403 for authenticated but unauthorized access;
+- 400 for validation/workspace-selection errors;
+- unexpected failures remain observable rather than being converted into ordinary client errors.
 
-Confirmed W4 focus:
-- distinguish HTTP 401 authentication failures from HTTP 403 authorization failures;
-- distinguish HTTP 400 validation/workspace-selection failures from authorization failures;
-- avoid broad/manual exception remapping that changes the intended DRF status contract;
-- preserve unexpected server failures as observable 5xx errors.
+Fresh suite:
+- `workspaces/test_api_error_contract_production.py`
 
-No W4 production correction has been applied yet.
+Final verification:
+- **CI #1323 — GREEN**
+- commit: `3d61645a17fba49ccde7f91954475506dea176fd`
+- branch: `production-branch`
 
-**Current active checkpoint: W4 — API Error Contract.**
+**W4 checkpoint: FROZEN — GREEN.**
+
+---
+
+## 14. W5 Entry Record
+
+**Status:** OPEN — AUDIT STARTING.
+
+W4 is now frozen. The next work must begin with a production-code audit of W5 before any correction is applied.
+
+Do not use UI as an audit criterion. Focus on backend/domain contracts, authorization, database invariants, lifecycle mutation boundaries, concurrency, API behavior, and fresh production tests.
+
+**Next checkpoint: W5 — Workspace Lifecycle Mutation Boundary.**
