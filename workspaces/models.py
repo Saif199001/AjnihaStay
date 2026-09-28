@@ -12,6 +12,11 @@ _MEMBERSHIP_MUTATION_ALLOWED = ContextVar(
     default=False,
 )
 
+_WORKSPACE_MUTATION_ALLOWED = ContextVar(
+    "workspace_mutation_allowed",
+    default=False,
+)
+
 
 @contextmanager
 def _allow_membership_mutation():
@@ -20,6 +25,45 @@ def _allow_membership_mutation():
         yield
     finally:
         _MEMBERSHIP_MUTATION_ALLOWED.reset(token)
+
+
+@contextmanager
+def _allow_workspace_mutation():
+    token = _WORKSPACE_MUTATION_ALLOWED.set(True)
+    try:
+        yield
+    finally:
+        _WORKSPACE_MUTATION_ALLOWED.reset(token)
+
+
+class WorkspaceQuerySet(models.QuerySet):
+    PROTECTED_FIELDS = frozenset({
+        "name",
+        "slug",
+        "owner",
+        "owner_id",
+        "is_active",
+    })
+
+    def _ensure_mutation_allowed(self):
+        if not _WORKSPACE_MUTATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Workspace state must be changed through the canonical workspace service."
+            )
+
+    def update(self, **kwargs):
+        if self.PROTECTED_FIELDS.intersection(kwargs):
+            self._ensure_mutation_allowed()
+        return super().update(**kwargs)
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        if self.PROTECTED_FIELDS.intersection(fields):
+            self._ensure_mutation_allowed()
+        return super().bulk_update(objs, fields, batch_size=batch_size)
+
+    def delete(self):
+        self._ensure_mutation_allowed()
+        return super().delete()
 
 
 class Workspace(models.Model):
@@ -34,12 +78,35 @@ class Workspace(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    objects = WorkspaceQuerySet.as_manager()
+
     class Meta:
         ordering = ["name"]
         indexes = [models.Index(fields=["owner", "is_active"])]
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding and not _WORKSPACE_MUTATION_ALLOWED.get():
+            update_fields = kwargs.get("update_fields")
+            protected_fields = {"name", "slug", "owner", "is_active"}
+            if update_fields is None:
+                changed_fields = protected_fields
+            else:
+                changed_fields = protected_fields.intersection(update_fields)
+            if changed_fields:
+                raise PermissionDenied(
+                    "Workspace state must be changed through the canonical workspace service."
+                )
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if not _WORKSPACE_MUTATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Workspace state must be changed through the canonical workspace service."
+            )
+        return super().delete(*args, **kwargs)
 
 
 class MembershipQuerySet(models.QuerySet):
