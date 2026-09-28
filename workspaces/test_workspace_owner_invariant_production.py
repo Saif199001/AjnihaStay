@@ -2,7 +2,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, transaction
 from django.test import TransactionTestCase
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from .models import Membership, Workspace, _allow_membership_mutation
 from .services import transfer_workspace_ownership
@@ -190,7 +190,7 @@ class WorkspaceOwnerInvariantProductionTests(TransactionTestCase):
             target.id,
         )
 
-        with self.assertRaises(ValidationError) as exc:
+        with self.assertRaises(PermissionDenied) as exc:
             transfer_workspace_ownership(
                 workspace,
                 stale_owner_membership,
@@ -198,6 +198,6 @@ class WorkspaceOwnerInvariantProductionTests(TransactionTestCase):
             )
 
         self.assertEqual(
-            exc.exception.detail,
-            ["Workspace owner permission required"],
+            str(exc.exception.detail),
+            "Workspace owner permission required",
         )
