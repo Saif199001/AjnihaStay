@@ -182,7 +182,7 @@ def transfer_workspace_ownership(workspace, actor_membership, target_user_id):
         raise ValidationError("Workspace membership mismatch")
 
     if not actor_membership.is_active or actor_membership.role != Membership.ROLE_OWNER:
-        raise ValidationError("Workspace owner permission required")
+        raise PermissionDenied("Workspace owner permission required")
 
     current_owner = Membership.objects.select_for_update().get(
         workspace=workspace,
@@ -224,7 +224,7 @@ def transfer_workspace_ownership(workspace, actor_membership, target_user_id):
 def archive_workspace(workspace, actor_membership):
     _ensure_actor_membership_matches_workspace(workspace, actor_membership)
     if actor_membership.role != Membership.ROLE_OWNER:
-        raise ValidationError("Workspace owner permission required")
+        raise PermissionDenied("Workspace owner permission required")
 
     workspace = Workspace.objects.select_for_update().get(pk=workspace.pk)
     if not workspace.is_active:
