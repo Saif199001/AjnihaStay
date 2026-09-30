@@ -1,4 +1,3 @@
-from rest_framework.exceptions import NotAuthenticated, PermissionDenied, ValidationError
 from rest_framework.permissions import BasePermission
 
 from .context import get_workspace_for_request
@@ -18,10 +17,7 @@ class HasWorkspaceMembership(BasePermission):
     message = "Active workspace membership required."
 
     def has_permission(self, request, view):
-        try:
-            workspace, membership = get_workspace_for_request(request)
-        except (NotAuthenticated, PermissionDenied, ValidationError):
-            return False
+        workspace, membership = get_workspace_for_request(request)
 
         request.workspace = workspace
         request.workspace_membership = membership
