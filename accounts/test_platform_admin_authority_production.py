@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied
-from django.test import SimpleTestCase, TestCase
+from django.test import TestCase
 from rest_framework.test import APIRequestFactory
 
 from .admin import UserAdmin
@@ -140,17 +140,16 @@ class UserAdminPlatformAuthorityProductionTests(TestCase):
         self.assertTrue(self.target.is_staff)
         self.assertTrue(self.target.is_superuser)
 
-    def test_non_superuser_account_activation_still_uses_canonical_service(self):
+    def test_non_superuser_can_still_change_account_active_state_through_service(self):
         request = self.request_for(self.staff_admin)
         self.target.is_active = False
 
-        with self.assertRaises(PermissionDenied):
-            self.admin.save_model(
-                request,
-                self.target,
-                SimpleNamespace(),
-                change=True,
-            )
+        self.admin.save_model(
+            request,
+            self.target,
+            SimpleNamespace(),
+            change=True,
+        )
 
         self.target.refresh_from_db()
-        self.assertTrue(self.target.is_active)
+        self.assertFalse(self.target.is_active)
