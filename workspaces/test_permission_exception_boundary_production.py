@@ -19,31 +19,31 @@ class WorkspacePermissionExceptionBoundaryProductionTests(SimpleTestCase):
     def make_request(self):
         return self.factory.get("/")
 
-    def test_expected_not_authenticated_exception_is_handled(self):
+    def test_expected_not_authenticated_exception_propagates(self):
         request = self.make_request()
 
         with patch(
             "workspaces.permissions.get_workspace_for_request",
             side_effect=NotAuthenticated("Authentication required"),
         ), patch("workspaces.permissions.set_workspace_context") as set_context:
-            allowed = WorkspaceViewerPermission().has_permission(request, None)
+            with self.assertRaises(NotAuthenticated):
+                WorkspaceViewerPermission().has_permission(request, None)
 
-        self.assertFalse(allowed)
         set_context.assert_not_called()
 
-    def test_expected_permission_denied_exception_is_handled(self):
+    def test_expected_permission_denied_exception_propagates(self):
         request = self.make_request()
 
         with patch(
             "workspaces.permissions.get_workspace_for_request",
             side_effect=PermissionDenied("Workspace access denied"),
         ), patch("workspaces.permissions.set_workspace_context") as set_context:
-            allowed = WorkspaceViewerPermission().has_permission(request, None)
+            with self.assertRaises(PermissionDenied):
+                WorkspaceViewerPermission().has_permission(request, None)
 
-        self.assertFalse(allowed)
         set_context.assert_not_called()
 
-    def test_expected_validation_error_is_handled(self):
+    def test_expected_validation_error_propagates(self):
         request = self.make_request()
 
         with patch(
@@ -52,9 +52,9 @@ class WorkspacePermissionExceptionBoundaryProductionTests(SimpleTestCase):
                 {"workspace": "X-Workspace-ID header is required"}
             ),
         ), patch("workspaces.permissions.set_workspace_context") as set_context:
-            allowed = WorkspaceViewerPermission().has_permission(request, None)
+            with self.assertRaises(ValidationError):
+                WorkspaceViewerPermission().has_permission(request, None)
 
-        self.assertFalse(allowed)
         set_context.assert_not_called()
 
     def test_unexpected_workspace_resolution_exception_propagates(self):
