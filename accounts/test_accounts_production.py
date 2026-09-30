@@ -476,6 +476,114 @@ class AccountsProductionTests(TestCase):
         user.refresh_from_db()
         self.assertTrue(user.is_active)
 
+    def test_deactivation_is_blocked_for_active_workspace_owner(self):
+        user = self.create_user(verified=True)
+        Workspace.objects.create(
+            name="Active Workspace",
+            slug="active-owner-deactivation",
+            owner=user,
+            is_active=True,
+        )
+
+        with self.assertRaisesMessage(
+            ValidationError,
+            "Account cannot be deactivated while it owns an active workspace. "
+            "Transfer workspace ownership first.",
+        ):
+            set_account_active(user, False)
+
+        user.refresh_from_db()
+        self.assertTrue(user.is_active)
+        self.assertTrue(
+            Workspace.objects.filter(owner=user, is_active=True).exists()
+        )
+
+    def test_deactivation_is_blocked_when_owner_has_multiple_active_workspaces(self):
+        user = self.create_user(verified=True)
+        Workspace.objects.create(
+            name="Active Workspace One",
+            slug="active-owner-one",
+            owner=user,
+            is_active=True,
+        )
+        Workspace.objects.create(
+            name="Active Workspace Two",
+            slug="active-owner-two",
+            owner=user,
+            is_active=True,
+        )
+
+        with self.assertRaises(ValidationError):
+            set_account_active(user, False)
+
+        user.refresh_from_db()
+        self.assertTrue(user.is_active)
+        self.assertEqual(
+            Workspace.objects.filter(owner=user, is_active=True).count(),
+            2,
+        )
+
+    def test_non_owner_can_be_deactivated_even_when_user_is_workspace_member(self):
+        owner = self.create_user(
+            email="workspace-owner@example.com",
+            verified=True,
+        )
+        member = self.create_user(
+            email="workspace-member@example.com",
+            verified=True,
+        )
+        workspace = Workspace.objects.create(
+            name="Member Workspace",
+            slug="member-deactivation",
+            owner=owner,
+            is_active=True,
+        )
+        Membership.objects.create(
+            workspace=workspace,
+            user=member,
+            role=Membership.ROLE_VIEWER,
+            is_active=True,
+        )
+
+        updated_user = set_account_active(member, False)
+
+        self.assertFalse(updated_user.is_active)
+        member.refresh_from_db()
+        self.assertFalse(member.is_active)
+        workspace.refresh_from_db()
+        self.assertTrue(workspace.is_active)
+        self.assertEqual(workspace.owner_id, owner.id)
+
+    def test_owner_can_be_deactivated_after_all_owned_workspaces_are_archived(self):
+        user = self.create_user(verified=True)
+        Workspace.objects.create(
+            name="Archived Workspace",
+            slug="archived-owner",
+            owner=user,
+            is_active=False,
+        )
+
+        updated_user = set_account_active(user, False)
+
+        self.assertFalse(updated_user.is_active)
+        user.refresh_from_db()
+        self.assertFalse(user.is_active)
+
+    def test_reactivation_of_blocked_owner_is_not_needed_and_active_state_is_unchanged(self):
+        user = self.create_user(verified=True)
+        Workspace.objects.create(
+            name="Active Workspace",
+            slug="active-owner-noop",
+            owner=user,
+            is_active=True,
+        )
+
+        updated_user = set_account_active(user, True)
+
+        self.assertTrue(updated_user.is_active)
+        user.refresh_from_db()
+        self.assertTrue(user.is_active)
+
     @override_settings(RESEND_API_KEY=None)
     def test_verification_delivery_without_provider_configuration_is_explicit_failure(self):
         user = self.create_user()
