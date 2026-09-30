@@ -13,7 +13,7 @@ from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from workspaces.models import Membership, Workspace
+from workspaces.models import Membership, Workspace, _allow_membership_mutation
 
 from .services import (
     EmailVerificationDeliveryError,
@@ -52,6 +52,22 @@ class AccountsProductionTests(TestCase):
         uid = urlsafe_base64_encode(force_bytes(user.pk))
         token = default_token_generator.make_token(user)
         return uid, token
+
+    def create_owned_workspace(self, owner, *, name, slug, is_active=True):
+        workspace = Workspace.objects.create(
+            name=name,
+            slug=slug,
+            owner=owner,
+            is_active=is_active,
+        )
+        with _allow_membership_mutation():
+            Membership.objects.create(
+                workspace=workspace,
+                user=owner,
+                role=Membership.ROLE_OWNER,
+                is_active=True,
+            )
+        return workspace
 
     def test_user_manager_normalizes_email_and_hashes_password(self):
         user = User.objects.create_user(
@@ -478,11 +494,10 @@ class AccountsProductionTests(TestCase):
 
     def test_deactivation_is_blocked_for_active_workspace_owner(self):
         user = self.create_user(verified=True)
-        Workspace.objects.create(
+        self.create_owned_workspace(
+            user,
             name="Active Workspace",
             slug="active-owner-deactivation",
-            owner=user,
-            is_active=True,
         )
 
         with self.assertRaisesMessage(
@@ -500,17 +515,15 @@ class AccountsProductionTests(TestCase):
 
     def test_deactivation_is_blocked_when_owner_has_multiple_active_workspaces(self):
         user = self.create_user(verified=True)
-        Workspace.objects.create(
+        self.create_owned_workspace(
+            user,
             name="Active Workspace One",
             slug="active-owner-one",
-            owner=user,
-            is_active=True,
         )
-        Workspace.objects.create(
+        self.create_owned_workspace(
+            user,
             name="Active Workspace Two",
             slug="active-owner-two",
-            owner=user,
-            is_active=True,
         )
 
         with self.assertRaises(ValidationError):
@@ -532,18 +545,18 @@ class AccountsProductionTests(TestCase):
             email="workspace-member@example.com",
             verified=True,
         )
-        workspace = Workspace.objects.create(
+        workspace = self.create_owned_workspace(
+            owner,
             name="Member Workspace",
             slug="member-deactivation",
-            owner=owner,
-            is_active=True,
         )
-        Membership.objects.create(
-            workspace=workspace,
-            user=member,
-            role=Membership.ROLE_VIEWER,
-            is_active=True,
-        )
+        with _allow_membership_mutation():
+            Membership.objects.create(
+                workspace=workspace,
+                user=member,
+                role=Membership.ROLE_VIEWER,
+                is_active=True,
+            )
 
         updated_user = set_account_active(member, False)
 
@@ -556,10 +569,10 @@ class AccountsProductionTests(TestCase):
 
     def test_owner_can_be_deactivated_after_all_owned_workspaces_are_archived(self):
         user = self.create_user(verified=True)
-        Workspace.objects.create(
+        self.create_owned_workspace(
+            user,
             name="Archived Workspace",
             slug="archived-owner",
-            owner=user,
             is_active=False,
         )
 
@@ -571,11 +584,10 @@ class AccountsProductionTests(TestCase):
 
     def test_reactivation_of_blocked_owner_is_not_needed_and_active_state_is_unchanged(self):
         user = self.create_user(verified=True)
-        Workspace.objects.create(
+        self.create_owned_workspace(
+            user,
             name="Active Workspace",
             slug="active-owner-noop",
-            owner=user,
-            is_active=True,
         )
 
         updated_user = set_account_active(user, True)
