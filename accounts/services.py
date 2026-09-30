@@ -83,6 +83,21 @@ def login_user_service(request, email, password):
     return authenticate(request, email=email, password=password)
 
 
+def _ensure_account_can_be_deactivated(user):
+    """Prevent deactivation of an account that owns an active workspace."""
+    active_workspace = (
+        Workspace.objects.select_for_update()
+        .filter(owner=user, is_active=True)
+        .values_list("pk", flat=True)
+        .first()
+    )
+    if active_workspace is not None:
+        raise ValidationError(
+            "Account cannot be deactivated while it owns an active workspace. "
+            "Transfer workspace ownership first."
+        )
+
+
 def set_account_active(user, is_active):
     """Change Django's canonical account state and revoke tokens on deactivation."""
     from rest_framework_simplejwt.token_blacklist.models import (
@@ -95,6 +110,9 @@ def set_account_active(user, is_active):
 
         if locked_user.is_active == is_active:
             return locked_user
+
+        if not is_active:
+            _ensure_account_can_be_deactivated(locked_user)
 
         with _allow_account_state_mutation():
             locked_user.is_active = is_active
