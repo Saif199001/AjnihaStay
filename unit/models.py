@@ -1,9 +1,84 @@
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models import Q
+from contextlib import contextmanager
+from contextvars import ContextVar
 from django.utils import timezone
 from properties.models import Property
 from cloudinary.models import CloudinaryField
+
+
+_UNIT_MUTATION_ALLOWED = ContextVar(
+    "unit_mutation_allowed",
+    default=False,
+)
+
+
+@contextmanager
+def _allow_unit_mutation():
+    token = _UNIT_MUTATION_ALLOWED.set(True)
+    try:
+        yield
+    finally:
+        _UNIT_MUTATION_ALLOWED.reset(token)
+
+
+class UnitQuerySet(models.QuerySet):
+    def _ensure_mutation_allowed(self):
+        if not _UNIT_MUTATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Unit state must be changed through the canonical unit service."
+            )
+
+    def update(self, **kwargs):
+        self._ensure_mutation_allowed()
+        return super().update(**kwargs)
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        self._ensure_mutation_allowed()
+        return super().bulk_update(objs, fields, batch_size=batch_size)
+
+    def bulk_create(self, objs, batch_size=None, ignore_conflicts=False):
+        if objs:
+            self._ensure_mutation_allowed()
+        return super().bulk_create(
+            objs,
+            batch_size=batch_size,
+            ignore_conflicts=ignore_conflicts,
+        )
+
+    def delete(self):
+        self._ensure_mutation_allowed()
+        return super().delete()
+
+
+class SubUnitQuerySet(models.QuerySet):
+    def _ensure_mutation_allowed(self):
+        if not _UNIT_MUTATION_ALLOWED.get():
+            raise PermissionDenied(
+                "SubUnit state must be changed through the canonical unit service."
+            )
+
+    def update(self, **kwargs):
+        self._ensure_mutation_allowed()
+        return super().update(**kwargs)
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        self._ensure_mutation_allowed()
+        return super().bulk_update(objs, fields, batch_size=batch_size)
+
+    def bulk_create(self, objs, batch_size=None, ignore_conflicts=False):
+        if objs:
+            self._ensure_mutation_allowed()
+        return super().bulk_create(
+            objs,
+            batch_size=batch_size,
+            ignore_conflicts=ignore_conflicts,
+        )
+
+    def delete(self):
+        self._ensure_mutation_allowed()
+        return super().delete()
 
 
 class Unit(models.Model):
@@ -95,7 +170,13 @@ class Unit(models.Model):
         if max_concurrent > self.capacity:
             raise ValidationError("Unit capacity cannot be reduced below active overlapping occupancy count")
 
+    objects = UnitQuerySet.as_manager()
+
     def save(self, *args, **kwargs):
+        if not _UNIT_MUTATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Unit state must be changed through the canonical unit service."
+            )
         self.clean()
         if self.pk:
             with transaction.atomic():
@@ -104,6 +185,13 @@ class Unit(models.Model):
                 super().save(*args, **kwargs)
         else:
             super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if not _UNIT_MUTATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Unit state must be changed through the canonical unit service."
+            )
+        return super().delete(*args, **kwargs)
 
     def is_occupied(self):
         from tenant.models import Occupancy
@@ -144,9 +232,22 @@ class SubUnit(models.Model):
         if self.rent < 0:
             raise ValidationError("SubUnit rent cannot be negative")
 
+    objects = SubUnitQuerySet.as_manager()
+
     def save(self, *args, **kwargs):
+        if not _UNIT_MUTATION_ALLOWED.get():
+            raise PermissionDenied(
+                "SubUnit state must be changed through the canonical unit service."
+            )
         self.clean()
         super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if not _UNIT_MUTATION_ALLOWED.get():
+            raise PermissionDenied(
+                "SubUnit state must be changed through the canonical unit service."
+            )
+        return super().delete(*args, **kwargs)
 
     def is_occupied(self):
         from tenant.models import Occupancy
