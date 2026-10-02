@@ -28,6 +28,18 @@ def _require_property_mutation_permission(user, workspace):
         raise PermissionDenied("Property mutation requires manager-level access")
 
 
+def _require_property_owner(workspace, property_owner):
+    if property_owner is None:
+        raise ValidationError("Property owner is required")
+
+    if not Membership.objects.filter(
+        workspace=workspace,
+        user=property_owner,
+        is_active=True,
+    ).exists():
+        raise ValidationError("Property owner must be an active workspace member")
+
+
 def create_property(user, workspace, data, files):
     _require_property_mutation_permission(user, workspace)
 
@@ -36,9 +48,12 @@ def create_property(user, workspace, data, files):
     if not data.get("property_type"):
         raise ValidationError("Property type is required")
 
+    property_owner = data.get("owner")
+    _require_property_owner(workspace, property_owner)
+
     with transaction.atomic(), _allow_property_mutation():
         property_obj = Property.objects.create(
-            owner=user,
+            owner=property_owner,
             workspace=workspace,
             name=data.get("name"),
             property_type=data.get("property_type"),
