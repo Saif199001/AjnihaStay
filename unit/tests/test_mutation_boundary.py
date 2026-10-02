@@ -126,6 +126,7 @@ class UnitMutationBoundaryTests(TestCase):
 
     def test_canonical_unit_and_subunit_services_remain_allowed(self):
         unit = create_unit(
+            self.user,
             self.workspace,
             {
                 "property": self.property,
@@ -137,6 +138,7 @@ class UnitMutationBoundaryTests(TestCase):
             },
         )
         subunit = create_subunit(
+            self.user,
             self.workspace,
             {
                 "unit": unit,
