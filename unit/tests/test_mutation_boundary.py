@@ -27,6 +27,7 @@ class UnitMutationBoundaryTests(TestCase):
             self.user,
             self.workspace,
             {
+                "owner": self.user,
                 "name": "Unit Boundary Property",
                 "property_type": "pg",
                 "description": "",
@@ -163,6 +164,7 @@ class UnitServiceAuthorizationTests(TestCase):
             self.owner,
             self.workspace,
             {
+                "owner": self.owner,
                 "name": "Unit Authorization Property",
                 "property_type": "pg",
                 "description": "",
