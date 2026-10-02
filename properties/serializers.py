@@ -1,5 +1,10 @@
+from django.contrib.auth import get_user_model
 from rest_framework import serializers
+
 from .models import Property, PropertyImage
+
+
+User = get_user_model()
 
 
 class PropertyImageSerializer(serializers.ModelSerializer):
@@ -10,11 +15,14 @@ class PropertyImageSerializer(serializers.ModelSerializer):
 
 class PropertySerializer(serializers.ModelSerializer):
     images = PropertyImageSerializer(many=True, read_only=True)
+    owner = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(is_active=True)
+    )
 
     class Meta:
         model = Property
         fields = "__all__"
-        read_only_fields = ["id", "owner", "workspace", "created_at", "updated_at"]
+        read_only_fields = ["id", "workspace", "created_at", "updated_at"]
 
     def validate_name(self, value):
         if not value.strip():
