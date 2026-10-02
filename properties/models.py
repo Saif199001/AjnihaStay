@@ -52,7 +52,7 @@ class PropertyQuerySet(models.QuerySet):
         return super().delete()
 
 
-SUBUNIT_PROPERTY_TYPES = ("pg", "hostel")
+SUBUNIT_PROPERTY_TYPES = ["pg", "hostel"]
 
 
 class Property(models.Model):
@@ -101,7 +101,7 @@ class Property(models.Model):
             models.CheckConstraint(
                 condition=(
                     Q(property_type__in=SUBUNIT_PROPERTY_TYPES, has_subunits=True)
-                    | Q(property_type__in=("shop", "flat", "office", "building"), has_subunits=False)
+                    | Q(property_type__in=["shop", "flat", "office", "building"], has_subunits=False)
                 ),
                 name="property_type_has_subunits_consistent",
             ),
