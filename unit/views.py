@@ -49,7 +49,7 @@ def unit_create_view(request):
 
     if request.method == "POST":
         try:
-            create_unit(workspace, request.POST)
+            create_unit(request.user, workspace, request.POST)
         except ValidationError as exc:
             return HttpResponse(str(exc), status=400)
         return redirect("/units/")
@@ -72,7 +72,7 @@ def subunit_create_view(request, unit_id):
 
     if request.method == "POST":
         try:
-            create_subunit(workspace, {
+            create_subunit(request.user, workspace, {
                 "unit": unit.id,
                 "subunit_number": request.POST.get("subunit_number"),
                 "rent": request.POST.get("rent"),
