@@ -173,6 +173,14 @@ class RentContractTests(TestCase):
         serializer = UnitSerializer(data=self.unit_data(rent=Decimal("1")))
         self.assertTrue(serializer.is_valid(), serializer.errors)
 
+    def test_subunit_serializer_requires_rent(self):
+        unit = create_unit(self.user, self.workspace, self.unit_data())
+        data = self.subunit_data(unit)
+        data.pop("rent")
+        serializer = SubUnitSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("rent", serializer.errors)
+
     def test_subunit_serializer_requires_positive_rent(self):
         unit = create_unit(self.user, self.workspace, self.unit_data())
         for rent in (Decimal("0"), Decimal("-1")):
