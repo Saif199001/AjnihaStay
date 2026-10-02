@@ -4,6 +4,7 @@ from contextvars import ContextVar
 from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import models
+from django.db.models import Q
 from cloudinary.models import CloudinaryField
 
 
@@ -51,6 +52,9 @@ class PropertyQuerySet(models.QuerySet):
         return super().delete()
 
 
+SUBUNIT_PROPERTY_TYPES = ("pg", "hostel")
+
+
 class Property(models.Model):
     PROPERTY_TYPES = (
         ("pg", "PG"),
@@ -93,8 +97,23 @@ class Property(models.Model):
             models.Index(fields=["property_type"]),
             models.Index(fields=["workspace", "is_active"]),
         ]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(property_type__in=SUBUNIT_PROPERTY_TYPES, has_subunits=True)
+                    | Q(property_type__in=("shop", "flat", "office", "building"), has_subunits=False)
+                ),
+                name="property_type_has_subunits_consistent",
+            ),
+        ]
 
     def clean(self):
+        expected_has_subunits = self.property_type in SUBUNIT_PROPERTY_TYPES
+        if self.has_subunits != expected_has_subunits:
+            raise ValidationError(
+                "has_subunits is derived from property_type and cannot be inconsistent"
+            )
+
         if self.owner_id and self.workspace_id:
             from workspaces.models import Membership
 
