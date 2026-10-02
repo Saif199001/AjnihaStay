@@ -420,3 +420,207 @@ Frozen scope:
 **W5 checkpoint: FROZEN — GREEN.**
 
 **Next checkpoint: W6 — production-code audit required before implementation.**
+
+## 15. Accounts + Workspace Final Closure — C1–C5
+
+**Closure status: FROZEN — GREEN**
+
+The final cross-boundary production audit of Accounts + Workspace is complete on
+`production-branch`. The closure findings C1–C5 were reviewed against the
+production code, fresh tests, database invariants, and the locked Blueprint.
+
+### C1 — Active Workspace Owner Deactivation
+
+**Status: FROZEN — GREEN**
+
+Finding:
+- An active Workspace could otherwise be stranded if its owner account were deactivated.
+
+Correction:
+- `set_account_active()` now checks for active Workspaces owned by the account before deactivation.
+- Ownership must be transferred or the Workspace archived before the owner account can be deactivated.
+- Account-state mutation remains behind the A1 canonical mutation boundary.
+
+Implementation:
+- `1f900b129e38ae80de7e1b4a4a0d9f3b14049631` — protect active workspace owners from deactivation.
+
+Fresh coverage:
+- owner with one active Workspace is blocked;
+- owner with multiple active Workspaces is blocked;
+- non-owner/member deactivation remains allowed;
+- owner can be deactivated after all owned Workspaces are archived.
+
+Verification:
+- **CI #1332 — GREEN**
+- branch: `production-branch`
+
+**C1 checkpoint: FROZEN — GREEN.**
+
+### C2 — Permission ↔ HTTP Status Reconciliation
+
+**Status: FROZEN — GREEN**
+
+Finding:
+- The workspace permission class was converting deliberate authentication/authorization/validation exceptions into `False`, which could change the intended HTTP semantics.
+
+Correction:
+- `HasWorkspaceMembership` now preserves the deliberate DRF exception flow from workspace resolution.
+- Role permissions continue to use boolean authorization checks.
+- Unexpected failures remain observable.
+
+Resulting contract:
+- 401 — unauthenticated;
+- 403 — authenticated but unauthorized;
+- 400 — validation/workspace-selection errors.
+
+Implementation:
+- `730f36df68a351341ae4a4ff86ed15351a794e70` — preserve permission exception HTTP semantics.
+- `81fef16ec0247ed19872f9e1303757fba80a70d5` — align fresh permission tests with C2 semantics.
+
+Verification:
+- **C2 — GREEN**
+- fresh W3/C2 permission tests pass on `production-branch`.
+
+**C2 checkpoint: FROZEN — GREEN.**
+
+### C3 — Platform Admin Authority Boundary
+
+**Status: FROZEN — GREEN**
+
+Finding:
+- Platform privilege fields in Django Admin required an explicit platform-authority boundary separate from Workspace RBAC.
+
+Correction:
+- Non-superusers cannot modify `is_staff`, `is_superuser`, `groups`, or `user_permissions`.
+- Superusers retain platform-level privilege authority.
+- Account activation continues through the canonical account service.
+- Workspace Admin remains a separate tenant/workspace role.
+
+Implementation:
+- `baf8f0ffd2ca0f780d55a5f296f41decd49395d3` — platform admin authority boundary.
+- `ed0c6be77e5c0ca886a25706a767bdafa7ebf528` — final fresh C3 test coverage.
+
+Verification:
+- **CI #1339 — GREEN**
+- branch: `production-branch`
+
+**C3 checkpoint: FROZEN — GREEN.**
+
+### C4 — Account Deletion Lifecycle
+
+**Status: FROZEN — GREEN**
+
+Finding:
+- Direct User deletion was an uncontrolled lifecycle path and could otherwise cascade Membership rows.
+
+Correction:
+- `User.delete()` and `UserQuerySet.delete()` are blocked in the normal application lifecycle.
+- Django User Admin deletion is disabled.
+- Normal account closure remains soft deactivation through `set_account_active()`.
+- No uncontrolled hard-delete path is exposed.
+
+Implementation:
+- `cb2f2480226a387ce01a77a9a91340afa638bced` — account deletion lifecycle boundary.
+- `13c2d50d6179b4ef01b003acba4b06f813e91ee4` — disable Admin account deletion.
+- `8e007c2aaedae73fc18c9a7b473f0981853a4dd6` — final C4 fixture correction.
+
+Verification:
+- **CI #1343 — GREEN**
+- branch: `production-branch`
+
+**C4 checkpoint: FROZEN — GREEN.**
+
+### C5 — Provisioning Authority
+
+**Status: FROZEN — NO PRODUCTION CORRECTION REQUIRED**
+
+Final production audit found no active provisioning defect.
+
+Established architecture:
+
+```
+Platform administration
+        ↓
+Django Admin
+        ↓
+Platform-level account administration
+
+SaaS signup
+        ↓
+create_user_account()
+        ↓
+User + Workspace + Owner Membership
+        ↓
+Workspace Owner
+        ↓
+Workspace Admin / Manager / Viewer
+```
+
+Important distinction:
+
+- **Django Platform Admin** is not the same as **Workspace Admin**.
+- A SaaS signup user receives the Workspace Owner role.
+- The Owner manages Workspace Admin/Manager/Viewer memberships through the canonical workspace services.
+- Django Admin is a platform authority and is not the SaaS tenant-membership workflow.
+- A User account does not inherently require a Workspace; tenant provisioning is the separate User + Workspace + Owner Membership operation.
+- `create_user_account()` remains the canonical SaaS signup provisioning path and is atomic.
+- W1's deferred database invariant prevents a Workspace from persisting without the required matching active Owner Membership.
+
+No production-code change was introduced for C5 because the audit found the existing architecture consistent with the Blueprint's separation of platform administration and customer workspace authorization.
+
+**C5 checkpoint: FROZEN — GREEN / NO CORRECTION REQUIRED.**
+
+---
+
+## 16. Accounts + Workspace Final Architecture Freeze
+
+The following boundaries are now treated as a **frozen production baseline**:
+
+1. **A1 — Account State Mutation Boundary**
+2. **W1 — Workspace Owner Invariant**
+3. **W2 — Membership Mutation Boundary**
+4. **W3 — Permission Exception Boundary**
+5. **W4 — API Error Contract**
+6. **W5 — Workspace Lifecycle Mutation Boundary**
+7. **C1 — Active Workspace Owner Deactivation**
+8. **C2 — Permission ↔ HTTP Status Reconciliation**
+9. **C3 — Platform Admin Authority Boundary**
+10. **C4 — Account Deletion Lifecycle**
+11. **C5 — Provisioning Authority**
+
+### Final invariants
+
+- Workspace Owner ↔ active Owner Membership remains consistent.
+- Membership lifecycle mutations use canonical workspace services.
+- Workspace lifecycle mutations use canonical workspace services.
+- Sensitive account-state mutations use canonical account services.
+- Active Workspace owners cannot be deactivated.
+- Normal account hard deletion is not an application lifecycle operation.
+- Platform Admin authority is separate from Workspace RBAC.
+- Workspace Admin is a tenant/workspace role, not Django Platform Admin.
+- SaaS signup atomically provisions User + Workspace + Owner Membership.
+- Workspace HTTP error semantics remain 401/403/400 as defined by the API contract.
+- Unexpected application failures are not silently converted into ordinary permission/client errors.
+- Workspace isolation and RLS architecture remain protected.
+- Existing supported business workflows remain governed by the Blueprint's no-regression rule.
+
+### Final verification baseline
+
+The closure work was verified through the relevant fresh production test suites and GREEN CI checkpoints, including:
+
+- A1 — CI #1296
+- W1 — CI #1330 final W5-compatible verification
+- W2 — CI #1312
+- W3 — CI #1315
+- W4 — CI #1323
+- W5 — CI #1330
+- C1 — CI #1332
+- C2 — GREEN after final fresh-test correction
+- C3 — CI #1339
+- C4 — CI #1343
+
+**Accounts + Workspace: FINAL FROZEN BASELINE 🔒**
+
+Future work on later apps must treat these boundaries as established contracts. Reopening them is required only if a later app introduces a concrete cross-boundary regression or a new architectural requirement.
+
+**Next step: move to the next application audit.**
