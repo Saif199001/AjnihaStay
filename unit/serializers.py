@@ -12,6 +12,11 @@ class SubUnitSerializer(serializers.ModelSerializer):
         model = SubUnit
         fields = "__all__"
 
+    def validate_rent(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Rent must be greater than 0")
+        return value
+
 
 class UnitPropertyField(serializers.PrimaryKeyRelatedField):
     def use_pk_only_optimization(self):
@@ -51,4 +56,11 @@ class UnitSerializer(serializers.ModelSerializer):
         capacity = data.get("capacity")
         if capacity is not None and capacity <= 0:
             raise serializers.ValidationError("Capacity must be greater than 0")
+
+        rent = data.get("rent")
+        if rent is None:
+            raise serializers.ValidationError({"rent": "Rent is required"})
+        if rent <= 0:
+            raise serializers.ValidationError({"rent": "Rent must be greater than 0"})
+
         return data
