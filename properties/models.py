@@ -4,6 +4,50 @@ from django.db import models
 from cloudinary.models import CloudinaryField
 
 
+_PROPERTY_MUTATION_ALLOWED = ContextVar(
+    "property_mutation_allowed",
+    default=False,
+)
+
+
+@contextmanager
+def _allow_property_mutation():
+    token = _PROPERTY_MUTATION_ALLOWED.set(True)
+    try:
+        yield
+    finally:
+        _PROPERTY_MUTATION_ALLOWED.reset(token)
+
+
+class PropertyQuerySet(models.QuerySet):
+    def _ensure_mutation_allowed(self):
+        if not _PROPERTY_MUTATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Property state must be changed through the canonical property service."
+            )
+
+    def update(self, **kwargs):
+        self._ensure_mutation_allowed()
+        return super().update(**kwargs)
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        self._ensure_mutation_allowed()
+        return super().bulk_update(objs, fields, batch_size=batch_size)
+
+    def bulk_create(self, objs, batch_size=None, ignore_conflicts=False):
+        if objs:
+            self._ensure_mutation_allowed()
+        return super().bulk_create(
+            objs,
+            batch_size=batch_size,
+            ignore_conflicts=ignore_conflicts,
+        )
+
+    def delete(self):
+        self._ensure_mutation_allowed()
+        return super().delete()
+
+
 class Property(models.Model):
     PROPERTY_TYPES = (
         ("pg", "PG"),
@@ -58,9 +102,22 @@ class Property(models.Model):
             ).exists():
                 raise ValidationError("Property owner must be an active workspace member")
 
+    objects = PropertyQuerySet.as_manager()
+
     def save(self, *args, **kwargs):
+        if not _PROPERTY_MUTATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Property state must be changed through the canonical property service."
+            )
         self.clean()
         super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if not _PROPERTY_MUTATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Property state must be changed through the canonical property service."
+            )
+        return super().delete(*args, **kwargs)
 
     def __str__(self):
         return f"{self.name} - {self.city}"
