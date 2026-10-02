@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from properties.models import Property
-from .models import SubUnit, Unit
+from .models import SubUnit, Unit, _allow_unit_mutation
 
 
 def _optional_positive_id(value, field_name):
@@ -49,14 +49,15 @@ def create_unit(workspace, data):
     if capacity <= 0:
         raise ValidationError("Capacity must be greater than 0")
 
-    return Unit.objects.create(
-        property=property_obj,
-        unit_number=data.get("unit_number"),
-        unit_type=data.get("unit_type"),
-        rent=rent,
-        capacity=capacity,
-        description=data.get("description"),
-    )
+    with _allow_unit_mutation():
+        return Unit.objects.create(
+            property=property_obj,
+            unit_number=data.get("unit_number"),
+            unit_type=data.get("unit_type"),
+            rent=rent,
+            capacity=capacity,
+            description=data.get("description"),
+        )
 
 
 def create_subunit(workspace, data):
@@ -91,8 +92,9 @@ def create_subunit(workspace, data):
         if existing_total + new_rent > unit.rent:
             raise ValidationError("Total rent exceeded")
 
-        return SubUnit.objects.create(
-            unit=unit,
-            subunit_number=data.get("subunit_number"),
-            rent=new_rent,
-        )
+        with _allow_unit_mutation():
+            return SubUnit.objects.create(
+                unit=unit,
+                subunit_number=data.get("subunit_number"),
+                rent=new_rent,
+            )
