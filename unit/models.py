@@ -124,7 +124,7 @@ class Unit(models.Model):
         ]
         constraints = [
             models.CheckConstraint(condition=Q(capacity__gte=1), name="unit_capacity_positive"),
-            models.CheckConstraint(condition=Q(rent__gt=0), name="unit_rent_non_negative"),
+            models.CheckConstraint(condition=Q(rent__gt=0), name="unit_rent_positive"),
         ]
 
     def __str__(self):
@@ -220,7 +220,7 @@ class SubUnit(models.Model):
     class Meta:
         unique_together = ["unit", "subunit_number"]
         constraints = [
-            models.CheckConstraint(condition=Q(rent__gt=0), name="subunit_rent_non_negative"),
+            models.CheckConstraint(condition=Q(rent__gt=0), name="subunit_rent_positive"),
         ]
 
     def __str__(self):
