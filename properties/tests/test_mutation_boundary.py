@@ -136,8 +136,6 @@ class PropertyServiceAuthorizationTests(TestCase):
             workspace=self.workspace,
             user=self.inactive_manager,
         )
-        with Membership._meta.model._default_manager.all().using("default"):
-            pass
 
     def _data(self, name="Authorized Property"):
         return {
@@ -168,11 +166,13 @@ class PropertyServiceAuthorizationTests(TestCase):
             create_property(self.viewer, self.workspace, self._data(), MultiValueDict())
 
     def test_inactive_member_cannot_create_property(self):
-        from workspaces.models import _allow_membership_mutation
+        from workspaces.services import deactivate_member
 
-        with _allow_membership_mutation():
-            self.inactive_membership.is_active = False
-            self.inactive_membership.save(update_fields=["is_active", "updated_at"])
+        deactivate_member(
+            self.workspace,
+            self.owner.workspace_memberships.get(),
+            self.inactive_manager.pk,
+        )
 
         with self.assertRaises(PermissionDenied):
             create_property(self.inactive_manager, self.workspace, self._data(), MultiValueDict())
