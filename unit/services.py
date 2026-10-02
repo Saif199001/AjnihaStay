@@ -63,14 +63,18 @@ def create_unit(user, workspace, data):
     if not data.get("unit_number"):
         raise ValidationError("Unit number required")
 
+    rent_value = data.get("rent")
+    if rent_value in (None, ""):
+        raise ValidationError("Rent is required")
+
     try:
-        rent = Decimal(data.get("rent") or 0)
+        rent = Decimal(rent_value)
         capacity = int(data.get("capacity") or 1)
     except (TypeError, ValueError, InvalidOperation):
         raise ValidationError("Invalid unit values")
 
-    if rent < 0:
-        raise ValidationError("Rent cannot be negative")
+    if rent <= 0:
+        raise ValidationError("Rent must be greater than 0")
     if capacity <= 0:
         raise ValidationError("Capacity must be greater than 0")
 
@@ -99,15 +103,19 @@ def create_subunit(user, workspace, data):
         except (Unit.DoesNotExist, TypeError, ValueError):
             raise ValidationError("Unit not found")
 
-        if not unit.rent:
-            raise ValidationError("Unit rent must be set")
+        if unit.rent is None or unit.rent <= 0:
+            raise ValidationError("Unit rent must be greater than 0")
+
+        rent_value = data.get("rent")
+        if rent_value in (None, ""):
+            raise ValidationError("Rent is required")
 
         try:
-            new_rent = Decimal(data.get("rent") or 0)
+            new_rent = Decimal(rent_value)
         except (TypeError, ValueError, InvalidOperation):
             raise ValidationError("Invalid rent")
         if new_rent <= 0:
-            raise ValidationError("Invalid rent")
+            raise ValidationError("Rent must be greater than 0")
 
         if unit.subunits.filter(is_active=True).count() >= unit.capacity:
             raise ValidationError("Capacity full")
