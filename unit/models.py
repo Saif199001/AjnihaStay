@@ -104,7 +104,7 @@ class Unit(models.Model):
 
     amenities = models.JSONField(default=list, blank=True)
 
-    rent = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    rent = models.DecimalField(max_digits=10, decimal_places=2, blank=False, null=False)
 
     capacity = models.IntegerField(default=1)
 
@@ -124,7 +124,7 @@ class Unit(models.Model):
         ]
         constraints = [
             models.CheckConstraint(condition=Q(capacity__gte=1), name="unit_capacity_positive"),
-            models.CheckConstraint(condition=Q(rent__isnull=True) | Q(rent__gte=0), name="unit_rent_non_negative"),
+            models.CheckConstraint(condition=Q(rent__gt=0), name="unit_rent_non_negative"),
         ]
 
     def __str__(self):
@@ -133,8 +133,10 @@ class Unit(models.Model):
     def clean(self):
         if self.capacity < 1:
             raise ValidationError("Unit capacity must be at least 1")
-        if self.rent is not None and self.rent < 0:
-            raise ValidationError("Unit rent cannot be negative")
+        if self.rent is None:
+            raise ValidationError("Unit rent is required")
+        if self.rent <= 0:
+            raise ValidationError("Unit rent must be greater than 0")
 
     def _validate_capacity_against_active_occupancies(self):
         from tenant.models import Occupancy
@@ -156,10 +158,6 @@ class Unit(models.Model):
             if occupancy["check_out_date"] is not None:
                 events.append((occupancy["check_out_date"], -1))
 
-        # Existing occupancy validation treats same-day check-in/check-out as
-        # overlapping, so starts must be processed before ends on the same date.
-        # Open-ended occupancies have no end event and therefore remain active
-        # for the remainder of the timeline.
         events.sort(key=lambda event: (event[0], -event[1]))
         concurrent = 0
         max_concurrent = 0
@@ -222,15 +220,17 @@ class SubUnit(models.Model):
     class Meta:
         unique_together = ["unit", "subunit_number"]
         constraints = [
-            models.CheckConstraint(condition=Q(rent__gte=0), name="subunit_rent_non_negative"),
+            models.CheckConstraint(condition=Q(rent__gt=0), name="subunit_rent_non_negative"),
         ]
 
     def __str__(self):
         return f"{self.unit} - {self.subunit_number}"
 
     def clean(self):
-        if self.rent < 0:
-            raise ValidationError("SubUnit rent cannot be negative")
+        if self.rent is None:
+            raise ValidationError("SubUnit rent is required")
+        if self.rent <= 0:
+            raise ValidationError("SubUnit rent must be greater than 0")
 
     objects = SubUnitQuerySet.as_manager()
 
