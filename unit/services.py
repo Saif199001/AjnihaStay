@@ -1,10 +1,33 @@
 from decimal import Decimal, InvalidOperation
 
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 
 from properties.models import Property
+from workspaces.models import Membership
 from .models import SubUnit, Unit, _allow_unit_mutation
+
+
+UNIT_MUTATION_ROLES = frozenset(
+    {
+        Membership.ROLE_OWNER,
+        Membership.ROLE_ADMIN,
+        Membership.ROLE_MANAGER,
+    }
+)
+
+
+def _require_unit_mutation_permission(user, workspace):
+    if user is None:
+        raise PermissionDenied("Unit mutation requires workspace membership")
+
+    if not Membership.objects.filter(
+        workspace=workspace,
+        user=user,
+        is_active=True,
+        role__in=UNIT_MUTATION_ROLES,
+    ).exists():
+        raise PermissionDenied("Unit mutation requires manager-level access")
 
 
 def _optional_positive_id(value, field_name):
@@ -27,7 +50,9 @@ def get_units(workspace, property_id=None):
     return units
 
 
-def create_unit(workspace, data):
+def create_unit(user, workspace, data):
+    _require_unit_mutation_permission(user, workspace)
+
     property_value = data.get("property")
     property_id = getattr(property_value, "id", property_value)
     try:
@@ -60,7 +85,9 @@ def create_unit(workspace, data):
         )
 
 
-def create_subunit(workspace, data):
+def create_subunit(user, workspace, data):
+    _require_unit_mutation_permission(user, workspace)
+
     unit_value = data.get("unit")
     unit_id = getattr(unit_value, "id", unit_value)
 
