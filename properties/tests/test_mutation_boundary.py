@@ -1,9 +1,11 @@
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.utils.datastructures import MultiValueDict
 
 from accounts.services import create_user_account
-from properties.models import Property
+from properties.models import Property, _allow_property_mutation
+from properties.serializers import PropertySerializer
 from properties.services import create_property
 from workspaces.models import Membership
 from workspaces.services import add_member
@@ -72,6 +74,71 @@ class PropertyMutationBoundaryTests(TestCase):
     def test_queryset_delete_is_blocked(self):
         with self.assertRaises(PermissionDenied):
             Property.objects.filter(pk=self.property.pk).delete()
+
+
+    def test_property_type_derives_has_subunits(self):
+        expected = {
+            "pg": True,
+            "hostel": True,
+            "shop": False,
+            "flat": False,
+            "office": False,
+            "building": False,
+        }
+
+        for property_type, has_subunits in expected.items():
+            with self.subTest(property_type=property_type):
+                property_obj = create_property(
+                    self.user,
+                    self.workspace,
+                    {
+                        "owner": self.user,
+                        "name": f"{property_type} Property",
+                        "property_type": property_type,
+                        "description": "",
+                        "address": "Test Address",
+                        "city": "Lucknow",
+                        "state": "Uttar Pradesh",
+                        "pincode": "226001",
+                        "amenities": [],
+                    },
+                    MultiValueDict(),
+                )
+                self.assertEqual(property_obj.has_subunits, has_subunits)
+
+    def test_has_subunits_is_read_only_in_serializer(self):
+        serializer = PropertySerializer()
+        self.assertTrue(serializer.fields["has_subunits"].read_only)
+
+    def test_model_rejects_inconsistent_property_structure(self):
+        candidate = Property(
+            owner=self.user,
+            workspace=self.workspace,
+            name="Invalid Structure",
+            property_type="pg",
+            has_subunits=False,
+            address="Test Address",
+            city="Lucknow",
+            state="Uttar Pradesh",
+            pincode="226001",
+        )
+        with self.assertRaises(ValidationError):
+            candidate.clean()
+
+    def test_database_rejects_inconsistent_property_structure(self):
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic(), _allow_property_mutation():
+                Property.objects.create(
+                    owner=self.user,
+                    workspace=self.workspace,
+                    name="Invalid DB Structure",
+                    property_type="pg",
+                    has_subunits=False,
+                    address="Test Address",
+                    city="Lucknow",
+                    state="Uttar Pradesh",
+                    pincode="226001",
+                )
 
     def test_canonical_property_service_remains_allowed(self):
         created = create_property(
