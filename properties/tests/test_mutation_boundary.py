@@ -128,16 +128,20 @@ class PropertyMutationBoundaryTests(TestCase):
     def test_database_rejects_inconsistent_property_structure(self):
         with self.assertRaises(IntegrityError):
             with transaction.atomic(), _allow_property_mutation():
-                Property.objects.create(
-                    owner=self.user,
-                    workspace=self.workspace,
-                    name="Invalid DB Structure",
-                    property_type="pg",
-                    has_subunits=False,
-                    address="Test Address",
-                    city="Lucknow",
-                    state="Uttar Pradesh",
-                    pincode="226001",
+                Property.objects.bulk_create(
+                    [
+                        Property(
+                            owner=self.user,
+                            workspace=self.workspace,
+                            name="Invalid DB Structure",
+                            property_type="pg",
+                            has_subunits=False,
+                            address="Test Address",
+                            city="Lucknow",
+                            state="Uttar Pradesh",
+                            pincode="226001",
+                        )
+                    ]
                 )
 
     def test_canonical_property_service_remains_allowed(self):
