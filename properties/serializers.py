@@ -22,7 +22,13 @@ class PropertySerializer(serializers.ModelSerializer):
     class Meta:
         model = Property
         fields = "__all__"
-        read_only_fields = ["id", "workspace", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "workspace",
+            "has_subunits",
+            "created_at",
+            "updated_at",
+        ]
 
     def validate_name(self, value):
         if not value.strip():
