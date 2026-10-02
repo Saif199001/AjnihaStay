@@ -62,6 +62,9 @@ class UserAdmin(BaseUserAdmin):
             readonly.update(self.PLATFORM_PRIVILEGE_FIELDS)
         return tuple(readonly)
 
+    def has_delete_permission(self, request, obj=None):
+        return False
+
     def save_model(self, request, obj, form, change):
         with transaction.atomic():
             if change:
