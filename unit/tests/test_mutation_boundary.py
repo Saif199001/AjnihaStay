@@ -6,6 +6,9 @@ from django.test import TestCase
 from accounts.services import create_user_account
 from properties.services import create_property
 from django.utils.datastructures import MultiValueDict
+
+from workspaces.models import Membership
+from workspaces.services import add_member, deactivate_member
 from unit.models import SubUnit, Unit
 from unit.services import create_subunit, create_unit
 
@@ -36,6 +39,7 @@ class UnitMutationBoundaryTests(TestCase):
             MultiValueDict(),
         )
         self.unit = create_unit(
+            self.user,
             self.workspace,
             {
                 "property": self.property,
@@ -47,6 +51,7 @@ class UnitMutationBoundaryTests(TestCase):
             },
         )
         self.subunit = create_subunit(
+            self.user,
             self.workspace,
             {
                 "unit": self.unit,
@@ -141,3 +146,126 @@ class UnitMutationBoundaryTests(TestCase):
         )
         self.assertEqual(unit.property_id, self.property.pk)
         self.assertEqual(subunit.unit_id, unit.pk)
+
+
+class UnitServiceAuthorizationTests(TestCase):
+    def setUp(self):
+        self.owner = create_user_account(
+            "unit-owner@example.com",
+            "StrongPassword123!",
+            "StrongPassword123!",
+            "Unit Authorization Workspace",
+        )
+        self.workspace = self.owner.owned_workspaces.get()
+        self.property = create_property(
+            self.owner,
+            self.workspace,
+            {
+                "name": "Unit Authorization Property",
+                "property_type": "pg",
+                "description": "",
+                "address": "Test Address",
+                "city": "Lucknow",
+                "state": "Uttar Pradesh",
+                "pincode": "226001",
+                "amenities": [],
+            },
+            MultiValueDict(),
+        )
+
+        self.manager = create_user_account(
+            "unit-manager@example.com", "StrongPassword123!", "StrongPassword123!", "Manager Workspace"
+        )
+        self.admin = create_user_account(
+            "unit-admin@example.com", "StrongPassword123!", "StrongPassword123!", "Admin Workspace"
+        )
+        self.viewer = create_user_account(
+            "unit-viewer@example.com", "StrongPassword123!", "StrongPassword123!", "Viewer Workspace"
+        )
+        self.inactive_manager = create_user_account(
+            "unit-inactive@example.com", "StrongPassword123!", "StrongPassword123!", "Inactive Workspace"
+        )
+
+        actor_membership = self.owner.workspace_memberships.get()
+        add_member(self.workspace, actor_membership, self.manager.email, Membership.ROLE_MANAGER)
+        add_member(self.workspace, actor_membership, self.admin.email, Membership.ROLE_ADMIN)
+        add_member(self.workspace, actor_membership, self.viewer.email, Membership.ROLE_VIEWER)
+        add_member(self.workspace, actor_membership, self.inactive_manager.email, Membership.ROLE_MANAGER)
+
+    def _unit_data(self, number="201"):
+        return {
+            "property": self.property,
+            "unit_number": number,
+            "unit_type": "room",
+            "rent": Decimal("10000"),
+            "capacity": 2,
+            "description": "",
+        }
+
+    def _subunit_data(self, unit):
+        return {
+            "unit": unit,
+            "subunit_number": "201-A",
+            "rent": Decimal("5000"),
+        }
+
+    def test_owner_can_create_unit(self):
+        unit = create_unit(self.owner, self.workspace, self._unit_data())
+        self.assertEqual(unit.property_id, self.property.pk)
+
+    def test_manager_can_create_unit(self):
+        unit = create_unit(self.manager, self.workspace, self._unit_data("202"))
+        self.assertEqual(unit.property_id, self.property.pk)
+
+    def test_admin_can_create_unit(self):
+        unit = create_unit(self.admin, self.workspace, self._unit_data("203"))
+        self.assertEqual(unit.property_id, self.property.pk)
+
+    def test_viewer_cannot_create_unit(self):
+        with self.assertRaises(PermissionDenied):
+            create_unit(self.viewer, self.workspace, self._unit_data("204"))
+
+    def test_inactive_member_cannot_create_unit(self):
+        deactivate_member(self.workspace, self.owner.workspace_memberships.get(), self.inactive_manager.pk)
+        with self.assertRaises(PermissionDenied):
+            create_unit(self.inactive_manager, self.workspace, self._unit_data("205"))
+
+    def test_non_member_cannot_create_unit(self):
+        outsider = create_user_account(
+            "unit-outsider@example.com",
+            "StrongPassword123!",
+            "StrongPassword123!",
+            "Outsider Workspace",
+        )
+        with self.assertRaises(PermissionDenied):
+            create_unit(outsider, self.workspace, self._unit_data("206"))
+
+    def test_none_actor_cannot_create_unit(self):
+        with self.assertRaises(PermissionDenied):
+            create_unit(None, self.workspace, self._unit_data("207"))
+
+    def test_owner_can_create_subunit(self):
+        unit = create_unit(self.owner, self.workspace, self._unit_data("208"))
+        subunit = create_subunit(self.owner, self.workspace, self._subunit_data(unit))
+        self.assertEqual(subunit.unit_id, unit.pk)
+
+    def test_manager_can_create_subunit(self):
+        unit = create_unit(self.owner, self.workspace, self._unit_data("209"))
+        subunit = create_subunit(self.manager, self.workspace, self._subunit_data(unit))
+        self.assertEqual(subunit.unit_id, unit.pk)
+
+    def test_viewer_cannot_create_subunit(self):
+        unit = create_unit(self.owner, self.workspace, self._unit_data("210"))
+        with self.assertRaises(PermissionDenied):
+            create_subunit(self.viewer, self.workspace, self._subunit_data(unit))
+
+    def test_non_member_cannot_create_subunit(self):
+        unit = create_unit(self.owner, self.workspace, self._unit_data("211"))
+        outsider = create_user_account(
+            "unit-outsider-subunit@example.com",
+            "StrongPassword123!",
+            "StrongPassword123!",
+            "Outsider SubUnit Workspace",
+        )
+        with self.assertRaises(PermissionDenied):
+            create_subunit(outsider, self.workspace, self._subunit_data(unit))
