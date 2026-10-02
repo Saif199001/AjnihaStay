@@ -1,7 +1,7 @@
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
-from .models import Property, PropertyImage
+from .models import Property, PropertyImage, _allow_property_mutation
 
 SUBUNIT_PROPERTY_TYPES = ["pg", "hostel"]
 
@@ -12,7 +12,7 @@ def create_property(user, workspace, data, files):
     if not data.get("property_type"):
         raise ValidationError("Property type is required")
 
-    with transaction.atomic():
+    with transaction.atomic(), _allow_property_mutation():
         property_obj = Property.objects.create(
             owner=user,
             workspace=workspace,
