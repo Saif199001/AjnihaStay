@@ -1,4 +1,4 @@
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import TestCase
 from django.utils.datastructures import MultiValueDict
 
@@ -23,6 +23,7 @@ class PropertyMutationBoundaryTests(TestCase):
             self.user,
             self.workspace,
             {
+                "owner": self.user,
                 "name": "Boundary Property",
                 "property_type": "pg",
                 "description": "",
@@ -77,6 +78,7 @@ class PropertyMutationBoundaryTests(TestCase):
             self.user,
             self.workspace,
             {
+                "owner": self.user,
                 "name": "Second Property",
                 "property_type": "hostel",
                 "description": "",
@@ -137,8 +139,9 @@ class PropertyServiceAuthorizationTests(TestCase):
             user=self.inactive_manager,
         )
 
-    def _data(self, name="Authorized Property"):
+    def _data(self, name="Authorized Property", owner=None):
         return {
+            "owner": owner or self.owner,
             "name": name,
             "property_type": "pg",
             "description": "",
@@ -150,20 +153,40 @@ class PropertyServiceAuthorizationTests(TestCase):
         }
 
     def test_owner_can_create_property(self):
-        property_obj = create_property(self.owner, self.workspace, self._data(), MultiValueDict())
+        property_obj = create_property(
+            self.owner,
+            self.workspace,
+            self._data(owner=self.owner),
+            MultiValueDict(),
+        )
         self.assertEqual(property_obj.owner_id, self.owner.pk)
 
     def test_manager_can_create_property(self):
-        property_obj = create_property(self.manager, self.workspace, self._data("Manager Property"), MultiValueDict())
-        self.assertEqual(property_obj.owner_id, self.manager.pk)
+        property_obj = create_property(
+            self.manager,
+            self.workspace,
+            self._data("Manager Property", owner=self.owner),
+            MultiValueDict(),
+        )
+        self.assertEqual(property_obj.owner_id, self.owner.pk)
 
     def test_admin_can_create_property(self):
-        property_obj = create_property(self.admin, self.workspace, self._data("Admin Property"), MultiValueDict())
-        self.assertEqual(property_obj.owner_id, self.admin.pk)
+        property_obj = create_property(
+            self.admin,
+            self.workspace,
+            self._data("Admin Property", owner=self.manager),
+            MultiValueDict(),
+        )
+        self.assertEqual(property_obj.owner_id, self.manager.pk)
 
     def test_viewer_cannot_create_property(self):
         with self.assertRaises(PermissionDenied):
-            create_property(self.viewer, self.workspace, self._data(), MultiValueDict())
+            create_property(
+                self.viewer,
+                self.workspace,
+                self._data(owner=self.owner),
+                MultiValueDict(),
+            )
 
     def test_inactive_member_cannot_create_property(self):
         from workspaces.services import deactivate_member
@@ -175,7 +198,12 @@ class PropertyServiceAuthorizationTests(TestCase):
         )
 
         with self.assertRaises(PermissionDenied):
-            create_property(self.inactive_manager, self.workspace, self._data(), MultiValueDict())
+            create_property(
+                self.inactive_manager,
+                self.workspace,
+                self._data(owner=self.owner),
+                MultiValueDict(),
+            )
 
     def test_non_member_cannot_create_property(self):
         outsider = create_user_account(
@@ -185,8 +213,153 @@ class PropertyServiceAuthorizationTests(TestCase):
             "Outsider Workspace",
         )
         with self.assertRaises(PermissionDenied):
-            create_property(outsider, self.workspace, self._data(), MultiValueDict())
+            create_property(
+                outsider,
+                self.workspace,
+                self._data(owner=self.owner),
+                MultiValueDict(),
+            )
 
     def test_none_actor_cannot_create_property(self):
         with self.assertRaises(PermissionDenied):
-            create_property(None, self.workspace, self._data(), MultiValueDict())
+            create_property(
+                None,
+                self.workspace,
+                self._data(owner=self.owner),
+                MultiValueDict(),
+            )
+
+
+class PropertyOwnershipAssignmentTests(TestCase):
+    def setUp(self):
+        self.owner = create_user_account(
+            "property-assignment-owner@example.com",
+            "StrongPassword123!",
+            "StrongPassword123!",
+            "Property Assignment Workspace",
+        )
+        self.workspace = self.owner.owned_workspaces.get()
+
+        self.manager = create_user_account(
+            "property-assignment-manager@example.com",
+            "StrongPassword123!",
+            "StrongPassword123!",
+            "Manager Workspace",
+        )
+        self.viewer = create_user_account(
+            "property-assignment-viewer@example.com",
+            "StrongPassword123!",
+            "StrongPassword123!",
+            "Viewer Workspace",
+        )
+        self.outsider = create_user_account(
+            "property-assignment-outsider@example.com",
+            "StrongPassword123!",
+            "StrongPassword123!",
+            "Outsider Workspace",
+        )
+        self.inactive_owner = create_user_account(
+            "property-assignment-inactive@example.com",
+            "StrongPassword123!",
+            "StrongPassword123!",
+            "Inactive Workspace",
+        )
+
+        actor = self.owner.workspace_memberships.get()
+        add_member(
+            self.workspace,
+            actor,
+            self.manager.email,
+            Membership.ROLE_MANAGER,
+        )
+        add_member(
+            self.workspace,
+            actor,
+            self.viewer.email,
+            Membership.ROLE_VIEWER,
+        )
+        add_member(
+            self.workspace,
+            actor,
+            self.inactive_owner.email,
+            Membership.ROLE_MANAGER,
+        )
+
+    def _data(self, owner):
+        return {
+            "owner": owner,
+            "name": "Explicit Owner Property",
+            "property_type": "pg",
+            "description": "",
+            "address": "Test Address",
+            "city": "Lucknow",
+            "state": "Uttar Pradesh",
+            "pincode": "226001",
+            "amenities": [],
+        }
+
+    def test_creator_does_not_become_owner_implicitly(self):
+        property_obj = create_property(
+            self.manager,
+            self.workspace,
+            self._data(self.owner),
+            MultiValueDict(),
+        )
+        self.assertEqual(property_obj.owner_id, self.owner.pk)
+        self.assertNotEqual(property_obj.owner_id, self.manager.pk)
+
+    def test_manager_can_assign_property_to_another_active_workspace_member(self):
+        property_obj = create_property(
+            self.manager,
+            self.workspace,
+            self._data(self.owner),
+            MultiValueDict(),
+        )
+        self.assertEqual(property_obj.owner_id, self.owner.pk)
+
+    def test_cross_workspace_property_owner_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            create_property(
+                self.manager,
+                self.workspace,
+                self._data(self.outsider),
+                MultiValueDict(),
+            )
+
+    def test_inactive_property_owner_is_rejected(self):
+        from workspaces.services import deactivate_member
+
+        deactivate_member(
+            self.workspace,
+            self.owner.workspace_memberships.get(),
+            self.inactive_owner.pk,
+        )
+
+        with self.assertRaises(ValidationError):
+            create_property(
+                self.manager,
+                self.workspace,
+                self._data(self.inactive_owner),
+                MultiValueDict(),
+            )
+
+    def test_missing_property_owner_is_rejected(self):
+        data = self._data(self.owner)
+        data.pop("owner")
+
+        with self.assertRaises(ValidationError):
+            create_property(
+                self.manager,
+                self.workspace,
+                data,
+                MultiValueDict(),
+            )
+
+    def test_viewer_cannot_assign_property_owner(self):
+        with self.assertRaises(PermissionDenied):
+            create_property(
+                self.viewer,
+                self.workspace,
+                self._data(self.owner),
+                MultiValueDict(),
+            )
