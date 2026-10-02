@@ -43,6 +43,11 @@ class UserQuerySet(models.QuerySet):
         self._ensure_sensitive_state_mutation_allowed(fields)
         return super().bulk_update(objs, fields, batch_size=batch_size)
 
+    def delete(self):
+        raise PermissionDenied(
+            "Account deletion must use the canonical account lifecycle."
+        )
+
 
 class UserManager(BaseUserManager):
     def get_queryset(self):
@@ -122,6 +127,11 @@ class User(AbstractUser):
                     )
 
         return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise PermissionDenied(
+            "Account deletion must use the canonical account lifecycle."
+        )
 
 
 class UserProfile(models.Model):
