@@ -29,7 +29,7 @@ def unit_create_api(request):
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
     try:
-        unit = create_unit(request.workspace, serializer.validated_data)
+        unit = create_unit(request.user, request.workspace, serializer.validated_data)
     except ValidationError as exc:
         return Response({"error": _validation_message(exc)}, status=400)
     return Response({"message": "Unit created", "data": UnitSerializer(unit).data})
@@ -42,7 +42,7 @@ def subunit_create_api(request):
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
     try:
-        subunit = create_subunit(request.workspace, serializer.validated_data)
+        subunit = create_subunit(request.user, request.workspace, serializer.validated_data)
     except ValidationError as exc:
         return Response({"error": _validation_message(exc)}, status=400)
     return Response({"message": "SubUnit created", "data": SubUnitSerializer(subunit).data})
