@@ -3,9 +3,12 @@ from django.db import transaction
 
 from workspaces.models import Membership
 
-from .models import Property, PropertyImage, _allow_property_mutation
-
-SUBUNIT_PROPERTY_TYPES = ["pg", "hostel"]
+from .models import (
+    Property,
+    PropertyImage,
+    SUBUNIT_PROPERTY_TYPES,
+    _allow_property_mutation,
+)
 PROPERTY_MUTATION_ROLES = frozenset(
     {
         Membership.ROLE_OWNER,
