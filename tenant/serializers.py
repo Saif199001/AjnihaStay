@@ -13,8 +13,8 @@ class OccupancySerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "allotted_by", "created_at", "updated_at"]
 
     def validate_rent(self, value):
-        if value is None or value < 0:
-            raise serializers.ValidationError("Rent cannot be negative")
+        if value is None or value <= 0:
+            raise serializers.ValidationError("Rent must be greater than zero")
         return value
 
     def validate_security_deposit(self, value):
