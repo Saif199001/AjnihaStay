@@ -9,7 +9,13 @@ from workspaces.models import Workspace
 from payments.models import Invoice
 from unit.models import SubUnit, Unit
 from .charge_service import create_charge as create_charge_engine
-from .models import Charge, Occupancy, Tenant
+from .models import (
+    Charge,
+    Occupancy,
+    Tenant,
+    _allow_occupancy_mutation,
+    _allow_tenant_mutation,
+)
 
 
 def _ensure_workspace_active(workspace):
@@ -39,23 +45,24 @@ def create_tenant(user, workspace, data, files):
         raise ValidationError("Full name required")
     if not data.get("phone"):
         raise ValidationError("Phone number required")
-    return Tenant.objects.create(
-        owner=user,
-        workspace=workspace,
-        full_name=data.get("full_name"),
-        phone=data.get("phone"),
-        email=data.get("email"),
-        profile_photo=files.get("profile_photo"),
-        nationality=data.get("nationality") or "Indian",
-        id_proof_type=data.get("id_proof_type"),
-        id_number=data.get("id_number"),
-        id_document=files.get("id_document"),
-        permanent_address=data.get("permanent_address"),
-        district=data.get("district"),
-        state=data.get("state"),
-        pin_code=data.get("pin_code"),
-        emergency_contact=data.get("emergency_contact"),
-    )
+    with _allow_tenant_mutation():
+        return Tenant.objects.create(
+            owner=user,
+            workspace=workspace,
+            full_name=data.get("full_name"),
+            phone=data.get("phone"),
+            email=data.get("email"),
+            profile_photo=files.get("profile_photo"),
+            nationality=data.get("nationality") or "Indian",
+            id_proof_type=data.get("id_proof_type"),
+            id_number=data.get("id_number"),
+            id_document=files.get("id_document"),
+            permanent_address=data.get("permanent_address"),
+            district=data.get("district"),
+            state=data.get("state"),
+            pin_code=data.get("pin_code"),
+            emergency_contact=data.get("emergency_contact"),
+        )
 
 
 def create_occupancy(user, workspace, data):
@@ -124,20 +131,21 @@ def create_occupancy(user, workspace, data):
             {value for value, _ in Occupancy.BILLING_CYCLES},
         )
 
-        occupancy = Occupancy.objects.create(
-            tenant=tenant,
-            unit=unit,
-            subunit_id=subunit_id,
-            allotted_by=user,
-            rent=data.get("rent"),
-            billing_type=billing_type,
-            billing_cycle=billing_cycle,
-            check_in_date=data.get("check_in_date"),
-            check_out_date=data.get("check_out_date"),
-            next_due_date=data.get("next_due_date"),
-            security_deposit=data.get("security_deposit") or 0,
-            deposit_paid=data.get("deposit_paid") or False,
-        )
+        with _allow_occupancy_mutation():
+            occupancy = Occupancy.objects.create(
+                tenant=tenant,
+                unit=unit,
+                subunit_id=subunit_id,
+                allotted_by=user,
+                rent=data.get("rent"),
+                billing_type=billing_type,
+                billing_cycle=billing_cycle,
+                check_in_date=data.get("check_in_date"),
+                check_out_date=data.get("check_out_date"),
+                next_due_date=data.get("next_due_date"),
+                security_deposit=data.get("security_deposit") or 0,
+                deposit_paid=data.get("deposit_paid") or False,
+            )
 
         Invoice.objects.create(
             occupancy=occupancy,
