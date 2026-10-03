@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.test import TestCase
+from django.utils.datastructures import MultiValueDict
 from rest_framework.test import APIClient
 
 from accounts.services import create_user_account
@@ -51,7 +52,7 @@ class UnitAPITests(TestCase):
                 "pincode": "226001",
                 "amenities": [],
             },
-            {},
+            MultiValueDict(),
         )
         self.unit = create_unit(
             self.owner,
