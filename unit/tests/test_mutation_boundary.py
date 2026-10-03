@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import TestCase
 
 from accounts.services import create_user_account
