@@ -474,6 +474,14 @@ class TenantMutationBoundaryTests(TenantServiceAuthorizationTests):
 
 
 class OccupancyStructureInvariantTests(TenantServiceAuthorizationTests):
+    def create_tenant_record(self):
+        return create_tenant(
+            self.owner,
+            self.workspace,
+            self.tenant_data(),
+            MultiValueDict(),
+        )
+
     def _create_shop_with_legacy_subunit(self):
         shop_property = create_property(
             self.owner,
