@@ -8,6 +8,7 @@ from django.utils.datastructures import MultiValueDict
 
 from accounts.services import create_user_account
 from properties.services import create_property
+from tenant.models import Charge, Occupancy, Tenant
 from tenant.services import create_charge, create_occupancy, create_tenant, get_charges, get_tenants
 from unit.services import create_unit
 from workspaces.models import Membership
@@ -171,3 +172,296 @@ class TenantServiceAuthorizationTests(TestCase):
 
         with self.assertRaisesMessage(ValidationError, "Workspace is archived"):
             get_charges(occupancy.pk, self.workspace)
+
+
+class TenantMutationBoundaryTests(TenantServiceAuthorizationTests):
+    def create_tenant_record(self):
+        return create_tenant(
+            self.owner,
+            self.workspace,
+            self.tenant_data(),
+            MultiValueDict(),
+        )
+
+    def create_occupancy_record(self, tenant):
+        return create_occupancy(
+            self.owner,
+            self.workspace,
+            self.occupancy_data(tenant),
+        )
+
+    def create_charge_record(self, occupancy):
+        return create_charge(
+            self.owner,
+            self.workspace,
+            {
+                "occupancy": occupancy.pk,
+                "charge_type": "food",
+                "amount": Decimal("100"),
+                "charge_date": date(2026, 10, 1),
+            },
+        )
+
+    def test_tenant_direct_save_is_blocked(self):
+        tenant = self.create_tenant_record()
+        tenant.phone = "9999999999"
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Tenant state must be changed through the canonical tenant service.",
+        ):
+            tenant.save()
+
+    def test_tenant_queryset_update_is_blocked(self):
+        tenant = self.create_tenant_record()
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Tenant state must be changed through the canonical tenant service.",
+        ):
+            Tenant.objects.filter(pk=tenant.pk).update(phone="9999999999")
+
+    def test_tenant_bulk_update_is_blocked(self):
+        tenant = self.create_tenant_record()
+        tenant.phone = "9999999999"
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Tenant state must be changed through the canonical tenant service.",
+        ):
+            Tenant.objects.bulk_update([tenant], ["phone"])
+
+    def test_tenant_bulk_create_is_blocked(self):
+        tenant = Tenant(
+            owner=self.owner,
+            workspace=self.workspace,
+            full_name="Bulk Tenant",
+            phone="9999999998",
+            permanent_address="Test Address",
+        )
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Tenant state must be changed through the canonical tenant service.",
+        ):
+            Tenant.objects.bulk_create([tenant])
+
+    def test_tenant_delete_is_blocked(self):
+        tenant = self.create_tenant_record()
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Tenant state must be changed through the canonical tenant service.",
+        ):
+            tenant.delete()
+
+    def test_tenant_queryset_delete_is_blocked(self):
+        tenant = self.create_tenant_record()
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Tenant state must be changed through the canonical tenant service.",
+        ):
+            Tenant.objects.filter(pk=tenant.pk).delete()
+
+    def test_tenant_workspace_reassignment_is_blocked_on_save(self):
+        tenant = self.create_tenant_record()
+        target_owner = create_user_account(
+            "tenant-target-workspace@example.com",
+            "StrongPassword123!",
+            "StrongPassword123!",
+            "Tenant Target Workspace",
+        )
+        target_workspace = target_owner.owned_workspaces.get()
+        tenant.workspace = target_workspace
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Tenant workspace cannot be reassigned.",
+        ):
+            tenant.save()
+
+        tenant.refresh_from_db()
+        self.assertEqual(tenant.workspace_id, self.workspace.pk)
+
+    def test_tenant_workspace_reassignment_is_blocked_on_queryset_update(self):
+        tenant = self.create_tenant_record()
+        target_owner = create_user_account(
+            "tenant-target-update@example.com",
+            "StrongPassword123!",
+            "StrongPassword123!",
+            "Tenant Target Update Workspace",
+        )
+        target_workspace = target_owner.owned_workspaces.get()
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Tenant workspace cannot be reassigned.",
+        ):
+            Tenant.objects.filter(pk=tenant.pk).update(workspace=target_workspace)
+
+        tenant.refresh_from_db()
+        self.assertEqual(tenant.workspace_id, self.workspace.pk)
+
+    def test_tenant_workspace_reassignment_is_blocked_on_bulk_update(self):
+        tenant = self.create_tenant_record()
+        target_owner = create_user_account(
+            "tenant-target-bulk@example.com",
+            "StrongPassword123!",
+            "StrongPassword123!",
+            "Tenant Target Bulk Workspace",
+        )
+        target_workspace = target_owner.owned_workspaces.get()
+        tenant.workspace = target_workspace
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Tenant workspace cannot be reassigned.",
+        ):
+            Tenant.objects.bulk_update([tenant], ["workspace"])
+
+        tenant.refresh_from_db()
+        self.assertEqual(tenant.workspace_id, self.workspace.pk)
+
+    def test_occupancy_direct_save_is_blocked(self):
+        tenant = self.create_tenant_record()
+        occupancy = self.create_occupancy_record(tenant)
+        occupancy.rent = Decimal("9000")
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Occupancy state must be changed through the canonical occupancy service.",
+        ):
+            occupancy.save()
+
+    def test_occupancy_queryset_update_is_blocked(self):
+        tenant = self.create_tenant_record()
+        occupancy = self.create_occupancy_record(tenant)
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Occupancy state must be changed through the canonical occupancy service.",
+        ):
+            Occupancy.objects.filter(pk=occupancy.pk).update(rent=Decimal("9000"))
+
+    def test_occupancy_bulk_update_is_blocked(self):
+        tenant = self.create_tenant_record()
+        occupancy = self.create_occupancy_record(tenant)
+        occupancy.rent = Decimal("9000")
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Occupancy state must be changed through the canonical occupancy service.",
+        ):
+            Occupancy.objects.bulk_update([occupancy], ["rent"])
+
+    def test_occupancy_bulk_create_is_blocked(self):
+        tenant = self.create_tenant_record()
+        occupancy = Occupancy(
+            tenant=tenant,
+            unit=self.unit,
+            rent=Decimal("10000"),
+            billing_type="advance",
+            billing_cycle="monthly",
+            check_in_date=date(2027, 1, 1),
+            next_due_date=date(2027, 2, 1),
+        )
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Occupancy state must be changed through the canonical occupancy service.",
+        ):
+            Occupancy.objects.bulk_create([occupancy])
+
+    def test_occupancy_delete_is_blocked(self):
+        tenant = self.create_tenant_record()
+        occupancy = self.create_occupancy_record(tenant)
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Occupancy state must be changed through the canonical occupancy service.",
+        ):
+            occupancy.delete()
+
+    def test_occupancy_queryset_delete_is_blocked(self):
+        tenant = self.create_tenant_record()
+        occupancy = self.create_occupancy_record(tenant)
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Occupancy state must be changed through the canonical occupancy service.",
+        ):
+            Occupancy.objects.filter(pk=occupancy.pk).delete()
+
+    def test_charge_direct_save_is_blocked(self):
+        tenant = self.create_tenant_record()
+        occupancy = self.create_occupancy_record(tenant)
+        charge = self.create_charge_record(occupancy)
+        charge.amount = Decimal("200")
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Charge state must be changed through the canonical charge service.",
+        ):
+            charge.save()
+
+    def test_charge_queryset_update_is_blocked(self):
+        tenant = self.create_tenant_record()
+        occupancy = self.create_occupancy_record(tenant)
+        charge = self.create_charge_record(occupancy)
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Charge state must be changed through the canonical charge service.",
+        ):
+            Charge.objects.filter(pk=charge.pk).update(amount=Decimal("200"))
+
+    def test_charge_bulk_update_is_blocked(self):
+        tenant = self.create_tenant_record()
+        occupancy = self.create_occupancy_record(tenant)
+        charge = self.create_charge_record(occupancy)
+        charge.amount = Decimal("200")
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Charge state must be changed through the canonical charge service.",
+        ):
+            Charge.objects.bulk_update([charge], ["amount"])
+
+    def test_charge_bulk_create_is_blocked(self):
+        tenant = self.create_tenant_record()
+        occupancy = self.create_occupancy_record(tenant)
+        charge = Charge(
+            occupancy=occupancy,
+            charge_type="food",
+            amount=Decimal("100"),
+            charge_date=date(2026, 10, 1),
+        )
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Charge state must be changed through the canonical charge service.",
+        ):
+            Charge.objects.bulk_create([charge])
+
+    def test_charge_delete_is_blocked(self):
+        tenant = self.create_tenant_record()
+        occupancy = self.create_occupancy_record(tenant)
+        charge = self.create_charge_record(occupancy)
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Charge state must be changed through the canonical charge service.",
+        ):
+            charge.delete()
+
+    def test_charge_queryset_delete_is_blocked(self):
+        tenant = self.create_tenant_record()
+        occupancy = self.create_occupancy_record(tenant)
+        charge = self.create_charge_record(occupancy)
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Charge state must be changed through the canonical charge service.",
+        ):
+            Charge.objects.filter(pk=charge.pk).delete()
