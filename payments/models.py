@@ -1,10 +1,25 @@
+from contextlib import contextmanager
+from contextvars import ContextVar
+
 from django.conf import settings
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import models, transaction
 from django.db.models import F, Q, Sum
 
 from payments.utils import generate_invoice_number
 from tenant.models import Occupancy
+
+
+_INVOICE_CREATION_ALLOWED = ContextVar("invoice_creation_allowed", default=False)
+
+
+@contextmanager
+def _allow_invoice_creation():
+    token = _INVOICE_CREATION_ALLOWED.set(True)
+    try:
+        yield
+    finally:
+        _INVOICE_CREATION_ALLOWED.reset(token)
 
 
 class Invoice(models.Model):
@@ -29,6 +44,10 @@ class Invoice(models.Model):
         if self.total_amount is not None and self.paid_amount > self.total_amount: raise ValidationError("Paid amount cannot exceed invoice total")
 
     def save(self, *args, **kwargs):
+        if not self.pk and not _INVOICE_CREATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Invoice creation must be performed through the canonical invoice service."
+            )
         if self.pk:
             persisted = type(self).objects.get(pk=self.pk)
             if persisted.paid_amount != self.paid_amount or persisted.status != self.status:
