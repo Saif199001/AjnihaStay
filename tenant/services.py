@@ -110,6 +110,10 @@ def create_occupancy(user, workspace, data):
             except (SubUnit.DoesNotExist, TypeError, ValueError):
                 raise ValidationError("SubUnit not found")
             subunit_id = subunit.id
+            if not unit.property.has_subunits:
+                raise ValidationError(
+                    "SubUnit occupancy is not allowed for this property type"
+                )
         else:
             try:
                 unit = Unit.objects.select_for_update().select_related("property").get(
