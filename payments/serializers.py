@@ -13,7 +13,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Invoice
         fields = "__all__"
-        read_only_fields = ["id", "paid_amount", "status", "created_at", "updated_at"]
+        read_only_fields = ["id", "occupancy", "invoice_number", "rent_amount", "charges_amount", "total_amount", "paid_amount", "status", "created_at", "updated_at"]
 
 
 class PaymentSerializer(serializers.ModelSerializer):
