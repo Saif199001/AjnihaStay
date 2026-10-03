@@ -8,9 +8,9 @@ from properties.services import create_property
 from django.utils.datastructures import MultiValueDict
 
 from workspaces.models import Membership
-from workspaces.services import add_member, deactivate_member
+from workspaces.services import add_member, archive_workspace, deactivate_member
 from unit.models import SubUnit, Unit
-from unit.services import create_subunit, create_unit
+from unit.services import create_subunit, create_unit, get_units
 
 
 class UnitMutationBoundaryTests(TestCase):
@@ -273,6 +273,18 @@ class UnitServiceAuthorizationTests(TestCase):
         )
         with self.assertRaises(PermissionDenied):
             create_subunit(outsider, self.workspace, self._subunit_data(unit))
+
+    def test_archived_workspace_rejects_unit_services(self):
+        archive_workspace(self.workspace, self.owner.workspace_memberships.get())
+
+        with self.assertRaisesMessage(ValidationError, "Workspace is archived"):
+            get_units(self.workspace)
+
+        with self.assertRaisesMessage(ValidationError, "Workspace is archived"):
+            create_unit(self.owner, self.workspace, self._unit_data("212"))
+
+        with self.assertRaisesMessage(ValidationError, "Workspace is archived"):
+            create_subunit(self.owner, self.workspace, self._subunit_data(self.unit))
 
 
 class UnitPropertyStructureTests(TestCase):
