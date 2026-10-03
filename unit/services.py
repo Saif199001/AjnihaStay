@@ -103,6 +103,9 @@ def create_subunit(user, workspace, data):
         except (Unit.DoesNotExist, TypeError, ValueError):
             raise ValidationError("Unit not found")
 
+        if not unit.property.has_subunits:
+            raise ValidationError("SubUnit is not allowed for this property type")
+
         if unit.rent is None or unit.rent <= 0:
             raise ValidationError("Unit rent must be greater than 0")
 
