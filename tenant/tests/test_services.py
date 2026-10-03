@@ -565,6 +565,21 @@ class OccupancyStructureInvariantTests(TenantServiceAuthorizationTests):
 
 
 class InvoiceFinancialBoundaryTests(TenantServiceAuthorizationTests):
+    def create_tenant_record(self):
+        return create_tenant(
+            self.owner,
+            self.workspace,
+            self.tenant_data(),
+            MultiValueDict(),
+        )
+
+    def create_occupancy_record(self, tenant):
+        return create_occupancy(
+            self.owner,
+            self.workspace,
+            self.occupancy_data(tenant),
+        )
+
     def test_occupancy_ignores_caller_supplied_charges_amount(self):
         tenant = self.create_tenant_record()
         data = self.occupancy_data(tenant)
