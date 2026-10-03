@@ -4,7 +4,7 @@ from decimal import Decimal, InvalidOperation
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
-from .models import Charge, Occupancy
+from .models import Charge, Occupancy, _allow_charge_mutation
 
 
 def _decimal_amount(value, field_name="Amount"):
@@ -107,14 +107,15 @@ def _create_charge_record(
             if not target_invoice:
                 raise ValidationError("No active invoice found")
 
-    charge = Charge.objects.create(
-        occupancy=occupancy,
-        billing_schedule=billing_schedule,
-        charge_type=charge_type,
-        amount=amount,
-        charge_date=charge_date,
-        description=description,
-    )
+    with _allow_charge_mutation():
+        charge = Charge.objects.create(
+            occupancy=occupancy,
+            billing_schedule=billing_schedule,
+            charge_type=charge_type,
+            amount=amount,
+            charge_date=charge_date,
+            description=description,
+        )
     if target_invoice is not None:
         target_invoice.charges_amount += amount
         target_invoice.total_amount = target_invoice.rent_amount + target_invoice.charges_amount
