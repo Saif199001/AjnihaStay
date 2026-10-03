@@ -1,7 +1,7 @@
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 
-from workspaces.models import Membership
+from workspaces.models import Membership, Workspace
 
 from .models import (
     Property,
@@ -9,6 +9,13 @@ from .models import (
     SUBUNIT_PROPERTY_TYPES,
     _allow_property_mutation,
 )
+def _ensure_workspace_active(workspace):
+    if workspace is None:
+        raise ValidationError("Workspace is required")
+    if not Workspace.objects.filter(pk=workspace.pk, is_active=True).exists():
+        raise ValidationError("Workspace is archived")
+
+
 PROPERTY_MUTATION_ROLES = frozenset(
     {
         Membership.ROLE_OWNER,
@@ -44,6 +51,7 @@ def _require_property_owner(workspace, property_owner):
 
 
 def create_property(user, workspace, data, files):
+    _ensure_workspace_active(workspace)
     _require_property_mutation_permission(user, workspace)
 
     if not data.get("name"):
