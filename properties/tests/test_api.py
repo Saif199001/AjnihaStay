@@ -151,6 +151,7 @@ class PropertyAPITests(TestCase):
         other = create_user_account(
             "property-api-outsider@example.com",
             "StrongPassword123!",
+            "StrongPassword123!",
             "Outsider Property API Workspace",
         )
         self.authenticate(self.manager, self.workspace)
