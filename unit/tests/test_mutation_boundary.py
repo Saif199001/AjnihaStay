@@ -273,3 +273,86 @@ class UnitServiceAuthorizationTests(TestCase):
         )
         with self.assertRaises(PermissionDenied):
             create_subunit(outsider, self.workspace, self._subunit_data(unit))
+
+
+class UnitPropertyStructureTests(TestCase):
+    def setUp(self):
+        self.user = create_user_account(
+            "unit-structure@example.com",
+            "StrongPassword123!",
+            "StrongPassword123!",
+            "Unit Structure Workspace",
+        )
+        self.workspace = self.user.owned_workspaces.get()
+
+    def _create_property(self, property_type):
+        return create_property(
+            self.user,
+            self.workspace,
+            {
+                "owner": self.user,
+                "name": f"{property_type} Property",
+                "property_type": property_type,
+                "description": "",
+                "address": "Test Address",
+                "city": "Lucknow",
+                "state": "Uttar Pradesh",
+                "pincode": "226001",
+                "amenities": [],
+            },
+            MultiValueDict(),
+        )
+
+    def _create_unit(self, property_obj, number):
+        return create_unit(
+            self.user,
+            self.workspace,
+            {
+                "property": property_obj,
+                "unit_number": number,
+                "unit_type": "room",
+                "rent": Decimal("10000"),
+                "capacity": 2,
+                "description": "",
+            },
+        )
+
+    def test_pg_allows_subunit(self):
+        property_obj = self._create_property("pg")
+        unit = self._create_unit(property_obj, "PG-101")
+        subunit = create_subunit(
+            self.user,
+            self.workspace,
+            {"unit": unit, "subunit_number": "PG-101-A", "rent": Decimal("5000")},
+        )
+        self.assertEqual(subunit.unit_id, unit.pk)
+
+    def test_hostel_allows_subunit(self):
+        property_obj = self._create_property("hostel")
+        unit = self._create_unit(property_obj, "HOSTEL-101")
+        subunit = create_subunit(
+            self.user,
+            self.workspace,
+            {"unit": unit, "subunit_number": "HOSTEL-101-A", "rent": Decimal("5000")},
+        )
+        self.assertEqual(subunit.unit_id, unit.pk)
+
+    def test_non_subunit_property_types_reject_subunit(self):
+        for property_type in ("shop", "flat", "office", "building"):
+            with self.subTest(property_type=property_type):
+                property_obj = self._create_property(property_type)
+                unit = self._create_unit(property_obj, f"{property_type}-101")
+                with self.assertRaisesMessage(
+                    ValidationError,
+                    "SubUnit is not allowed for this property type",
+                ):
+                    create_subunit(
+                        self.user,
+                        self.workspace,
+                        {
+                            "unit": unit,
+                            "subunit_number": f"{property_type}-101-A",
+                            "rent": Decimal("5000"),
+                        },
+                    )
+                self.assertFalse(SubUnit.objects.filter(unit=unit).exists())
