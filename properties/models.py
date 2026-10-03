@@ -148,6 +148,35 @@ class Property(models.Model):
         return self.owner == user
 
 
+class PropertyImageQuerySet(models.QuerySet):
+    def _ensure_mutation_allowed(self):
+        if not _PROPERTY_MUTATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Property image state must be changed through the canonical property service."
+            )
+
+    def update(self, **kwargs):
+        self._ensure_mutation_allowed()
+        return super().update(**kwargs)
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        self._ensure_mutation_allowed()
+        return super().bulk_update(objs, fields, batch_size=batch_size)
+
+    def bulk_create(self, objs, batch_size=None, ignore_conflicts=False):
+        if objs:
+            self._ensure_mutation_allowed()
+        return super().bulk_create(
+            objs,
+            batch_size=batch_size,
+            ignore_conflicts=ignore_conflicts,
+        )
+
+    def delete(self):
+        self._ensure_mutation_allowed()
+        return super().delete()
+
+
 class PropertyImage(models.Model):
     property = models.ForeignKey(
         Property,
@@ -158,6 +187,22 @@ class PropertyImage(models.Model):
     caption = models.CharField(max_length=255, blank=True, null=True)
     is_primary = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = PropertyImageQuerySet.as_manager()
+
+    def save(self, *args, **kwargs):
+        if not _PROPERTY_MUTATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Property image state must be changed through the canonical property service."
+            )
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if not _PROPERTY_MUTATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Property image state must be changed through the canonical property service."
+            )
+        return super().delete(*args, **kwargs)
 
     def __str__(self):
         return f"Image for {self.property.name}"
