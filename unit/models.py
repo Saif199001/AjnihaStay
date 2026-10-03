@@ -141,6 +141,14 @@ class Unit(models.Model):
     def _validate_capacity_against_active_occupancies(self):
         from tenant.models import Occupancy
 
+        if self.property.has_subunits:
+            active_subunit_count = self.subunits.filter(is_active=True).count()
+            if active_subunit_count > self.capacity:
+                raise ValidationError(
+                    "Unit capacity cannot be reduced below active SubUnit count"
+                )
+            return
+
         occupancies = list(
             Occupancy.objects.filter(
                 unit_id=self.pk,
