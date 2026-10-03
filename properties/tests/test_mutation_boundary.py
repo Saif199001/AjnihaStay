@@ -4,7 +4,7 @@ from django.test import TestCase
 from django.utils.datastructures import MultiValueDict
 
 from accounts.services import create_user_account
-from properties.models import Property, _allow_property_mutation
+from properties.models import Property, PropertyImage, _allow_property_mutation
 from properties.serializers import PropertySerializer
 from properties.services import create_property
 from workspaces.models import Membership
@@ -42,6 +42,66 @@ class PropertyMutationBoundaryTests(TestCase):
         self.property.name = "Changed"
         with self.assertRaises(PermissionDenied):
             self.property.save()
+
+    def _create_property_image(self):
+        with _allow_property_mutation():
+            return PropertyImage.objects.create(
+                property=self.property,
+                caption="Boundary Image",
+                is_primary=False,
+            )
+
+    def test_property_image_direct_create_is_blocked(self):
+        with self.assertRaises(PermissionDenied):
+            PropertyImage.objects.create(
+                property=self.property,
+                caption="Blocked Image",
+            )
+
+    def test_property_image_direct_save_is_blocked(self):
+        image = self._create_property_image()
+        image.caption = "Changed"
+        with self.assertRaises(PermissionDenied):
+            image.save()
+
+    def test_property_image_queryset_update_is_blocked(self):
+        image = self._create_property_image()
+        with self.assertRaises(PermissionDenied):
+            PropertyImage.objects.filter(pk=image.pk).update(caption="Changed")
+
+    def test_property_image_queryset_bulk_update_is_blocked(self):
+        image = self._create_property_image()
+        image.caption = "Changed"
+        with self.assertRaises(PermissionDenied):
+            PropertyImage.objects.bulk_update([image], ["caption"])
+
+    def test_property_image_queryset_bulk_create_is_blocked(self):
+        candidate = PropertyImage(
+            property=self.property,
+            caption="Bulk Image",
+        )
+        with self.assertRaises(PermissionDenied):
+            PropertyImage.objects.bulk_create([candidate])
+
+    def test_property_image_instance_delete_is_blocked(self):
+        image = self._create_property_image()
+        with self.assertRaises(PermissionDenied):
+            image.delete()
+
+    def test_property_image_queryset_delete_is_blocked(self):
+        image = self._create_property_image()
+        with self.assertRaises(PermissionDenied):
+            PropertyImage.objects.filter(pk=image.pk).delete()
+
+    def test_property_image_canonical_mutation_remains_allowed(self):
+        with _allow_property_mutation():
+            image = PropertyImage.objects.create(
+                property=self.property,
+                caption="Allowed Image",
+            )
+            image.caption = "Updated Image"
+            image.save()
+        self.assertEqual(image.caption, "Updated Image")
 
     def test_queryset_update_is_blocked(self):
         with self.assertRaises(PermissionDenied):
