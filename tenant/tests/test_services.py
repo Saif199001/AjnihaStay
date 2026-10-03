@@ -6,6 +6,9 @@ from django.core.exceptions import PermissionDenied
 from django.test import TestCase
 from django.utils.datastructures import MultiValueDict
 
+from payments.models import Invoice
+from payments.invoice_generation_service import generate_invoice_for_occupancy
+
 from accounts.services import create_user_account
 from properties.services import create_property
 from tenant.models import (
@@ -559,3 +562,62 @@ class OccupancyStructureInvariantTests(TenantServiceAuthorizationTests):
         ):
             with _allow_occupancy_mutation():
                 occupancy.save()
+
+
+class InvoiceFinancialBoundaryTests(TenantServiceAuthorizationTests):
+    def test_occupancy_ignores_caller_supplied_charges_amount(self):
+        tenant = self.create_tenant_record()
+        data = self.occupancy_data(tenant)
+        data["charges_amount"] = Decimal("99999")
+
+        occupancy = create_occupancy(self.owner, self.workspace, data)
+        invoice = occupancy.invoices.get()
+
+        self.assertEqual(invoice.charges_amount, Decimal("0.00"))
+        self.assertEqual(invoice.total_amount, Decimal("10000.00"))
+
+    def test_direct_invoice_creation_is_blocked(self):
+        tenant = self.create_tenant_record()
+        occupancy = self.create_occupancy_record(tenant)
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Invoice creation must be performed through the canonical invoice service.",
+        ):
+            Invoice.objects.create(
+                occupancy=occupancy,
+                billing_start=date(2026, 11, 1),
+                billing_end=date(2026, 12, 1),
+                rent_amount=Decimal("10000"),
+                charges_amount=Decimal("500"),
+                due_date=date(2026, 12, 1),
+            )
+
+    def test_canonical_invoice_generation_derives_charges_from_charge_records(self):
+        tenant = self.create_tenant_record()
+        occupancy = self.create_occupancy_record(tenant)
+        from tenant.services import create_charge
+
+        create_charge(
+            self.owner,
+            self.workspace,
+            {
+                "occupancy": occupancy.pk,
+                "charge_type": "food",
+                "amount": Decimal("250"),
+                "charge_date": date(2026, 11, 5),
+            },
+        )
+
+        invoice, created = generate_invoice_for_occupancy(
+            self.owner,
+            self.workspace,
+            occupancy,
+            date(2026, 11, 1),
+            date(2026, 12, 1),
+            date(2026, 12, 1),
+        )
+
+        self.assertTrue(created)
+        self.assertEqual(invoice.charges_amount, Decimal("250.00"))
+        self.assertEqual(invoice.total_amount, Decimal("10250.00"))
