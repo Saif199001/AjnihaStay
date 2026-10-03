@@ -3,10 +3,20 @@ from decimal import Decimal
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
+from payments.authorization import require_mutation_permission
+from workspaces.models import Workspace
+
 from payments.models import Invoice
 from unit.models import SubUnit, Unit
 from .charge_service import create_charge as create_charge_engine
 from .models import Charge, Occupancy, Tenant
+
+
+def _ensure_workspace_active(workspace):
+    if workspace is None:
+        raise ValidationError("Workspace is required")
+    if not Workspace.objects.filter(pk=workspace.pk, is_active=True).exists():
+        raise ValidationError("Workspace is archived")
 
 
 DEFAULT_BILLING_TYPE = "advance"
@@ -23,6 +33,8 @@ def _billing_value(data, field_name, default, allowed_values):
 
 
 def create_tenant(user, workspace, data, files):
+    _ensure_workspace_active(workspace)
+    require_mutation_permission(user, workspace)
     if not data.get("full_name"):
         raise ValidationError("Full name required")
     if not data.get("phone"):
@@ -47,6 +59,8 @@ def create_tenant(user, workspace, data, files):
 
 
 def create_occupancy(user, workspace, data):
+    _ensure_workspace_active(workspace)
+    require_mutation_permission(user, workspace)
     with transaction.atomic():
         tenant_value = data.get("tenant")
         tenant_id = tenant_value.id if isinstance(tenant_value, Tenant) else tenant_value
@@ -137,11 +151,13 @@ def create_occupancy(user, workspace, data):
 
 
 def get_tenants(workspace):
+    _ensure_workspace_active(workspace)
     return Tenant.objects.filter(workspace=workspace).order_by("id")
 
 
 def create_charge(user, workspace, data):
     """Compatibility wrapper around the canonical charge engine."""
+    _ensure_workspace_active(workspace)
     return create_charge_engine(
         user,
         workspace,
@@ -166,6 +182,7 @@ def _optional_positive_id(value, field_name):
 
 
 def get_charges(occupancy_id, workspace):
+    _ensure_workspace_active(workspace)
     occupancy_id = _optional_positive_id(occupancy_id, "occupancy")
     return Charge.objects.filter(
         occupancy_id=occupancy_id,
