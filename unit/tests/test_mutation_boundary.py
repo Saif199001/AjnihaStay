@@ -275,16 +275,17 @@ class UnitServiceAuthorizationTests(TestCase):
             create_subunit(outsider, self.workspace, self._subunit_data(unit))
 
     def test_archived_workspace_rejects_unit_services(self):
+        unit = create_unit(self.owner, self.workspace, self._unit_data("212"))
         archive_workspace(self.workspace, self.owner.workspace_memberships.get())
 
         with self.assertRaisesMessage(ValidationError, "Workspace is archived"):
             get_units(self.workspace)
 
         with self.assertRaisesMessage(ValidationError, "Workspace is archived"):
-            create_unit(self.owner, self.workspace, self._unit_data("212"))
+            create_unit(self.owner, self.workspace, self._unit_data("213"))
 
         with self.assertRaisesMessage(ValidationError, "Workspace is archived"):
-            create_subunit(self.owner, self.workspace, self._subunit_data(self.unit))
+            create_subunit(self.owner, self.workspace, self._subunit_data(unit))
 
 
 class UnitPropertyStructureTests(TestCase):
