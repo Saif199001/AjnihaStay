@@ -8,7 +8,7 @@ from properties.models import Property, PropertyImage, _allow_property_mutation
 from properties.serializers import PropertySerializer
 from properties.services import create_property
 from workspaces.models import Membership
-from workspaces.services import add_member
+from workspaces.services import add_member, archive_workspace
 
 
 class PropertyMutationBoundaryTests(TestCase):
@@ -355,6 +355,17 @@ class PropertyServiceAuthorizationTests(TestCase):
         with self.assertRaises(PermissionDenied):
             create_property(
                 None,
+                self.workspace,
+                self._data(owner=self.owner),
+                MultiValueDict(),
+            )
+
+    def test_archived_workspace_rejects_property_creation(self):
+        archive_workspace(self.workspace, self.owner.workspace_memberships.get())
+
+        with self.assertRaisesMessage(ValidationError, "Workspace is archived"):
+            create_property(
+                self.owner,
                 self.workspace,
                 self._data(owner=self.owner),
                 MultiValueDict(),
