@@ -16,6 +16,7 @@ from .models import (
     _allow_occupancy_mutation,
     _allow_tenant_mutation,
 )
+from payments.models import _allow_invoice_creation
 
 
 def _ensure_workspace_active(workspace):
@@ -151,14 +152,15 @@ def create_occupancy(user, workspace, data):
                 deposit_paid=data.get("deposit_paid") or False,
             )
 
-        Invoice.objects.create(
-            occupancy=occupancy,
-            billing_start=data.get("check_in_date"),
-            billing_end=data.get("next_due_date"),
-            rent_amount=data.get("rent"),
-            charges_amount=Decimal(data.get("charges_amount") or 0),
-            due_date=data.get("next_due_date"),
-        )
+        with _allow_invoice_creation():
+            Invoice.objects.create(
+                occupancy=occupancy,
+                billing_start=data.get("check_in_date"),
+                billing_end=data.get("next_due_date"),
+                rent_amount=data.get("rent"),
+                charges_amount=Decimal("0"),
+                due_date=data.get("next_due_date"),
+            )
         return occupancy
 
 
