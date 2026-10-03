@@ -204,6 +204,10 @@ class Occupancy(models.Model):
             raise ValidationError("Unit or SubUnit required")
         if self.subunit_id and self.unit_id and self.subunit.unit_id != self.unit_id:
             raise ValidationError("SubUnit must belong to selected Unit")
+        if self.subunit_id and not self.unit.property.has_subunits:
+            raise ValidationError(
+                "SubUnit occupancy is not allowed for this property type"
+            )
         if self.tenant.workspace_id != self.unit.property.workspace_id:
             raise ValidationError("Tenant and Unit must belong to the same workspace")
         if self.allotted_by_id:
