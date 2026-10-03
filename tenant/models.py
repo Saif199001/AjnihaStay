@@ -1,10 +1,89 @@
+from contextlib import contextmanager
+from contextvars import ContextVar
+
 from django.conf import settings
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import models
 from django.db.models import F, Q
 from cloudinary.models import CloudinaryField
 
 from unit.models import Unit, SubUnit
+
+
+_TENANT_MUTATION_ALLOWED = ContextVar(
+    "tenant_mutation_allowed",
+    default=False,
+)
+
+_OCCUPANCY_MUTATION_ALLOWED = ContextVar(
+    "occupancy_mutation_allowed",
+    default=False,
+)
+
+_CHARGE_MUTATION_ALLOWED = ContextVar(
+    "charge_mutation_allowed",
+    default=False,
+)
+
+
+@contextmanager
+def _allow_tenant_mutation():
+    token = _TENANT_MUTATION_ALLOWED.set(True)
+    try:
+        yield
+    finally:
+        _TENANT_MUTATION_ALLOWED.reset(token)
+
+
+@contextmanager
+def _allow_occupancy_mutation():
+    token = _OCCUPANCY_MUTATION_ALLOWED.set(True)
+    try:
+        yield
+    finally:
+        _OCCUPANCY_MUTATION_ALLOWED.reset(token)
+
+
+@contextmanager
+def _allow_charge_mutation():
+    token = _CHARGE_MUTATION_ALLOWED.set(True)
+    try:
+        yield
+    finally:
+        _CHARGE_MUTATION_ALLOWED.reset(token)
+
+
+class TenantQuerySet(models.QuerySet):
+    def _ensure_mutation_allowed(self):
+        if not _TENANT_MUTATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Tenant state must be changed through the canonical tenant service."
+            )
+
+    def update(self, **kwargs):
+        if "workspace" in kwargs or "workspace_id" in kwargs:
+            raise PermissionDenied("Tenant workspace cannot be reassigned.")
+        self._ensure_mutation_allowed()
+        return super().update(**kwargs)
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        if "workspace" in fields or "workspace_id" in fields:
+            raise PermissionDenied("Tenant workspace cannot be reassigned.")
+        self._ensure_mutation_allowed()
+        return super().bulk_update(objs, fields, batch_size=batch_size)
+
+    def bulk_create(self, objs, batch_size=None, ignore_conflicts=False):
+        if objs:
+            self._ensure_mutation_allowed()
+        return super().bulk_create(
+            objs,
+            batch_size=batch_size,
+            ignore_conflicts=ignore_conflicts,
+        )
+
+    def delete(self):
+        self._ensure_mutation_allowed()
+        return super().delete()
 
 
 class Tenant(models.Model):
@@ -26,6 +105,8 @@ class Tenant(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    objects = TenantQuerySet.as_manager()
+
     class Meta:
         indexes = [models.Index(fields=["workspace", "created_at"])]
 
@@ -41,11 +122,57 @@ class Tenant(models.Model):
                 raise ValidationError("Tenant owner must be an active workspace member")
 
     def save(self, *args, **kwargs):
+        if not self._state.adding:
+            original_workspace_id = type(self).objects.filter(pk=self.pk).values_list(
+                "workspace_id", flat=True
+            ).first()
+            if original_workspace_id is not None and original_workspace_id != self.workspace_id:
+                raise PermissionDenied("Tenant workspace cannot be reassigned.")
+        if not _TENANT_MUTATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Tenant state must be changed through the canonical tenant service."
+            )
         self.clean()
         super().save(*args, **kwargs)
 
+    def delete(self, *args, **kwargs):
+        if not _TENANT_MUTATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Tenant state must be changed through the canonical tenant service."
+            )
+        return super().delete(*args, **kwargs)
+
     def __str__(self):
         return self.full_name
+
+
+class OccupancyQuerySet(models.QuerySet):
+    def _ensure_mutation_allowed(self):
+        if not _OCCUPANCY_MUTATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Occupancy state must be changed through the canonical occupancy service."
+            )
+
+    def update(self, **kwargs):
+        self._ensure_mutation_allowed()
+        return super().update(**kwargs)
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        self._ensure_mutation_allowed()
+        return super().bulk_update(objs, fields, batch_size=batch_size)
+
+    def bulk_create(self, objs, batch_size=None, ignore_conflicts=False):
+        if objs:
+            self._ensure_mutation_allowed()
+        return super().bulk_create(
+            objs,
+            batch_size=batch_size,
+            ignore_conflicts=ignore_conflicts,
+        )
+
+    def delete(self):
+        self._ensure_mutation_allowed()
+        return super().delete()
 
 
 class Occupancy(models.Model):
@@ -66,6 +193,8 @@ class Occupancy(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    objects = OccupancyQuerySet.as_manager()
 
     def __str__(self):
         return f"{self.tenant.full_name} - {self.unit.unit_number}"
@@ -113,8 +242,19 @@ class Occupancy(models.Model):
                 raise ValidationError("Unit capacity is full for selected dates")
 
     def save(self, *args, **kwargs):
+        if not _OCCUPANCY_MUTATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Occupancy state must be changed through the canonical occupancy service."
+            )
         self.clean()
         super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if not _OCCUPANCY_MUTATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Occupancy state must be changed through the canonical occupancy service."
+            )
+        return super().delete(*args, **kwargs)
 
     class Meta:
         indexes = [models.Index(fields=["is_active"]), models.Index(fields=["check_in_date"]), models.Index(fields=["check_out_date"])]
@@ -124,6 +264,35 @@ class Occupancy(models.Model):
             models.CheckConstraint(condition=Q(check_out_date__isnull=True) | Q(check_out_date__gte=F("check_in_date")), name="occupancy_checkout_gte_checkin"),
             models.CheckConstraint(condition=Q(next_due_date__gte=F("check_in_date")), name="occupancy_next_due_gte_checkin"),
         ]
+
+
+class ChargeQuerySet(models.QuerySet):
+    def _ensure_mutation_allowed(self):
+        if not _CHARGE_MUTATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Charge state must be changed through the canonical charge service."
+            )
+
+    def update(self, **kwargs):
+        self._ensure_mutation_allowed()
+        return super().update(**kwargs)
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        self._ensure_mutation_allowed()
+        return super().bulk_update(objs, fields, batch_size=batch_size)
+
+    def bulk_create(self, objs, batch_size=None, ignore_conflicts=False):
+        if objs:
+            self._ensure_mutation_allowed()
+        return super().bulk_create(
+            objs,
+            batch_size=batch_size,
+            ignore_conflicts=ignore_conflicts,
+        )
+
+    def delete(self):
+        self._ensure_mutation_allowed()
+        return super().delete()
 
 
 class Charge(models.Model):
@@ -142,6 +311,8 @@ class Charge(models.Model):
     charge_date = models.DateField()
     created_at = models.DateTimeField(auto_now_add=True)
 
+    objects = ChargeQuerySet.as_manager()
+
     def clean(self):
         if self.amount <= 0:
             raise ValidationError("Charge amount must be greater than zero")
@@ -152,8 +323,19 @@ class Charge(models.Model):
                 raise ValidationError("Billing schedule must belong to the charge occupancy")
 
     def save(self, *args, **kwargs):
+        if not _CHARGE_MUTATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Charge state must be changed through the canonical charge service."
+            )
         self.clean()
         super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if not _CHARGE_MUTATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Charge state must be changed through the canonical charge service."
+            )
+        return super().delete(*args, **kwargs)
 
     def __str__(self):
         return f"{self.charge_type} - {self.amount}"
