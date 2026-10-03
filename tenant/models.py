@@ -215,8 +215,8 @@ class Occupancy(models.Model):
                 is_active=True,
             ).exists():
                 raise ValidationError("Allotted by user must be an active workspace member")
-        if self.rent < 0:
-            raise ValidationError("Rent cannot be negative")
+        if self.rent <= 0:
+            raise ValidationError("Rent must be greater than zero")
         if self.security_deposit < 0:
             raise ValidationError("Security deposit cannot be negative")
         if self.check_out_date and self.check_out_date < self.check_in_date:
@@ -259,7 +259,7 @@ class Occupancy(models.Model):
     class Meta:
         indexes = [models.Index(fields=["is_active"]), models.Index(fields=["check_in_date"]), models.Index(fields=["check_out_date"])]
         constraints = [
-            models.CheckConstraint(condition=Q(rent__gte=0), name="occupancy_rent_non_negative"),
+            models.CheckConstraint(condition=Q(rent__gt=0), name="occupancy_rent_positive"),
             models.CheckConstraint(condition=Q(security_deposit__gte=0), name="occupancy_deposit_non_negative"),
             models.CheckConstraint(condition=Q(check_out_date__isnull=True) | Q(check_out_date__gte=F("check_in_date")), name="occupancy_checkout_gte_checkin"),
             models.CheckConstraint(condition=Q(next_due_date__gte=F("check_in_date")), name="occupancy_next_due_gte_checkin"),
