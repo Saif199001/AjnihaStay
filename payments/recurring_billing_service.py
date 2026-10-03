@@ -8,7 +8,7 @@ from tenant.charge_service import _create_charge_record
 
 from .authorization import require_mutation_permission
 from .billing_models import BillingSchedule
-from .models import Invoice
+from .models import Invoice, _allow_invoice_creation
 
 
 def _parse_date(value, field_name):
@@ -169,14 +169,15 @@ def generate_recurring_invoice(user, workspace, schedule, billing_date=None, due
         if billing_end < billing_date:
             raise ValidationError("Recurring billing period has no active occupancy days")
 
-        invoice = Invoice.objects.create(
-            occupancy=occupancy,
-            billing_start=billing_date,
-            billing_end=billing_end,
-            rent_amount=0,
-            charges_amount=0,
-            due_date=due_date or billing_end,
-        )
+        with _allow_invoice_creation():
+            invoice = Invoice.objects.create(
+                occupancy=occupancy,
+                billing_start=billing_date,
+                billing_end=billing_end,
+                rent_amount=0,
+                charges_amount=0,
+                due_date=due_date or billing_end,
+            )
         charge = _create_charge_record(
             user,
             workspace,
