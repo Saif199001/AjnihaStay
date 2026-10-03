@@ -89,6 +89,7 @@ class UnitAPITests(TestCase):
         other = create_user_account(
             "unit-api-other@example.com",
             "StrongPassword123!",
+            "StrongPassword123!",
             "Unit Other Workspace",
         )
         other_workspace = other.owned_workspaces.get()
