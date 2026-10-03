@@ -8,8 +8,14 @@ from django.utils.datastructures import MultiValueDict
 
 from accounts.services import create_user_account
 from properties.services import create_property
-from tenant.models import Charge, Occupancy, Tenant
+from tenant.models import (
+    Charge,
+    Occupancy,
+    Tenant,
+    _allow_occupancy_mutation,
+)
 from tenant.services import create_charge, create_occupancy, create_tenant, get_charges, get_tenants
+from unit.models import SubUnit, _allow_unit_mutation
 from unit.services import create_unit
 from workspaces.models import Membership
 from workspaces.services import add_member, archive_workspace
@@ -465,3 +471,83 @@ class TenantMutationBoundaryTests(TenantServiceAuthorizationTests):
             "Charge state must be changed through the canonical charge service.",
         ):
             Charge.objects.filter(pk=charge.pk).delete()
+
+
+class OccupancyStructureInvariantTests(TenantServiceAuthorizationTests):
+    def _create_shop_with_legacy_subunit(self):
+        shop_property = create_property(
+            self.owner,
+            self.workspace,
+            {
+                "owner": self.owner,
+                "name": "Legacy Shop Property",
+                "property_type": "shop",
+                "description": "",
+                "address": "Test Address",
+                "city": "Lucknow",
+                "state": "Uttar Pradesh",
+                "pincode": "226001",
+                "amenities": [],
+            },
+            MultiValueDict(),
+        )
+        shop_unit = create_unit(
+            self.owner,
+            self.workspace,
+            {
+                "property": shop_property,
+                "unit_number": "S-101",
+                "unit_type": "shop",
+                "rent": Decimal("15000"),
+                "capacity": 1,
+                "description": "",
+            },
+        )
+        with _allow_unit_mutation():
+            subunit = SubUnit.objects.create(
+                unit=shop_unit,
+                subunit_number="S-101-A",
+                rent=Decimal("15000"),
+            )
+        return shop_unit, subunit
+
+    def test_subunit_occupancy_is_rejected_for_non_subunit_property(self):
+        shop_unit, subunit = self._create_shop_with_legacy_subunit()
+        tenant = self.create_tenant_record()
+        data = self.occupancy_data(tenant)
+        data.update(
+            {
+                "unit": shop_unit.pk,
+                "subunit": subunit.pk,
+                "check_in_date": date(2026, 12, 1),
+                "next_due_date": date(2027, 1, 1),
+            }
+        )
+
+        with self.assertRaisesMessage(
+            ValidationError,
+            "SubUnit occupancy is not allowed for this property type",
+        ):
+            create_occupancy(self.owner, self.workspace, data)
+
+    def test_occupancy_model_rejects_subunit_for_non_subunit_property(self):
+        shop_unit, subunit = self._create_shop_with_legacy_subunit()
+        tenant = self.create_tenant_record()
+        occupancy = Occupancy(
+            tenant=tenant,
+            unit=shop_unit,
+            subunit=subunit,
+            allotted_by=self.owner,
+            rent=Decimal("15000"),
+            billing_type="advance",
+            billing_cycle="monthly",
+            check_in_date=date(2027, 2, 1),
+            next_due_date=date(2027, 3, 1),
+        )
+
+        with self.assertRaisesMessage(
+            ValidationError,
+            "SubUnit occupancy is not allowed for this property type",
+        ):
+            with _allow_occupancy_mutation():
+                occupancy.save()
