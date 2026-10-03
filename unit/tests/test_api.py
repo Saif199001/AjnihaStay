@@ -106,7 +106,7 @@ class UnitAPITests(TestCase):
                 "pincode": "110001",
                 "amenities": [],
             },
-            {},
+            MultiValueDict(),
         )
         self.authenticate(self.viewer, self.workspace)
         response = self.client.get(
@@ -190,7 +190,7 @@ class UnitAPITests(TestCase):
                 "pincode": "110002",
                 "amenities": [],
             },
-            {},
+            MultiValueDict(),
         )
         self.authenticate(self.manager, self.workspace)
         response = self.client.post(
@@ -268,7 +268,7 @@ class UnitAPITests(TestCase):
                 "pincode": "226004",
                 "amenities": [],
             },
-            {},
+            MultiValueDict(),
         )
         unit = create_unit(
             self.owner,
@@ -321,7 +321,7 @@ class UnitAPITests(TestCase):
                 "pincode": "110003",
                 "amenities": [],
             },
-            {},
+            MultiValueDict(),
         )
         other_unit = create_unit(
             other,
