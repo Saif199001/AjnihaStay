@@ -7,8 +7,8 @@ from django.db.models import Sum
 from .adjustment_service import calculate_invoice_financial_position
 from .authorization import require_mutation_permission
 from .ledger_service import post_ledger_event
-from .models import AdvanceCredit, Invoice, Payment, PaymentAllocation
-from tenant.models import Occupancy
+from .models import AdvanceCredit, Invoice, Payment, PaymentAllocation, _allow_invoice_creation
+from tenant.models import Charge, Occupancy
 
 
 def create_invoice(user, workspace, data):
@@ -19,20 +19,30 @@ def create_invoice(user, workspace, data):
         raise ValidationError("Occupancy not found")
     try:
         rent_amount = Decimal(data.get("rent_amount"))
-        charges_amount = Decimal(data.get("charges_amount") or 0)
     except (TypeError, ValueError, InvalidOperation):
-        raise ValidationError("Invalid invoice amount")
-    if rent_amount < 0 or charges_amount < 0:
-        raise ValidationError("Invoice amounts cannot be negative")
-    with transaction.atomic():
-        invoice = Invoice.objects.create(
+        raise ValidationError("Invalid invoice rent amount")
+    if rent_amount < 0:
+        raise ValidationError("Invoice rent amount cannot be negative")
+    billing_start = data.get("billing_start")
+    billing_end = data.get("billing_end")
+    charges_amount = (
+        Charge.objects.filter(
             occupancy=occupancy,
-            billing_start=data.get("billing_start"),
-            billing_end=data.get("billing_end"),
-            rent_amount=rent_amount,
-            charges_amount=charges_amount,
-            due_date=data.get("due_date"),
-        )
+            charge_date__gte=billing_start,
+            charge_date__lt=billing_end,
+        ).aggregate(total=Sum("amount"))["total"]
+        or Decimal("0")
+    )
+    with transaction.atomic():
+        with _allow_invoice_creation():
+            invoice = Invoice.objects.create(
+                occupancy=occupancy,
+                billing_start=billing_start,
+                billing_end=billing_end,
+                rent_amount=rent_amount,
+                charges_amount=charges_amount,
+                due_date=data.get("due_date"),
+            )
         post_ledger_event(
             user,
             workspace,
