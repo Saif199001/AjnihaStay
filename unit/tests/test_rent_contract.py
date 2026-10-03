@@ -165,17 +165,21 @@ class RentContractTests(TestCase):
     def test_unit_serializer_requires_positive_rent(self):
         for rent in (None, Decimal("0"), Decimal("-1")):
             data = self.unit_data(rent=rent)
+            data["property"] = self.property.pk
             serializer = UnitSerializer(data=data)
             self.assertFalse(serializer.is_valid())
             self.assertIn("rent", serializer.errors)
 
     def test_unit_serializer_accepts_positive_rent(self):
-        serializer = UnitSerializer(data=self.unit_data(rent=Decimal("1")))
+        data = self.unit_data(rent=Decimal("1"))
+        data["property"] = self.property.pk
+        serializer = UnitSerializer(data=data)
         self.assertTrue(serializer.is_valid(), serializer.errors)
 
     def test_subunit_serializer_requires_rent(self):
         unit = create_unit(self.user, self.workspace, self.unit_data())
         data = self.subunit_data(unit)
+        data["unit"] = unit.pk
         data.pop("rent")
         serializer = SubUnitSerializer(data=data)
         self.assertFalse(serializer.is_valid())
@@ -184,17 +188,17 @@ class RentContractTests(TestCase):
     def test_subunit_serializer_requires_positive_rent(self):
         unit = create_unit(self.user, self.workspace, self.unit_data())
         for rent in (Decimal("0"), Decimal("-1")):
-            serializer = SubUnitSerializer(
-                data=self.subunit_data(unit, number=f"101-{rent}", rent=rent)
-            )
+            data = self.subunit_data(unit, number=f"101-{rent}", rent=rent)
+            data["unit"] = unit.pk
+            serializer = SubUnitSerializer(data=data)
             self.assertFalse(serializer.is_valid())
             self.assertIn("rent", serializer.errors)
 
     def test_subunit_serializer_accepts_positive_rent(self):
         unit = create_unit(self.user, self.workspace, self.unit_data())
-        serializer = SubUnitSerializer(
-            data=self.subunit_data(unit, rent=Decimal("1"))
-        )
+        data = self.subunit_data(unit, rent=Decimal("1"))
+        data["unit"] = unit.pk
+        serializer = SubUnitSerializer(data=data)
         self.assertTrue(serializer.is_valid(), serializer.errors)
 
     def test_unit_db_constraint_rejects_zero_rent(self):
