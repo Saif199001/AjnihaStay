@@ -4,8 +4,15 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 
 from properties.models import Property
-from workspaces.models import Membership
+from workspaces.models import Membership, Workspace
 from .models import SubUnit, Unit, _allow_unit_mutation
+
+
+def _ensure_workspace_active(workspace):
+    if workspace is None:
+        raise ValidationError("Workspace is required")
+    if not Workspace.objects.filter(pk=workspace.pk, is_active=True).exists():
+        raise ValidationError("Workspace is archived")
 
 
 UNIT_MUTATION_ROLES = frozenset(
@@ -43,6 +50,7 @@ def _optional_positive_id(value, field_name):
 
 
 def get_units(workspace, property_id=None):
+    _ensure_workspace_active(workspace)
     property_id = _optional_positive_id(property_id, "property")
     units = Unit.objects.filter(property__workspace=workspace)
     if property_id is not None:
@@ -51,6 +59,7 @@ def get_units(workspace, property_id=None):
 
 
 def create_unit(user, workspace, data):
+    _ensure_workspace_active(workspace)
     _require_unit_mutation_permission(user, workspace)
 
     property_value = data.get("property")
@@ -90,6 +99,7 @@ def create_unit(user, workspace, data):
 
 
 def create_subunit(user, workspace, data):
+    _ensure_workspace_active(workspace)
     _require_unit_mutation_permission(user, workspace)
 
     unit_value = data.get("unit")
