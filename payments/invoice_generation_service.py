@@ -7,7 +7,7 @@ from django.db.models import Sum
 
 from tenant.models import Charge, Occupancy
 
-from .models import Invoice
+from .models import Invoice, _allow_invoice_creation
 
 
 def _parse_date(value, field_name):
@@ -89,12 +89,13 @@ def generate_invoice_for_occupancy(
             or Decimal("0")
         )
 
-        invoice = Invoice.objects.create(
-            occupancy=occupancy,
-            billing_start=billing_start,
-            billing_end=billing_end,
-            rent_amount=occupancy.rent,
-            charges_amount=charges_amount,
-            due_date=due_date,
-        )
+        with _allow_invoice_creation():
+            invoice = Invoice.objects.create(
+                occupancy=occupancy,
+                billing_start=billing_start,
+                billing_end=billing_end,
+                rent_amount=occupancy.rent,
+                charges_amount=charges_amount,
+                due_date=due_date,
+            )
         return invoice, True
