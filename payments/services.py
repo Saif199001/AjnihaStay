@@ -7,7 +7,7 @@ from django.db.models import Sum
 from .adjustment_service import calculate_invoice_financial_position
 from .authorization import require_mutation_permission
 from .ledger_service import post_ledger_event
-from .models import AdvanceCredit, Invoice, Payment, PaymentAllocation, _allow_invoice_creation
+from .models import AdvanceCredit, Invoice, Payment, PaymentAllocation, _allow_invoice_creation, _allow_payment_creation
 from tenant.models import Charge, Occupancy
 
 
@@ -157,7 +157,8 @@ def record_payment(user, workspace, data):
             notes=data.get("notes") or "",
         )
         payment._allow_canonical_overpayment = True
-        payment.save(force_insert=True)
+        with _allow_payment_creation():
+            payment.save(force_insert=True)
 
         settled_amount = Decimal("0")
         advance_amount = amount
