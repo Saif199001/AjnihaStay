@@ -11,6 +11,7 @@ from tenant.models import Occupancy
 
 
 _INVOICE_CREATION_ALLOWED = ContextVar("invoice_creation_allowed", default=False)
+_PAYMENT_CREATION_ALLOWED = ContextVar("payment_creation_allowed", default=False)
 
 
 @contextmanager
@@ -20,6 +21,15 @@ def _allow_invoice_creation():
         yield
     finally:
         _INVOICE_CREATION_ALLOWED.reset(token)
+
+
+@contextmanager
+def _allow_payment_creation():
+    token = _PAYMENT_CREATION_ALLOWED.set(True)
+    try:
+        yield
+    finally:
+        _PAYMENT_CREATION_ALLOWED.reset(token)
 
 
 class Invoice(models.Model):
@@ -81,6 +91,15 @@ class Invoice(models.Model):
         ]
 
 
+class PaymentQuerySet(models.QuerySet):
+    def bulk_create(self, objs, *args, **kwargs):
+        if not _PAYMENT_CREATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Payment creation must be performed through the canonical payment service."
+            )
+        return super().bulk_create(objs, *args, **kwargs)
+
+
 class Payment(models.Model):
     PAYMENT_METHODS = (("cash", "Cash"), ("upi", "UPI"), ("bank", "Bank Transfer"), ("card", "Card"))
     workspace = models.ForeignKey("workspaces.Workspace", on_delete=models.PROTECT, related_name="payments")
@@ -101,7 +120,13 @@ class Payment(models.Model):
             if total_paid + self.amount > (self.invoice.total_amount or 0) and not getattr(self, "_allow_canonical_overpayment", False):
                 raise ValidationError("Payment exceeds remaining amount")
 
+    objects = PaymentQuerySet.as_manager()
+
     def save(self, *args, **kwargs):
+        if not self.pk and not _PAYMENT_CREATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Payment creation must be performed through the canonical payment service."
+            )
         if self.pk:
             persisted = type(self).objects.get(pk=self.pk)
             if persisted.invoice_id != self.invoice_id or persisted.amount != self.amount: raise ValidationError("Payment invoice and amount cannot be changed after creation")
