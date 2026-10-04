@@ -7,7 +7,7 @@ from django.core.exceptions import PermissionDenied
 from django.test import TestCase
 from django.utils.datastructures import MultiValueDict
 
-from payments.models import Invoice
+from payments.models import Invoice, Payment
 from payments.ledger_models import FinancialLedgerEntry
 from payments.invoice_generation_service import generate_invoice_for_occupancy
 
@@ -20,6 +20,7 @@ from tenant.models import (
     _allow_occupancy_mutation,
 )
 from tenant.services import create_charge, create_occupancy, create_tenant, get_charges, get_tenants
+from payments.services import record_payment
 from unit.models import SubUnit, _allow_unit_mutation
 from unit.services import create_unit
 from workspaces.models import Membership
@@ -476,6 +477,96 @@ class TenantMutationBoundaryTests(TenantServiceAuthorizationTests):
             "Charge state must be changed through the canonical charge service.",
         ):
             Charge.objects.filter(pk=charge.pk).delete()
+
+
+class PaymentMutationBoundaryTests(TenantServiceAuthorizationTests):
+    def create_payment_record(self):
+        tenant = self.create_tenant_record()
+        occupancy = self.create_occupancy_record(tenant)
+        invoice = occupancy.invoices.get()
+        payment = Payment(
+            workspace=self.workspace,
+            invoice=invoice,
+            amount=Decimal("1000"),
+            payment_method="cash",
+            payment_date=date(2026, 10, 5),
+        )
+        return payment, invoice
+
+    def create_tenant_record(self):
+        return create_tenant(
+            self.owner,
+            self.workspace,
+            self.tenant_data(),
+            MultiValueDict(),
+        )
+
+    def create_occupancy_record(self, tenant):
+        return create_occupancy(
+            self.owner,
+            self.workspace,
+            self.occupancy_data(tenant),
+        )
+
+    def test_payment_direct_create_is_blocked(self):
+        payment, invoice = self.create_payment_record()
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Payment creation must be performed through the canonical payment service.",
+        ):
+            Payment.objects.create(
+                workspace=self.workspace,
+                invoice=invoice,
+                amount=Decimal("1000"),
+                payment_method="cash",
+                payment_date=date(2026, 10, 5),
+            )
+
+    def test_payment_direct_save_is_blocked(self):
+        payment, _ = self.create_payment_record()
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Payment creation must be performed through the canonical payment service.",
+        ):
+            payment.save(force_insert=True)
+
+    def test_payment_bulk_create_is_blocked(self):
+        _, invoice = self.create_payment_record()
+        payment = Payment(
+            workspace=self.workspace,
+            invoice=invoice,
+            amount=Decimal("1000"),
+            payment_method="cash",
+            payment_date=date(2026, 10, 5),
+        )
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Payment creation must be performed through the canonical payment service.",
+        ):
+            Payment.objects.bulk_create([payment])
+
+    def test_canonical_payment_service_can_create_payment(self):
+        tenant = self.create_tenant_record()
+        occupancy = self.create_occupancy_record(tenant)
+        invoice = occupancy.invoices.get()
+
+        payment = record_payment(
+            self.owner,
+            self.workspace,
+            {
+                "invoice": invoice.pk,
+                "amount": Decimal("1000"),
+                "payment_method": "cash",
+                "payment_date": date(2026, 10, 5),
+            },
+        )
+
+        self.assertEqual(payment.workspace_id, self.workspace.pk)
+        self.assertEqual(payment.invoice_id, invoice.pk)
+        self.assertEqual(payment.amount, Decimal("1000.00"))
 
 
 class OccupancyStructureInvariantTests(TenantServiceAuthorizationTests):
