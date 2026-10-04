@@ -1,5 +1,6 @@
 from decimal import Decimal
 from datetime import date
+from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
 from django.core.exceptions import PermissionDenied
@@ -7,6 +8,7 @@ from django.test import TestCase
 from django.utils.datastructures import MultiValueDict
 
 from payments.models import Invoice
+from payments.ledger_models import FinancialLedgerEntry
 from payments.invoice_generation_service import generate_invoice_for_occupancy
 
 from accounts.services import create_user_account
@@ -607,6 +609,76 @@ class InvoiceFinancialBoundaryTests(TenantServiceAuthorizationTests):
                 charges_amount=Decimal("500"),
                 due_date=date(2026, 12, 1),
             )
+
+
+    def test_occupancy_creation_posts_initial_invoice_ledger_event(self):
+        tenant = self.create_tenant_record()
+
+        occupancy = create_occupancy(
+            self.owner,
+            self.workspace,
+            self.occupancy_data(tenant),
+        )
+        invoice = occupancy.invoices.get()
+
+        entry = FinancialLedgerEntry.objects.get(
+            workspace=self.workspace,
+            event_key=f"invoice:{invoice.pk}:created",
+        )
+        self.assertEqual(entry.event_type, "invoice_created")
+        self.assertEqual(entry.invoice_id, invoice.pk)
+        self.assertEqual(entry.occupancy_id, occupancy.pk)
+        self.assertEqual(entry.amount, invoice.total_amount)
+        self.assertEqual(entry.amount, Decimal("10000.00"))
+
+    def test_occupancy_initial_invoice_ledger_event_is_idempotent(self):
+        tenant = self.create_tenant_record()
+        occupancy = create_occupancy(
+            self.owner,
+            self.workspace,
+            self.occupancy_data(tenant),
+        )
+        invoice = occupancy.invoices.get()
+
+        self.assertEqual(
+            FinancialLedgerEntry.objects.filter(
+                workspace=self.workspace,
+                event_key=f"invoice:{invoice.pk}:created",
+            ).count(),
+            1,
+        )
+
+    def test_occupancy_invoice_and_ledger_roll_back_together(self):
+        tenant = self.create_tenant_record()
+        data = self.occupancy_data(tenant)
+
+        with patch(
+            "payments.invoice_generation_service.post_ledger_event",
+            side_effect=ValidationError("forced ledger failure"),
+        ):
+            with self.assertRaisesMessage(
+                ValidationError,
+                "forced ledger failure",
+            ):
+                create_occupancy(self.owner, self.workspace, data)
+
+        self.assertFalse(
+            Occupancy.objects.filter(
+                tenant=tenant,
+                unit=self.unit,
+            ).exists()
+        )
+        self.assertFalse(
+            Invoice.objects.filter(
+                occupancy__tenant=tenant,
+            ).exists()
+        )
+        self.assertFalse(
+            FinancialLedgerEntry.objects.filter(
+                workspace=self.workspace,
+                occupancy__tenant=tenant,
+            ).exists()
+        )
 
     def test_canonical_invoice_generation_derives_charges_from_charge_records(self):
         tenant = self.create_tenant_record()
