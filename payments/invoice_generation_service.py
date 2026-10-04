@@ -8,6 +8,7 @@ from django.db.models import Sum
 from tenant.models import Charge, Occupancy
 
 from .models import Invoice, _allow_invoice_creation
+from .ledger_service import post_ledger_event
 
 
 def _parse_date(value, field_name):
@@ -38,6 +39,44 @@ def _resolve_occupancy(occupancy, workspace):
         raise ValidationError("Occupancy not found")
 
 
+def create_invoice_with_ledger(
+    user,
+    workspace,
+    *,
+    occupancy,
+    billing_start,
+    billing_end,
+    rent_amount,
+    charges_amount=Decimal("0"),
+    due_date,
+    event_type="invoice_created",
+    event_key=None,
+    metadata=None,
+):
+    """Create an invoice and its canonical ledger event atomically."""
+    with _allow_invoice_creation():
+        invoice = Invoice.objects.create(
+            occupancy=occupancy,
+            billing_start=billing_start,
+            billing_end=billing_end,
+            rent_amount=rent_amount,
+            charges_amount=charges_amount,
+            due_date=due_date,
+        )
+    post_ledger_event(
+        user,
+        workspace,
+        event_type=event_type,
+        event_key=event_key or f"invoice:{invoice.pk}:created",
+        occurred_at=invoice.created_at,
+        amount=invoice.total_amount,
+        invoice=invoice,
+        occupancy=occupancy,
+        metadata=metadata or {"invoice_number": invoice.invoice_number},
+    )
+    return invoice
+
+
 def generate_invoice_for_occupancy(
     user,
     workspace,
@@ -51,7 +90,6 @@ def generate_invoice_for_occupancy(
     This service owns invoice creation only. It never creates payments,
     allocations, or advances recurring-billing cursors.
     """
-    del user  # Kept in the contract for future audit attribution.
 
     billing_start = _parse_date(billing_start, "billing start date")
     billing_end = _parse_date(billing_end, "billing end date")
@@ -89,13 +127,14 @@ def generate_invoice_for_occupancy(
             or Decimal("0")
         )
 
-        with _allow_invoice_creation():
-            invoice = Invoice.objects.create(
-                occupancy=occupancy,
-                billing_start=billing_start,
-                billing_end=billing_end,
-                rent_amount=occupancy.rent,
-                charges_amount=charges_amount,
-                due_date=due_date,
-            )
+        invoice = create_invoice_with_ledger(
+            user,
+            workspace,
+            occupancy=occupancy,
+            billing_start=billing_start,
+            billing_end=billing_end,
+            rent_amount=occupancy.rent,
+            charges_amount=charges_amount,
+            due_date=due_date,
+        )
         return invoice, True
