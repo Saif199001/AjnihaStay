@@ -7,6 +7,7 @@ from payments.authorization import require_mutation_permission
 from workspaces.models import Workspace
 
 from payments.models import Invoice
+from payments.invoice_generation_service import create_invoice_with_ledger
 from unit.models import SubUnit, Unit
 from .charge_service import create_charge as create_charge_engine
 from .models import (
@@ -16,7 +17,6 @@ from .models import (
     _allow_occupancy_mutation,
     _allow_tenant_mutation,
 )
-from payments.models import _allow_invoice_creation
 
 
 def _ensure_workspace_active(workspace):
@@ -152,15 +152,16 @@ def create_occupancy(user, workspace, data):
                 deposit_paid=data.get("deposit_paid") or False,
             )
 
-        with _allow_invoice_creation():
-            Invoice.objects.create(
-                occupancy=occupancy,
-                billing_start=data.get("check_in_date"),
-                billing_end=data.get("next_due_date"),
-                rent_amount=data.get("rent"),
-                charges_amount=Decimal("0"),
-                due_date=data.get("next_due_date"),
-            )
+        create_invoice_with_ledger(
+            user,
+            workspace,
+            occupancy=occupancy,
+            billing_start=data.get("check_in_date"),
+            billing_end=data.get("next_due_date"),
+            rent_amount=occupancy.rent,
+            charges_amount=Decimal("0"),
+            due_date=data.get("next_due_date"),
+        )
         return occupancy
 
 
