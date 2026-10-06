@@ -9,7 +9,13 @@ from tenant.models import Occupancy, Tenant
 from .adjustment_service import calculate_invoice_financial_position, get_payment_refund_impacts
 from .allocation_service import get_payment_available_allocation_amount
 from .authorization import require_mutation_permission
-from .models import AdvanceCredit, AdvanceCreditApplication, Invoice, Payment
+from .models import (
+    AdvanceCredit,
+    AdvanceCreditApplication,
+    Invoice,
+    Payment,
+    _allow_advance_credit_creation,
+)
 from .services import recalculate_invoice_state
 
 
@@ -79,13 +85,14 @@ def create_advance_credit(user, workspace, data):
         if amount > available_capacity:
             raise ValidationError("Advance credit exceeds available payment capacity")
 
-        credit = AdvanceCredit.objects.create(
-            workspace=workspace,
-            tenant=tenant,
-            occupancy=occupancy,
-            source_payment=payment,
-            original_amount=amount,
-        )
+        with _allow_advance_credit_creation():
+            credit = AdvanceCredit.objects.create(
+                workspace=workspace,
+                tenant=tenant,
+                occupancy=occupancy,
+                source_payment=payment,
+                original_amount=amount,
+            )
         from .ledger_service import post_ledger_event
         post_ledger_event(
             user,
