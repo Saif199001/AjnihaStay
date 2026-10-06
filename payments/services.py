@@ -7,7 +7,15 @@ from django.db.models import Sum
 from .adjustment_service import calculate_invoice_financial_position
 from .authorization import require_mutation_permission
 from .ledger_service import post_ledger_event
-from .models import AdvanceCredit, Invoice, Payment, PaymentAllocation, _allow_invoice_creation, _allow_payment_creation
+from .models import (
+    AdvanceCredit,
+    Invoice,
+    Payment,
+    PaymentAllocation,
+    _allow_invoice_creation,
+    _allow_payment_allocation_creation,
+    _allow_payment_creation,
+)
 from tenant.models import Charge, Occupancy
 
 
@@ -168,11 +176,12 @@ def record_payment(user, workspace, data):
             settled_amount = min(amount, position["outstanding"])
             advance_amount = amount - settled_amount
             if settled_amount > 0:
-                allocation = PaymentAllocation.objects.create(
-                    payment=payment,
-                    invoice=invoice,
-                    amount=settled_amount,
-                )
+                with _allow_payment_allocation_creation():
+                    allocation = PaymentAllocation.objects.create(
+                        payment=payment,
+                        invoice=invoice,
+                        amount=settled_amount,
+                    )
                 recalculate_invoice_state(invoice)
 
         if advance_amount > 0:
