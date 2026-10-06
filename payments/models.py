@@ -18,6 +18,11 @@ _PAYMENT_ALLOCATION_CREATION_ALLOWED = ContextVar(
 _ADVANCE_CREDIT_CREATION_ALLOWED = ContextVar(
     "advance_credit_creation_allowed", default=False
 )
+_FINANCIAL_ADJUSTMENT_CREATION_ALLOWED = ContextVar(
+    "financial_adjustment_creation_allowed", default=False
+)
+
+
 
 
 @contextmanager
@@ -54,6 +59,15 @@ def _allow_advance_credit_creation():
         yield
     finally:
         _ADVANCE_CREDIT_CREATION_ALLOWED.reset(token)
+
+
+@contextmanager
+def _allow_financial_adjustment_creation():
+    token = _FINANCIAL_ADJUSTMENT_CREATION_ALLOWED.set(True)
+    try:
+        yield
+    finally:
+        _FINANCIAL_ADJUSTMENT_CREATION_ALLOWED.reset(token)
 
 
 class Invoice(models.Model):
@@ -329,7 +343,22 @@ class AdvanceCreditApplication(models.Model):
         constraints = [models.CheckConstraint(condition=Q(amount__gt=0), name="advance_credit_application_amount_positive")]
 
 
+class FinancialAdjustmentQuerySet(models.QuerySet):
+    def bulk_create(self, objs, *args, **kwargs):
+        if not _FINANCIAL_ADJUSTMENT_CREATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Financial adjustment creation must be performed through the canonical financial adjustment service."
+            )
+        return super().bulk_create(objs, *args, **kwargs)
+
+    def delete(self):
+        raise PermissionDenied(
+            "Financial adjustments cannot be deleted."
+        )
+
+
 class FinancialAdjustment(models.Model):
+    objects = FinancialAdjustmentQuerySet.as_manager()
     TYPE_CREDIT = "credit"; TYPE_DEBIT = "debit"; TYPE_DISCOUNT = "discount"; TYPE_WAIVER = "waiver"; TYPE_WRITE_OFF = "write_off"
     ADJUSTMENT_TYPES = ((TYPE_CREDIT, "Credit"), (TYPE_DEBIT, "Debit"), (TYPE_DISCOUNT, "Discount"), (TYPE_WAIVER, "Waiver"), (TYPE_WRITE_OFF, "Write-off"))
     workspace = models.ForeignKey("workspaces.Workspace", on_delete=models.PROTECT, related_name="financial_adjustments")
@@ -346,10 +375,19 @@ class FinancialAdjustment(models.Model):
         if not self.workspace_id: raise ValidationError("Workspace is required")
         if self.invoice_id and self.invoice.occupancy.tenant.workspace_id != self.workspace_id: raise ValidationError("Adjustment and invoice must belong to the same workspace")
     def save(self, *args, **kwargs):
+        if not self.pk and not _FINANCIAL_ADJUSTMENT_CREATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Financial adjustment creation must be performed through the canonical financial adjustment service."
+            )
         if self.pk:
             persisted = type(self).objects.get(pk=self.pk)
             if persisted.workspace_id != self.workspace_id or persisted.invoice_id != self.invoice_id or persisted.adjustment_type != self.adjustment_type or persisted.amount != self.amount or persisted.reason != self.reason or persisted.reference != self.reference or persisted.idempotency_key != self.idempotency_key or persisted.created_by_id != self.created_by_id: raise ValidationError("Financial adjustments cannot be changed after creation")
         self.clean(); super().save(*args, **kwargs)
+    def delete(self, *args, **kwargs):
+        raise PermissionDenied(
+            "Financial adjustments cannot be deleted."
+        )
+
     def __str__(self): return f"{self.adjustment_type} {self.amount} - {self.invoice}"
     class Meta:
         indexes = [models.Index(fields=["workspace", "invoice"], name="payments_fa_workspa_6e1c6d_idx"), models.Index(fields=["workspace", "adjustment_type", "created_at"], name="payments_fa_workspa_9e9d8c_idx"), models.Index(fields=["invoice", "created_at"], name="payments_fa_invoice_4cfd1d_idx")]
