@@ -7,7 +7,7 @@ from django.core.exceptions import PermissionDenied
 from django.test import TestCase
 from django.utils.datastructures import MultiValueDict
 
-from payments.models import Invoice, Payment, PaymentAllocation
+from payments.models import AdvanceCredit, Invoice, Payment, PaymentAllocation
 from payments.ledger_models import FinancialLedgerEntry
 from payments.invoice_generation_service import generate_invoice_for_occupancy
 
@@ -21,6 +21,7 @@ from tenant.models import (
 )
 from tenant.services import create_charge, create_occupancy, create_tenant, get_charges, get_tenants
 from payments.services import record_payment
+from payments.advance_credit_service import create_advance_credit
 from unit.models import SubUnit, _allow_unit_mutation
 from unit.services import create_unit
 from workspaces.models import Membership
@@ -623,6 +624,74 @@ class PaymentMutationBoundaryTests(TenantServiceAuthorizationTests):
         self.assertEqual(allocation.amount, Decimal("1000.00"))
         invoice.refresh_from_db()
         self.assertEqual(invoice.paid_amount, Decimal("1000.00"))
+
+    def create_advance_credit_record(self):
+        tenant = self.create_tenant_record()
+        occupancy = self.create_occupancy_record(tenant)
+        invoice = occupancy.invoices.get()
+        payment = record_payment(
+            self.owner,
+            self.workspace,
+            {
+                "invoice": invoice.pk,
+                "amount": Decimal("1000"),
+                "payment_method": "cash",
+                "payment_date": date(2026, 10, 5),
+            },
+        )
+        return payment, tenant, occupancy
+
+    def test_advance_credit_direct_create_is_blocked(self):
+        payment, tenant, occupancy = self.create_advance_credit_record()
+        credit = AdvanceCredit(
+            workspace=self.workspace,
+            tenant=tenant,
+            occupancy=occupancy,
+            source_payment=payment,
+            original_amount=Decimal("1"),
+        )
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Advance credit creation must be performed through the canonical advance credit service.",
+        ):
+            credit.save()
+
+    def test_advance_credit_bulk_create_is_blocked(self):
+        payment, tenant, occupancy = self.create_advance_credit_record()
+        credit = AdvanceCredit(
+            workspace=self.workspace,
+            tenant=tenant,
+            occupancy=occupancy,
+            source_payment=payment,
+            original_amount=Decimal("1"),
+        )
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Advance credit creation must be performed through the canonical advance credit service.",
+        ):
+            AdvanceCredit.objects.bulk_create([credit])
+
+    def test_canonical_advance_credit_service_can_create_credit(self):
+        payment, tenant, occupancy = self.create_advance_credit_record()
+
+        credit = create_advance_credit(
+            self.owner,
+            self.workspace,
+            {
+                "source_payment": payment.pk,
+                "tenant": tenant.pk,
+                "occupancy": occupancy.pk,
+                "amount": Decimal("500"),
+            },
+        )
+
+        self.assertEqual(credit.workspace_id, self.workspace.pk)
+        self.assertEqual(credit.tenant_id, tenant.pk)
+        self.assertEqual(credit.occupancy_id, occupancy.pk)
+        self.assertEqual(credit.source_payment_id, payment.pk)
+        self.assertEqual(credit.original_amount, Decimal("500.00"))
 
 
 class OccupancyStructureInvariantTests(TenantServiceAuthorizationTests):
