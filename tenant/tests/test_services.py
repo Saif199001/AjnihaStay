@@ -7,7 +7,7 @@ from django.core.exceptions import PermissionDenied
 from django.test import TestCase
 from django.utils.datastructures import MultiValueDict
 
-from payments.models import Invoice, Payment
+from payments.models import Invoice, Payment, PaymentAllocation
 from payments.ledger_models import FinancialLedgerEntry
 from payments.invoice_generation_service import generate_invoice_for_occupancy
 
@@ -567,6 +567,62 @@ class PaymentMutationBoundaryTests(TenantServiceAuthorizationTests):
         self.assertEqual(payment.workspace_id, self.workspace.pk)
         self.assertEqual(payment.invoice_id, invoice.pk)
         self.assertEqual(payment.amount, Decimal("1000.00"))
+
+
+    def create_allocation_record(self):
+        tenant = self.create_tenant_record()
+        occupancy = self.create_occupancy_record(tenant)
+        invoice = occupancy.invoices.get()
+        payment = record_payment(
+            self.owner,
+            self.workspace,
+            {
+                "invoice": invoice.pk,
+                "amount": Decimal("1000"),
+                "payment_method": "cash",
+                "payment_date": date(2026, 10, 5),
+            },
+        )
+        return payment, invoice
+
+    def test_payment_allocation_direct_create_is_blocked(self):
+        payment, invoice = self.create_allocation_record()
+        allocation = PaymentAllocation(
+            payment=payment,
+            invoice=invoice,
+            amount=Decimal("1"),
+        )
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Payment allocation creation must be performed through the canonical payment service.",
+        ):
+            allocation.save()
+
+    def test_payment_allocation_bulk_create_is_blocked(self):
+        payment, invoice = self.create_allocation_record()
+        allocation = PaymentAllocation(
+            payment=payment,
+            invoice=invoice,
+            amount=Decimal("1"),
+        )
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Payment allocation creation must be performed through the canonical payment service.",
+        ):
+            PaymentAllocation.objects.bulk_create([allocation])
+
+    def test_canonical_payment_service_creates_payment_allocation(self):
+        payment, invoice = self.create_allocation_record()
+
+        allocation = PaymentAllocation.objects.get(
+            payment=payment,
+            invoice=invoice,
+        )
+        self.assertEqual(allocation.amount, Decimal("1000.00"))
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.paid_amount, Decimal("1000.00"))
 
 
 class OccupancyStructureInvariantTests(TenantServiceAuthorizationTests):
