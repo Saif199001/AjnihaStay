@@ -5,7 +5,7 @@ from django.db import transaction
 from django.db.models import Sum
 
 from .authorization import MUTATION_ROLES, require_mutation_permission
-from .models import AdvanceCreditApplication, FinancialAdjustment, Invoice, PaymentAllocation
+from .models import AdvanceCreditApplication, FinancialAdjustment, Invoice, PaymentAllocation, _allow_financial_adjustment_creation
 
 
 def _positive_decimal(value, field_name):
@@ -178,7 +178,17 @@ def create_financial_adjustment(user, workspace, data):
             remaining_collectible = position["adjusted_receivable"] - position["settlement"]
             if amount > remaining_collectible:
                 raise ValidationError("Adjustment exceeds remaining collectible balance")
-        adjustment = FinancialAdjustment.objects.create(workspace=workspace, invoice=invoice, adjustment_type=adjustment_type, amount=amount, reason=reason.strip(), reference=reference, idempotency_key=idempotency_key, created_by=user)
+        with _allow_financial_adjustment_creation():
+            adjustment = FinancialAdjustment.objects.create(
+                workspace=workspace,
+                invoice=invoice,
+                adjustment_type=adjustment_type,
+                amount=amount,
+                reason=reason.strip(),
+                reference=reference,
+                idempotency_key=idempotency_key,
+                created_by=user,
+            )
         position = calculate_invoice_financial_position(invoice)
         Invoice.objects.filter(id=invoice.id).update(paid_amount=position["settlement"], status=position["status"])
         invoice.paid_amount = position["settlement"]
