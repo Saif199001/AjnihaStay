@@ -262,7 +262,35 @@ class AdvanceCredit(models.Model):
         constraints = [models.CheckConstraint(condition=Q(original_amount__gt=0), name="advance_credit_amount_positive")]
 
 
+_ADVANCE_CREDIT_APPLICATION_CREATION_ALLOWED = ContextVar(
+    "advance_credit_application_creation_allowed", default=False
+)
+
+@contextmanager
+def _allow_advance_credit_application_creation():
+    token = _ADVANCE_CREDIT_APPLICATION_CREATION_ALLOWED.set(True)
+    try:
+        yield
+    finally:
+        _ADVANCE_CREDIT_APPLICATION_CREATION_ALLOWED.reset(token)
+
+
+class AdvanceCreditApplicationQuerySet(models.QuerySet):
+    def bulk_create(self, objs, *args, **kwargs):
+        if not _ADVANCE_CREDIT_APPLICATION_CREATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Advance credit application creation must be performed through the canonical advance credit service."
+            )
+        return super().bulk_create(objs, *args, **kwargs)
+
+    def delete(self):
+        raise PermissionDenied(
+            "Advance credit applications cannot be deleted."
+        )
+
+
 class AdvanceCreditApplication(models.Model):
+    objects = AdvanceCreditApplicationQuerySet.as_manager()
     credit = models.ForeignKey(AdvanceCredit, on_delete=models.PROTECT, related_name="applications")
     invoice = models.ForeignKey(Invoice, on_delete=models.PROTECT, related_name="advance_credit_applications")
     amount = models.DecimalField(max_digits=10, decimal_places=2)
@@ -272,6 +300,10 @@ class AdvanceCreditApplication(models.Model):
         if self.credit.workspace_id != self.invoice.occupancy.tenant.workspace_id: raise ValidationError("Advance credit and invoice must belong to the same workspace")
         if self.credit.tenant_id != self.invoice.occupancy.tenant_id: raise ValidationError("Advance credit and invoice must belong to the same tenant")
     def save(self, *args, **kwargs):
+        if not self.pk and not _ADVANCE_CREDIT_APPLICATION_CREATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Advance credit application creation must be performed through the canonical advance credit service."
+            )
         if self.pk:
             persisted = type(self).objects.get(pk=self.pk)
             if persisted.credit_id != self.credit_id or persisted.invoice_id != self.invoice_id or persisted.amount != self.amount: raise ValidationError("Advance credit application credit, invoice and amount cannot be changed after creation")
@@ -285,6 +317,11 @@ class AdvanceCreditApplication(models.Model):
             from .adjustment_service import calculate_invoice_financial_position
             if self.amount > calculate_invoice_financial_position(invoice)["outstanding"]: raise ValidationError("Advance credit application exceeds invoice outstanding amount")
             return super().save(*args, **kwargs)
+    def delete(self, *args, **kwargs):
+        raise PermissionDenied(
+            "Advance credit applications cannot be deleted."
+        )
+
     @property
     def workspace_id(self): return self.credit.workspace_id
     class Meta:
