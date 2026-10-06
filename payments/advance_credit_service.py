@@ -15,6 +15,7 @@ from .models import (
     Invoice,
     Payment,
     _allow_advance_credit_creation,
+    _allow_advance_credit_application_creation,
 )
 from .services import recalculate_invoice_state
 
@@ -179,7 +180,12 @@ def apply_advance_credit(user, workspace, data):
         if amount > position["outstanding"]:
             raise ValidationError("Advance credit application exceeds invoice outstanding amount")
 
-        application = AdvanceCreditApplication.objects.create(credit=credit, invoice=invoice, amount=amount)
+        with _allow_advance_credit_application_creation():
+            application = AdvanceCreditApplication.objects.create(
+                credit=credit,
+                invoice=invoice,
+                amount=amount,
+            )
         invoice = recalculate_invoice_state(invoice)
         from .ledger_service import post_ledger_event
 
