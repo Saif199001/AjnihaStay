@@ -96,13 +96,13 @@ def request_payment_refund(*, user, workspace, payment, amount, reason, referenc
         try:
             with _allow_payment_refund_creation():
                 refund = PaymentRefund.objects.create(
-                workspace=workspace,
-                payment=payment_obj,
-                amount=amount,
-                status=PaymentRefund.STATUS_REQUESTED,
-                reason=reason,
-                reference=reference,
-                idempotency_key=idempotency_key,
+                    workspace=workspace,
+                    payment=payment_obj,
+                    amount=amount,
+                    status=PaymentRefund.STATUS_REQUESTED,
+                    reason=reason,
+                    reference=reference,
+                    idempotency_key=idempotency_key,
                     requested_by=user,
                 )
         except IntegrityError:
