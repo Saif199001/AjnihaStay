@@ -12,6 +12,9 @@ from tenant.models import Occupancy
 
 _INVOICE_CREATION_ALLOWED = ContextVar("invoice_creation_allowed", default=False)
 _PAYMENT_CREATION_ALLOWED = ContextVar("payment_creation_allowed", default=False)
+_PAYMENT_ALLOCATION_CREATION_ALLOWED = ContextVar(
+    "payment_allocation_creation_allowed", default=False
+)
 
 
 @contextmanager
@@ -30,6 +33,15 @@ def _allow_payment_creation():
         yield
     finally:
         _PAYMENT_CREATION_ALLOWED.reset(token)
+
+
+@contextmanager
+def _allow_payment_allocation_creation():
+    token = _PAYMENT_ALLOCATION_CREATION_ALLOWED.set(True)
+    try:
+        yield
+    finally:
+        _PAYMENT_ALLOCATION_CREATION_ALLOWED.reset(token)
 
 
 class Invoice(models.Model):
@@ -146,15 +158,30 @@ class Payment(models.Model):
         constraints = [models.CheckConstraint(condition=Q(amount__gt=0), name="payment_amount_positive")]
 
 
+class PaymentAllocationQuerySet(models.QuerySet):
+    def bulk_create(self, objs, *args, **kwargs):
+        if not _PAYMENT_ALLOCATION_CREATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Payment allocation creation must be performed through the canonical payment service."
+            )
+        return super().bulk_create(objs, *args, **kwargs)
+
+
 class PaymentAllocation(models.Model):
     payment = models.ForeignKey(Payment, on_delete=models.PROTECT, related_name="allocations")
     invoice = models.ForeignKey(Invoice, on_delete=models.PROTECT, related_name="allocations")
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = PaymentAllocationQuerySet.as_manager()
     def clean(self):
         if self.amount <= 0: raise ValidationError("Allocation amount must be greater than zero")
         if self.payment.workspace_id != self.invoice.occupancy.tenant.workspace_id: raise ValidationError("Payment and invoice must belong to the same workspace")
     def save(self, *args, **kwargs):
+        if not self.pk and not _PAYMENT_ALLOCATION_CREATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Payment allocation creation must be performed through the canonical payment service."
+            )
         if self.pk:
             persisted = type(self).objects.get(pk=self.pk)
             if persisted.payment_id != self.payment_id or persisted.invoice_id != self.invoice_id or persisted.amount != self.amount: raise ValidationError("Payment allocation payment, invoice and amount cannot be changed after creation")
