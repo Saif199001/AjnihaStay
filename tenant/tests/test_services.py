@@ -21,7 +21,7 @@ from tenant.models import (
 )
 from tenant.services import create_charge, create_occupancy, create_tenant, get_charges, get_tenants
 from payments.services import record_payment
-from payments.advance_credit_service import create_advance_credit
+from payments.advance_credit_service import apply_advance_credit, create_advance_credit
 from unit.models import SubUnit, _allow_unit_mutation
 from unit.services import create_unit
 from workspaces.models import Membership
@@ -689,6 +689,93 @@ class PaymentMutationBoundaryTests(TenantServiceAuthorizationTests):
         self.assertEqual(credit.occupancy_id, occupancy.pk)
         self.assertEqual(credit.source_payment_id, payment.pk)
         self.assertEqual(credit.original_amount, Decimal("500.00"))
+
+
+    def create_advance_credit_application_record(self):
+        payment, tenant, occupancy = self.create_advance_credit_record()
+        credit = create_advance_credit(
+            self.owner,
+            self.workspace,
+            {
+                "source_payment": payment.pk,
+                "tenant": tenant.pk,
+                "occupancy": occupancy.pk,
+                "amount": Decimal("500"),
+            },
+        )
+        invoice = occupancy.invoices.get()
+        return credit, invoice
+
+    def test_advance_credit_application_direct_create_is_blocked(self):
+        credit, invoice = self.create_advance_credit_application_record()
+        application = AdvanceCreditApplication(
+            credit=credit,
+            invoice=invoice,
+            amount=Decimal("100"),
+        )
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Advance credit application creation must be performed through the canonical advance credit service.",
+        ):
+            application.save()
+
+    def test_advance_credit_application_bulk_create_is_blocked(self):
+        credit, invoice = self.create_advance_credit_application_record()
+        application = AdvanceCreditApplication(
+            credit=credit,
+            invoice=invoice,
+            amount=Decimal("100"),
+        )
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Advance credit application creation must be performed through the canonical advance credit service.",
+        ):
+            AdvanceCreditApplication.objects.bulk_create([application])
+
+    def test_canonical_advance_credit_application_service_can_create_application(self):
+        credit, invoice = self.create_advance_credit_application_record()
+
+        application, available_credit, updated_invoice = apply_advance_credit(
+            self.owner,
+            self.workspace,
+            {
+                "credit": credit.pk,
+                "invoice": invoice.pk,
+                "amount": Decimal("100"),
+            },
+        )
+
+        self.assertEqual(application.credit_id, credit.pk)
+        self.assertEqual(application.invoice_id, invoice.pk)
+        self.assertEqual(application.amount, Decimal("100.00"))
+        self.assertEqual(available_credit, Decimal("400.00"))
+        self.assertEqual(updated_invoice.pk, invoice.pk)
+
+    def test_advance_credit_application_delete_is_blocked(self):
+        credit, invoice = self.create_advance_credit_application_record()
+        application, _, _ = apply_advance_credit(
+            self.owner,
+            self.workspace,
+            {
+                "credit": credit.pk,
+                "invoice": invoice.pk,
+                "amount": Decimal("100"),
+            },
+        )
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Advance credit applications cannot be deleted.",
+        ):
+            application.delete()
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Advance credit applications cannot be deleted.",
+        ):
+            AdvanceCreditApplication.objects.filter(pk=application.pk).delete()
 
 
 class OccupancyStructureInvariantTests(TenantServiceAuthorizationTests):
