@@ -7,7 +7,7 @@ from django.core.exceptions import PermissionDenied
 from django.test import TestCase
 from django.utils.datastructures import MultiValueDict
 
-from payments.models import AdvanceCredit, Invoice, Payment, PaymentAllocation, _allow_payment_creation
+from payments.models import AdvanceCredit, AdvanceCreditApplication, Invoice, Payment, PaymentAllocation, _allow_payment_creation
 from payments.ledger_models import FinancialLedgerEntry
 from payments.invoice_generation_service import generate_invoice_for_occupancy
 
