@@ -191,7 +191,12 @@ class TenantServiceAuthorizationTests(TestCase):
 class FinancialAdjustmentMutationBoundaryTests(TenantServiceAuthorizationTests):
     def create_adjustment_record(self):
         tenant = self.create_tenant_record()
-        invoice = tenant.occupancies.get().invoices.get()
+        occupancy = create_occupancy(
+            self.owner,
+            self.workspace,
+            self.occupancy_data(tenant),
+        )
+        invoice = occupancy.invoices.get()
         adjustment, _, _ = create_financial_adjustment(
             self.owner,
             self.workspace,
@@ -215,7 +220,12 @@ class FinancialAdjustmentMutationBoundaryTests(TenantServiceAuthorizationTests):
 
     def test_financial_adjustment_direct_create_is_blocked(self):
         tenant = self.create_tenant_record()
-        invoice = tenant.occupancies.get().invoices.get()
+        occupancy = create_occupancy(
+            self.owner,
+            self.workspace,
+            self.occupancy_data(tenant),
+        )
+        invoice = occupancy.invoices.get()
         adjustment = FinancialAdjustment(
             workspace=self.workspace,
             invoice=invoice,
@@ -233,7 +243,12 @@ class FinancialAdjustmentMutationBoundaryTests(TenantServiceAuthorizationTests):
 
     def test_financial_adjustment_bulk_create_is_blocked(self):
         tenant = self.create_tenant_record()
-        invoice = tenant.occupancies.get().invoices.get()
+        occupancy = create_occupancy(
+            self.owner,
+            self.workspace,
+            self.occupancy_data(tenant),
+        )
+        invoice = occupancy.invoices.get()
         adjustment = FinancialAdjustment(
             workspace=self.workspace,
             invoice=invoice,
