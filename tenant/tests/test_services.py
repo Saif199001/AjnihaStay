@@ -7,7 +7,7 @@ from django.core.exceptions import PermissionDenied
 from django.test import TestCase
 from django.utils.datastructures import MultiValueDict
 
-from payments.models import AdvanceCredit, AdvanceCreditApplication, Invoice, Payment, PaymentAllocation, _allow_payment_creation
+from payments.models import AdvanceCredit, AdvanceCreditApplication, FinancialAdjustment, Invoice, Payment, PaymentAllocation, _allow_payment_creation
 from payments.ledger_models import FinancialLedgerEntry
 from payments.invoice_generation_service import generate_invoice_for_occupancy
 
@@ -22,6 +22,7 @@ from tenant.models import (
 from tenant.services import create_charge, create_occupancy, create_tenant, get_charges, get_tenants
 from payments.services import record_payment
 from payments.advance_credit_service import apply_advance_credit, create_advance_credit
+from payments.adjustment_service import create_financial_adjustment
 from unit.models import SubUnit, _allow_unit_mutation
 from unit.services import create_unit
 from workspaces.models import Membership
@@ -185,6 +186,97 @@ class TenantServiceAuthorizationTests(TestCase):
 
         with self.assertRaisesMessage(ValidationError, "Workspace is archived"):
             get_charges(occupancy.pk, self.workspace)
+
+
+class FinancialAdjustmentMutationBoundaryTests(TenantServiceAuthorizationTests):
+    def create_adjustment_record(self):
+        tenant = self.create_tenant_record()
+        invoice = tenant.occupancies.get().invoices.get()
+        adjustment, _, _ = create_financial_adjustment(
+            self.owner,
+            self.workspace,
+            {
+                "invoice": invoice.pk,
+                "adjustment_type": "discount",
+                "amount": Decimal("100"),
+                "reason": "Boundary test",
+                "reference": "TEST-ADJ",
+            },
+        )
+        return adjustment, invoice
+
+    def create_tenant_record(self):
+        return create_tenant(
+            self.owner,
+            self.workspace,
+            self.tenant_data(),
+            MultiValueDict(),
+        )
+
+    def test_financial_adjustment_direct_create_is_blocked(self):
+        tenant = self.create_tenant_record()
+        invoice = tenant.occupancies.get().invoices.get()
+        adjustment = FinancialAdjustment(
+            workspace=self.workspace,
+            invoice=invoice,
+            adjustment_type="discount",
+            amount=Decimal("100"),
+            reason="Direct mutation",
+            created_by=self.owner,
+        )
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Financial adjustment creation must be performed through the canonical financial adjustment service.",
+        ):
+            adjustment.save()
+
+    def test_financial_adjustment_bulk_create_is_blocked(self):
+        tenant = self.create_tenant_record()
+        invoice = tenant.occupancies.get().invoices.get()
+        adjustment = FinancialAdjustment(
+            workspace=self.workspace,
+            invoice=invoice,
+            adjustment_type="discount",
+            amount=Decimal("100"),
+            reason="Bulk mutation",
+            created_by=self.owner,
+        )
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Financial adjustment creation must be performed through the canonical financial adjustment service.",
+        ):
+            FinancialAdjustment.objects.bulk_create([adjustment])
+
+    def test_canonical_financial_adjustment_service_can_create_adjustment(self):
+        adjustment, invoice = self.create_adjustment_record()
+
+        self.assertEqual(adjustment.invoice_id, invoice.pk)
+        self.assertEqual(adjustment.amount, Decimal("100.00"))
+        self.assertEqual(adjustment.adjustment_type, "discount")
+
+        entry = FinancialLedgerEntry.objects.get(
+            workspace=self.workspace,
+            event_key=f"adjustment:{adjustment.pk}:created",
+        )
+        self.assertEqual(entry.event_type, "adjustment_created")
+        self.assertEqual(entry.amount, Decimal("100.00"))
+
+    def test_financial_adjustment_delete_is_blocked(self):
+        adjustment, _ = self.create_adjustment_record()
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Financial adjustments cannot be deleted.",
+        ):
+            adjustment.delete()
+
+        with self.assertRaisesMessage(
+            PermissionDenied,
+            "Financial adjustments cannot be deleted.",
+        ):
+            FinancialAdjustment.objects.filter(pk=adjustment.pk).delete()
 
 
 class TenantMutationBoundaryTests(TenantServiceAuthorizationTests):
