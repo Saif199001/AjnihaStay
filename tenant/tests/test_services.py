@@ -7,7 +7,7 @@ from django.core.exceptions import PermissionDenied
 from django.test import TestCase
 from django.utils.datastructures import MultiValueDict
 
-from payments.models import AdvanceCredit, Invoice, Payment, PaymentAllocation
+from payments.models import AdvanceCredit, Invoice, Payment, PaymentAllocation, _allow_payment_creation
 from payments.ledger_models import FinancialLedgerEntry
 from payments.invoice_generation_service import generate_invoice_for_occupancy
 
@@ -628,17 +628,14 @@ class PaymentMutationBoundaryTests(TenantServiceAuthorizationTests):
     def create_advance_credit_record(self):
         tenant = self.create_tenant_record()
         occupancy = self.create_occupancy_record(tenant)
-        invoice = occupancy.invoices.get()
-        payment = record_payment(
-            self.owner,
-            self.workspace,
-            {
-                "invoice": invoice.pk,
-                "amount": Decimal("1000"),
-                "payment_method": "cash",
-                "payment_date": date(2026, 10, 5),
-            },
+        payment = Payment(
+            workspace=self.workspace,
+            amount=Decimal("500"),
+            payment_method="cash",
+            payment_date=date(2026, 10, 5),
         )
+        with _allow_payment_creation():
+            payment.save(force_insert=True)
         return payment, tenant, occupancy
 
     def test_advance_credit_direct_create_is_blocked(self):
