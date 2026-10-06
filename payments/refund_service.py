@@ -7,7 +7,7 @@ from django.db.models import Sum
 from workspaces.models import Membership
 
 from .models import Payment
-from .refund_models import PaymentRefund
+from .refund_models import PaymentRefund, _allow_payment_refund_creation, _allow_payment_refund_transition
 
 
 REFUND_AUTHORIZED_ROLES = {
@@ -94,7 +94,8 @@ def request_payment_refund(*, user, workspace, payment, amount, reason, referenc
         if amount > _refund_capacity(payment_obj):
             raise ValidationError("Refund amount exceeds refundable capacity")
         try:
-            refund = PaymentRefund.objects.create(
+            with _allow_payment_refund_creation():
+                refund = PaymentRefund.objects.create(
                 workspace=workspace,
                 payment=payment_obj,
                 amount=amount,
@@ -102,8 +103,8 @@ def request_payment_refund(*, user, workspace, payment, amount, reason, referenc
                 reason=reason,
                 reference=reference,
                 idempotency_key=idempotency_key,
-                requested_by=user,
-            )
+                    requested_by=user,
+                )
         except IntegrityError:
             if idempotency_key:
                 existing = PaymentRefund.objects.filter(workspace_id=workspace_id, idempotency_key=idempotency_key).first()
@@ -191,7 +192,8 @@ def transition_payment_refund(*, user, workspace, refund, status, failure_reason
                 raise ValidationError("Refund failure reason is required")
         elif failure_reason is not None:
             raise ValidationError("Failure reason is only valid for failed refunds")
-        refund_obj.save()
+        with _allow_payment_refund_transition():
+            refund_obj.save()
 
         if status == PaymentRefund.STATUS_SUCCEEDED:
             _reconcile_refunded_payment_invoices(refund_obj.payment, workspace)
