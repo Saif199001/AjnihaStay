@@ -15,6 +15,9 @@ _PAYMENT_CREATION_ALLOWED = ContextVar("payment_creation_allowed", default=False
 _PAYMENT_ALLOCATION_CREATION_ALLOWED = ContextVar(
     "payment_allocation_creation_allowed", default=False
 )
+_ADVANCE_CREDIT_CREATION_ALLOWED = ContextVar(
+    "advance_credit_creation_allowed", default=False
+)
 
 
 @contextmanager
@@ -42,6 +45,15 @@ def _allow_payment_allocation_creation():
         yield
     finally:
         _PAYMENT_ALLOCATION_CREATION_ALLOWED.reset(token)
+
+
+@contextmanager
+def _allow_advance_credit_creation():
+    token = _ADVANCE_CREDIT_CREATION_ALLOWED.set(True)
+    try:
+        yield
+    finally:
+        _ADVANCE_CREDIT_CREATION_ALLOWED.reset(token)
 
 
 class Invoice(models.Model):
@@ -203,7 +215,18 @@ class PaymentAllocation(models.Model):
         constraints = [models.CheckConstraint(condition=Q(amount__gt=0), name="payment_allocation_amount_positive")]
 
 
+class AdvanceCreditQuerySet(models.QuerySet):
+    def bulk_create(self, objs, *args, **kwargs):
+        if not _ADVANCE_CREDIT_CREATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Advance credit creation must be performed through the canonical advance credit service."
+            )
+        return super().bulk_create(objs, *args, **kwargs)
+
+
 class AdvanceCredit(models.Model):
+    objects = AdvanceCreditQuerySet.as_manager()
+
     workspace = models.ForeignKey("workspaces.Workspace", on_delete=models.PROTECT, related_name="advance_credits")
     tenant = models.ForeignKey("tenant.Tenant", on_delete=models.PROTECT, related_name="advance_credits")
     occupancy = models.ForeignKey("tenant.Occupancy", on_delete=models.PROTECT, related_name="advance_credits", null=True, blank=True)
@@ -218,6 +241,10 @@ class AdvanceCredit(models.Model):
             if self.occupancy.tenant.workspace_id != self.workspace_id: raise ValidationError("Advance credit occupancy must belong to the same workspace")
         if self.source_payment_id and self.source_payment.workspace_id != self.workspace_id: raise ValidationError("Advance credit source payment must belong to the same workspace")
     def save(self, *args, **kwargs):
+        if not self.pk and not _ADVANCE_CREDIT_CREATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Advance credit creation must be performed through the canonical advance credit service."
+            )
         if self.pk:
             persisted = type(self).objects.get(pk=self.pk)
             if persisted.workspace_id != self.workspace_id or persisted.tenant_id != self.tenant_id or persisted.occupancy_id != self.occupancy_id or persisted.source_payment_id != self.source_payment_id or persisted.original_amount != self.original_amount: raise ValidationError("Advance credit financial facts cannot be changed after creation")
