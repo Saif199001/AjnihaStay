@@ -1,10 +1,54 @@
 from django.conf import settings
-from django.core.exceptions import ValidationError
+from contextlib import contextmanager
+from contextvars import ContextVar
+
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import models
 from django.db.models import Q
 
 
+_PAYMENT_REFUND_CREATION_ALLOWED = ContextVar("payment_refund_creation_allowed", default=False)
+_PAYMENT_REFUND_TRANSITION_ALLOWED = ContextVar("payment_refund_transition_allowed", default=False)
+
+
+@contextmanager
+def _allow_payment_refund_creation():
+    token = _PAYMENT_REFUND_CREATION_ALLOWED.set(True)
+    try:
+        yield
+    finally:
+        _PAYMENT_REFUND_CREATION_ALLOWED.reset(token)
+
+
+@contextmanager
+def _allow_payment_refund_transition():
+    token = _PAYMENT_REFUND_TRANSITION_ALLOWED.set(True)
+    try:
+        yield
+    finally:
+        _PAYMENT_REFUND_TRANSITION_ALLOWED.reset(token)
+
+
+class PaymentRefundQuerySet(models.QuerySet):
+    def bulk_create(self, objs, *args, **kwargs):
+        if not _PAYMENT_REFUND_CREATION_ALLOWED.get():
+            raise PermissionDenied("Payment refund creation must be performed through the canonical refund service.")
+        return super().bulk_create(objs, *args, **kwargs)
+
+    def bulk_update(self, objs, fields, *args, **kwargs):
+        raise PermissionDenied("Payment refunds must be mutated through the canonical refund service.")
+
+    def update(self, **kwargs):
+        raise PermissionDenied("Payment refunds must be mutated through the canonical refund service.")
+
+    def delete(self):
+        raise PermissionDenied("Payment refunds cannot be deleted.")
+
+
+
+
 class PaymentRefund(models.Model):
+    objects = PaymentRefundQuerySet.as_manager()
     STATUS_REQUESTED = "requested"
     STATUS_PROCESSING = "processing"
     STATUS_SUCCEEDED = "succeeded"
@@ -57,6 +101,10 @@ class PaymentRefund(models.Model):
             raise ValidationError("Refund and payment must belong to the same workspace")
 
     def save(self, *args, **kwargs):
+        if not self.pk and not _PAYMENT_REFUND_CREATION_ALLOWED.get():
+            raise PermissionDenied(
+                "Payment refund creation must be performed through the canonical refund service."
+            )
         if self.pk:
             persisted = type(self).objects.get(pk=self.pk)
             if (
@@ -78,8 +126,15 @@ class PaymentRefund(models.Model):
                 }
                 if self.status not in allowed.get(persisted.status, set()):
                     raise ValidationError("Invalid refund state transition")
+                if not _PAYMENT_REFUND_TRANSITION_ALLOWED.get():
+                    raise PermissionDenied(
+                        "Payment refund status changes must be performed through the canonical refund service."
+                    )
         self.clean()
         super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise PermissionDenied("Payment refunds cannot be deleted.")
 
     def __str__(self):
         return f"Refund {self.amount} - {self.payment}"
