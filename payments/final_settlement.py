@@ -1,3 +1,5 @@
+from contextlib import contextmanager
+from contextvars import ContextVar
 from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
@@ -10,7 +12,42 @@ from .services import calculate_final_settlement
 from tenant.models import Occupancy
 
 
+_FINAL_SETTLEMENT_CREATION_ALLOWED = ContextVar("final_settlement_creation_allowed", default=False)
+
+
+@contextmanager
+def _allow_final_settlement_creation():
+    token = _FINAL_SETTLEMENT_CREATION_ALLOWED.set(True)
+    try:
+        yield
+    finally:
+        _FINAL_SETTLEMENT_CREATION_ALLOWED.reset(token)
+
+
+class FinalSettlementQuerySet(models.QuerySet):
+    def bulk_create(self, objs, *args, **kwargs):
+        if not _FINAL_SETTLEMENT_CREATION_ALLOWED.get():
+            from django.core.exceptions import PermissionDenied
+            raise PermissionDenied(
+                "Final settlement creation must be performed through the canonical final settlement service."
+            )
+        return super().bulk_create(objs, *args, **kwargs)
+
+    def update(self, **kwargs):
+        from django.core.exceptions import PermissionDenied
+        raise PermissionDenied("Final settlement financial facts cannot be updated directly.")
+
+    def bulk_update(self, objs, fields, *args, **kwargs):
+        from django.core.exceptions import PermissionDenied
+        raise PermissionDenied("Final settlement financial facts cannot be updated directly.")
+
+    def delete(self):
+        from django.core.exceptions import PermissionDenied
+        raise PermissionDenied("Final settlements cannot be deleted.")
+
+
 class FinalSettlement(models.Model):
+    objects = FinalSettlementQuerySet.as_manager()
     OUTCOME_NO_DEPOSIT = "no_deposit"
     OUTCOME_FULL_REFUND = "full_refund"
     OUTCOME_PARTIAL_REFUND = "partial_refund"
@@ -47,6 +84,11 @@ class FinalSettlement(models.Model):
             raise ValidationError("Deposit allocation must equal security deposit")
 
     def save(self, *args, **kwargs):
+        if not self.pk and not _FINAL_SETTLEMENT_CREATION_ALLOWED.get():
+            from django.core.exceptions import PermissionDenied
+            raise PermissionDenied(
+                "Final settlement creation must be performed through the canonical final settlement service."
+            )
         if self.pk:
             persisted = type(self).objects.get(pk=self.pk)
             snapshot_fields = (
@@ -58,6 +100,10 @@ class FinalSettlement(models.Model):
                 raise ValidationError("Final settlement facts cannot be changed after settlement")
         self.clean()
         super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        from django.core.exceptions import PermissionDenied
+        raise PermissionDenied("Final settlements cannot be deleted.")
 
     class Meta:
         indexes = [
@@ -118,20 +164,21 @@ def finalize_final_settlement(user, workspace, occupancy_id, refundable_deposit=
         else:
             outcome = FinalSettlement.OUTCOME_PARTIAL_REFUND
 
-        settlement = FinalSettlement.objects.create(
-            workspace=workspace,
-            occupancy=occupancy,
-            total_rent=position["total_rent"],
-            total_charges=position["total_charges"],
-            total_paid=position["total_paid"],
-            total_due=position["total_due"],
-            security_deposit=deposit,
-            retained_deposit=retained,
-            refundable_deposit=refundable,
-            final_balance=position["final_balance"],
-            outcome=outcome,
-            settled_by=user,
-        )
+        with _allow_final_settlement_creation():
+            settlement = FinalSettlement.objects.create(
+                workspace=workspace,
+                occupancy=occupancy,
+                total_rent=position["total_rent"],
+                total_charges=position["total_charges"],
+                total_paid=position["total_paid"],
+                total_due=position["total_due"],
+                security_deposit=deposit,
+                retained_deposit=retained,
+                refundable_deposit=refundable,
+                final_balance=position["final_balance"],
+                outcome=outcome,
+                settled_by=user,
+            )
 
         from .ledger_service import post_ledger_event
         post_ledger_event(
