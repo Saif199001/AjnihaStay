@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import TestCase
 
 from accounts.models import User
@@ -162,3 +162,43 @@ class LateFeeEngineTests(TestCase):
         )
         with self.assertRaises(ValidationError):
             policy.full_clean()
+
+
+class LateFeeMutationBoundaryTests(LateFeeEngineTests):
+    def test_direct_create_is_blocked(self):
+        policy = self.make_policy()
+        with self.assertRaises(PermissionDenied):
+            LateFee.objects.create(workspace=self.workspace, invoice=self.invoice, policy=policy, effective_date=date(2026, 9, 11), amount=Decimal("500.00"), outstanding_balance=Decimal("10000.00"), calculation_mode=policy.calculation_mode, reason="direct", created_by=self.owner)
+
+    def test_bulk_create_is_blocked(self):
+        policy = self.make_policy()
+        obj = LateFee(workspace=self.workspace, invoice=self.invoice, policy=policy, effective_date=date(2026, 9, 11), amount=Decimal("500.00"), outstanding_balance=Decimal("10000.00"), calculation_mode=policy.calculation_mode, reason="bulk", created_by=self.owner)
+        with self.assertRaises(PermissionDenied):
+            LateFee.objects.bulk_create([obj])
+
+    def test_queryset_update_is_blocked(self):
+        self.make_policy()
+        fee, _ = generate_late_fee(self.owner, self.workspace, self.invoice.id, as_of=date(2026, 9, 11))
+        with self.assertRaises(PermissionDenied):
+            LateFee.objects.filter(pk=fee.pk).update(amount=Decimal("700.00"))
+
+    def test_bulk_update_is_blocked(self):
+        self.make_policy()
+        fee, _ = generate_late_fee(self.owner, self.workspace, self.invoice.id, as_of=date(2026, 9, 11))
+        fee.amount = Decimal("700.00")
+        with self.assertRaises(PermissionDenied):
+            LateFee.objects.bulk_update([fee], ["amount"])
+
+    def test_delete_is_blocked(self):
+        self.make_policy()
+        fee, _ = generate_late_fee(self.owner, self.workspace, self.invoice.id, as_of=date(2026, 9, 11))
+        with self.assertRaises(PermissionDenied):
+            fee.delete()
+        with self.assertRaises(PermissionDenied):
+            LateFee.objects.filter(pk=fee.pk).delete()
+
+    def test_canonical_generation_creates_late_fee(self):
+        self.make_policy()
+        fee, result = generate_late_fee(self.owner, self.workspace, self.invoice.id, as_of=date(2026, 9, 11))
+        self.assertTrue(result["created"])
+        self.assertEqual(LateFee.objects.get(pk=fee.pk).amount, Decimal("500.00"))
