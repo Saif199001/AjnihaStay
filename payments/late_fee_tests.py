@@ -13,6 +13,7 @@ from .adjustment_service import calculate_invoice_financial_position
 from .late_fee_models import LateFee, LateFeePolicy
 from .late_fee_service import calculate_late_fee, generate_late_fee
 from .models import Invoice
+from .services import create_invoice
 
 
 class LateFeeEngineTests(TestCase):
@@ -54,13 +55,16 @@ class LateFeeEngineTests(TestCase):
             check_in_date=date(2026, 9, 1),
             next_due_date=date(2026, 10, 1),
         )
-        self.invoice = Invoice.objects.create(
-            occupancy=occupancy,
-            billing_start=date(2026, 9, 1),
-            billing_end=date(2026, 10, 1),
-            rent_amount=Decimal("10000.00"),
-            charges_amount=Decimal("0.00"),
-            due_date=date(2026, 9, 10),
+        self.invoice = create_invoice(
+            self.owner,
+            self.workspace,
+            {
+                "occupancy": occupancy.id,
+                "billing_start": date(2026, 9, 1),
+                "billing_end": date(2026, 10, 1),
+                "rent_amount": Decimal("10000.00"),
+                "due_date": date(2026, 9, 10),
+            },
         )
 
     def make_policy(self, **overrides):
