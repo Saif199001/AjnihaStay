@@ -122,7 +122,7 @@ class Invoice(models.Model):
         if self.total_amount is not None and self.paid_amount > self.total_amount: raise ValidationError("Paid amount cannot exceed invoice total")
 
     def save(self, *args, **kwargs):
-        if not self.pk and not _INVOICE_CREATION_ALLOWED.get():
+        if self._state.adding and not _INVOICE_CREATION_ALLOWED.get():
             raise PermissionDenied(
                 "Invoice creation must be performed through the canonical invoice service."
             )
