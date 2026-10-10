@@ -4,7 +4,7 @@ from rest_framework.response import Response
 
 from workspaces.permissions import WorkspaceManagerPermission
 
-from .adjustment_service import create_financial_adjustment
+from .financial_transition_service import FinancialTransition, execute_transition
 from .adjustment_serializers import (
     FinancialAdjustmentCreateSerializer,
     FinancialAdjustmentSerializer,
@@ -23,10 +23,11 @@ def financial_adjustment_create_api(request):
         return Response(serializer.errors, status=400)
 
     try:
-        adjustment, position, created = create_financial_adjustment(
-            request.user,
-            request.workspace,
-            serializer.validated_data,
+        adjustment, position, created = execute_transition(
+            FinancialTransition.CREATE_ADJUSTMENT,
+            user=request.user,
+            workspace=request.workspace,
+            data=serializer.validated_data,
         )
     except ValidationError as exc:
         message = _validation_message(exc)
