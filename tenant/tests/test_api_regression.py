@@ -499,7 +499,11 @@ class TenantPaymentAPIRegressionTests(TestCase):
         self.assertEqual(len(response.data["data"]), 1)
         credit_id = response.data["data"][0]["id"]
 
-        occupancy = self.create_occupancy_record()
+        occupancy = create_occupancy(
+            self.owner,
+            self.workspace,
+            self.occupancy_data(tenant),
+        )
         invoice = occupancy.invoices.get()
         response = self.client.post(
             f"/api/advance-credits/{credit_id}/apply/",
