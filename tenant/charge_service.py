@@ -117,9 +117,12 @@ def _create_charge_record(
             description=description,
         )
     if target_invoice is not None:
+        from payments.models import _allow_invoice_mutation
+
         target_invoice.charges_amount += amount
         target_invoice.total_amount = target_invoice.rent_amount + target_invoice.charges_amount
-        target_invoice.save()
+        with _allow_invoice_mutation():
+            target_invoice.save()
 
     if post_ledger:
         post_ledger_event(
