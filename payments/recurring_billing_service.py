@@ -7,7 +7,7 @@ from django.db import transaction
 from tenant.charge_service import _create_charge_record
 
 from .authorization import require_mutation_permission
-from .billing_models import BillingSchedule
+from .billing_models import BillingSchedule, _allow_billing_schedule_mutation
 from .models import Invoice, _allow_invoice_creation
 
 
@@ -80,7 +80,8 @@ def _advance_schedule(schedule):
     schedule.next_run_date = _next_run_date(schedule.next_run_date, schedule.frequency)
     if schedule.occupancy.check_out_date and schedule.next_run_date > schedule.occupancy.check_out_date:
         schedule.active = False
-    schedule.save(update_fields=["next_run_date", "active", "updated_at"])
+    with _allow_billing_schedule_mutation():
+        schedule.save(update_fields=["next_run_date", "active", "updated_at"])
 
 
 def _post_charge_ledger(user, workspace, charge, *, invoice=None):
