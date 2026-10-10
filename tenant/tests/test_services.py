@@ -294,6 +294,16 @@ class FinancialAdjustmentMutationBoundaryTests(TenantServiceAuthorizationTests):
             FinancialAdjustment.objects.filter(pk=adjustment.pk).delete()
 
 
+
+    def test_financial_adjustment_queryset_update_and_bulk_update_are_blocked(self):
+        adjustment, _ = self.create_adjustment_record()
+        with self.assertRaisesMessage(PermissionDenied, "Financial adjustments cannot be updated directly."):
+            FinancialAdjustment.objects.filter(pk=adjustment.pk).update(reason="tampered")
+        adjustment.reason = "tampered"
+        with self.assertRaisesMessage(PermissionDenied, "Financial adjustments cannot be updated directly."):
+            FinancialAdjustment.objects.bulk_update([adjustment], ["reason"])
+
+
 class TenantMutationBoundaryTests(TenantServiceAuthorizationTests):
     def create_tenant_record(self):
         return create_tenant(
@@ -883,6 +893,60 @@ class PaymentMutationBoundaryTests(TenantServiceAuthorizationTests):
             "Advance credit applications cannot be deleted.",
         ):
             AdvanceCreditApplication.objects.filter(pk=application.pk).delete()
+
+
+
+    def test_payment_queryset_update_bulk_update_and_delete_are_blocked(self):
+        payment, _ = self.create_payment_record()
+        with self.assertRaisesMessage(PermissionDenied, "Payments cannot be updated directly."):
+            Payment.objects.filter(pk=payment.pk).update(notes="tampered")
+        payment.notes = "tampered"
+        with self.assertRaisesMessage(PermissionDenied, "Payments cannot be updated directly."):
+            Payment.objects.bulk_update([payment], ["notes"])
+        with self.assertRaisesMessage(PermissionDenied, "Payments cannot be deleted."):
+            payment.delete()
+        with self.assertRaisesMessage(PermissionDenied, "Payments cannot be deleted."):
+            Payment.objects.filter(pk=payment.pk).delete()
+
+    def test_payment_allocation_queryset_mutations_are_blocked(self):
+        payment, invoice = self.create_allocation_record()
+        allocation = PaymentAllocation.objects.get(payment=payment, invoice=invoice)
+        with self.assertRaisesMessage(PermissionDenied, "Payment allocations cannot be updated directly."):
+            PaymentAllocation.objects.filter(pk=allocation.pk).update(amount=Decimal("1.00"))
+        allocation.amount = Decimal("1.00")
+        with self.assertRaisesMessage(PermissionDenied, "Payment allocations cannot be updated directly."):
+            PaymentAllocation.objects.bulk_update([allocation], ["amount"])
+        with self.assertRaisesMessage(PermissionDenied, "Payment allocations cannot be deleted."):
+            allocation.delete()
+        with self.assertRaisesMessage(PermissionDenied, "Payment allocations cannot be deleted."):
+            PaymentAllocation.objects.filter(pk=allocation.pk).delete()
+
+    def test_advance_credit_queryset_mutations_are_blocked(self):
+        payment, tenant, occupancy = self.create_advance_credit_record()
+        credit = create_advance_credit(self.owner, self.workspace, {
+            "source_payment": payment.pk, "tenant": tenant.pk,
+            "occupancy": occupancy.pk, "amount": Decimal("500"),
+        })
+        with self.assertRaisesMessage(PermissionDenied, "Advance credits cannot be updated directly."):
+            AdvanceCredit.objects.filter(pk=credit.pk).update(original_amount=Decimal("400"))
+        credit.original_amount = Decimal("400")
+        with self.assertRaisesMessage(PermissionDenied, "Advance credits cannot be updated directly."):
+            AdvanceCredit.objects.bulk_update([credit], ["original_amount"])
+        with self.assertRaisesMessage(PermissionDenied, "Advance credits cannot be deleted."):
+            credit.delete()
+        with self.assertRaisesMessage(PermissionDenied, "Advance credits cannot be deleted."):
+            AdvanceCredit.objects.filter(pk=credit.pk).delete()
+
+    def test_advance_credit_application_queryset_updates_are_blocked(self):
+        credit, invoice = self.create_advance_credit_application_record()
+        application, _, _ = apply_advance_credit(self.owner, self.workspace, {
+            "credit": credit.pk, "invoice": invoice.pk, "amount": Decimal("100"),
+        })
+        with self.assertRaisesMessage(PermissionDenied, "Advance credit applications cannot be updated directly."):
+            AdvanceCreditApplication.objects.filter(pk=application.pk).update(amount=Decimal("50"))
+        application.amount = Decimal("50")
+        with self.assertRaisesMessage(PermissionDenied, "Advance credit applications cannot be updated directly."):
+            AdvanceCreditApplication.objects.bulk_update([application], ["amount"])
 
 
 class OccupancyStructureInvariantTests(TenantServiceAuthorizationTests):
