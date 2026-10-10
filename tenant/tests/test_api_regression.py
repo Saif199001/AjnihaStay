@@ -6,7 +6,7 @@ from django.utils.datastructures import MultiValueDict
 from rest_framework.test import APIClient
 
 from accounts.services import create_user_account
-from payments.models import Invoice, Payment
+from payments.models import Invoice, Payment, _allow_payment_creation
 from payments.services import record_payment
 from properties.services import create_property
 from tenant.services import create_occupancy, create_tenant
@@ -419,3 +419,125 @@ class TenantPaymentAPIRegressionTests(TestCase):
         self.assertFalse(
             Payment.objects.filter(pk=payment.pk, workspace=other_workspace).exists()
         )
+
+
+    def test_tenant_api_never_returns_kyc_fields_to_workspace_viewers(self):
+        payload = self.tenant_payload(
+            id_proof_type="aadhaar",
+            id_number="TEST-KYC-1234",
+        )
+        response = self.client.post(
+            "/api/tenants/create/",
+            payload,
+            format="json",
+            **self.authenticate(self.manager),
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertNotIn("id_proof_type", response.data["data"])
+        self.assertNotIn("id_number", response.data["data"])
+        self.assertNotIn("id_document", response.data["data"])
+
+        response = self.client.get("/api/tenants/", **self.authenticate(self.viewer))
+        self.assertEqual(response.status_code, 200, response.data)
+        for tenant_data in response.data["data"]:
+            self.assertNotIn("id_proof_type", tenant_data)
+            self.assertNotIn("id_number", tenant_data)
+            self.assertNotIn("id_document", tenant_data)
+
+    def test_payment_allocation_api_uses_canonical_boundary(self):
+        occupancy = self.create_occupancy_record()
+        invoice = occupancy.invoices.get()
+        with _allow_payment_creation():
+            payment = Payment.objects.create(
+                workspace=self.workspace,
+                invoice=None,
+                amount=Decimal("1000.00"),
+                payment_method="cash",
+                payment_date=date(2026, 10, 5),
+            )
+
+        response = self.client.post(
+            f"/api/payments/{payment.pk}/allocations/",
+            {"allocations": [{"invoice": invoice.pk, "amount": "500.00"}]},
+            format="json",
+            **self.authenticate(self.manager),
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data["data"][0]["amount"], "500.00")
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.paid_amount, Decimal("500.00"))
+
+        denied = self.client.post(
+            f"/api/payments/{payment.pk}/allocations/",
+            {"allocations": [{"invoice": invoice.pk, "amount": "100.00"}]},
+            format="json",
+            **self.authenticate(self.viewer),
+        )
+        self.assertEqual(denied.status_code, 403)
+
+    def test_advance_credit_api_create_apply_and_list_contract(self):
+        tenant = self.create_tenant_record()
+        response = self.client.post(
+            "/api/payments/create/",
+            {
+                "tenant": tenant.pk,
+                "amount": "1000.00",
+                "payment_method": "cash",
+                "payment_date": "2026-10-05",
+                "notes": "Advance payment API regression",
+            },
+            format="json",
+            **self.authenticate(self.manager),
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+
+        response = self.client.get(
+            "/api/advance-credits/",
+            **self.authenticate(self.viewer),
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(len(response.data["data"]), 1)
+        credit_id = response.data["data"][0]["id"]
+
+        occupancy = self.create_occupancy_record()
+        invoice = occupancy.invoices.get()
+        response = self.client.post(
+            f"/api/advance-credits/{credit_id}/apply/",
+            {"invoice": invoice.pk, "amount": "500.00"},
+            format="json",
+            **self.authenticate(self.manager),
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data["data"]["remaining_credit"], "500.00")
+
+    def test_all_financial_report_endpoints_have_workspace_viewer_contract(self):
+        occupancy = self.create_occupancy_record()
+        invoice = occupancy.invoices.get()
+        headers = self.authenticate(self.viewer)
+        requests = [
+            ("/api/reports/receivables/", {}),
+            ("/api/reports/invoice/", {"invoice_id": invoice.pk}),
+            ("/api/reports/invoice-status/", {}),
+            ("/api/reports/collections/period/", {"start": "2026-10-01", "end": "2026-10-31"}),
+            ("/api/reports/aging/", {"as_of": "2026-10-10"}),
+            ("/api/reports/advance-credits/", {}),
+            ("/api/reports/adjustments/", {}),
+            ("/api/reports/late-fees/", {}),
+            ("/api/reports/ledger/", {}),
+            ("/api/reports/reconciliation/", {}),
+        ]
+        for path, params in requests:
+            with self.subTest(path=path):
+                response = self.client.get(path, params, **headers)
+                self.assertEqual(response.status_code, 200, getattr(response, "data", None))
+                self.assertIn("data", response.data)
+
+    def test_viewer_cannot_finalize_final_settlement(self):
+        occupancy = self.create_occupancy_record()
+        response = self.client.post(
+            f"/api/final-settlement/{occupancy.pk}/settle/",
+            {},
+            format="json",
+            **self.authenticate(self.viewer),
+        )
+        self.assertEqual(response.status_code, 403)
