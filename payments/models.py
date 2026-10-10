@@ -137,6 +137,15 @@ class PaymentQuerySet(models.QuerySet):
             )
         return super().bulk_create(objs, *args, **kwargs)
 
+    def update(self, **kwargs):
+        raise PermissionDenied("Payments cannot be updated directly.")
+
+    def bulk_update(self, objs, fields, *args, **kwargs):
+        raise PermissionDenied("Payments cannot be updated directly.")
+
+    def delete(self):
+        raise PermissionDenied("Payments cannot be deleted.")
+
 
 class Payment(models.Model):
     PAYMENT_METHODS = (("cash", "Cash"), ("upi", "UPI"), ("bank", "Bank Transfer"), ("card", "Card"))
@@ -170,6 +179,9 @@ class Payment(models.Model):
             if persisted.invoice_id != self.invoice_id or persisted.amount != self.amount: raise ValidationError("Payment invoice and amount cannot be changed after creation")
             if persisted.workspace_id != self.workspace_id: raise ValidationError("Payment workspace cannot be changed after creation")
         self.clean(); super().save(*args, **kwargs)
+    def delete(self, *args, **kwargs):
+        raise PermissionDenied("Payments cannot be deleted.")
+
     def __str__(self): return f"{self.amount} - {self.payment_method}"
     @property
     def allocated_amount(self): return self.allocations.aggregate(total=Sum("amount"))["total"] or 0
@@ -191,6 +203,15 @@ class PaymentAllocationQuerySet(models.QuerySet):
                 "Payment allocation creation must be performed through the canonical payment service."
             )
         return super().bulk_create(objs, *args, **kwargs)
+
+    def update(self, **kwargs):
+        raise PermissionDenied("Payment allocations cannot be updated directly.")
+
+    def bulk_update(self, objs, fields, *args, **kwargs):
+        raise PermissionDenied("Payment allocations cannot be updated directly.")
+
+    def delete(self):
+        raise PermissionDenied("Payment allocations cannot be deleted.")
 
 
 class PaymentAllocation(models.Model):
@@ -222,6 +243,9 @@ class PaymentAllocation(models.Model):
             from .adjustment_service import calculate_invoice_financial_position
             if self.amount > calculate_invoice_financial_position(invoice)["outstanding"]: raise ValidationError("Allocation exceeds invoice remaining amount")
             return super().save(*args, **kwargs)
+    def delete(self, *args, **kwargs):
+        raise PermissionDenied("Payment allocations cannot be deleted.")
+
     @property
     def workspace_id(self): return self.payment.workspace_id
     class Meta:
@@ -236,6 +260,15 @@ class AdvanceCreditQuerySet(models.QuerySet):
                 "Advance credit creation must be performed through the canonical advance credit service."
             )
         return super().bulk_create(objs, *args, **kwargs)
+
+    def update(self, **kwargs):
+        raise PermissionDenied("Advance credits cannot be updated directly.")
+
+    def bulk_update(self, objs, fields, *args, **kwargs):
+        raise PermissionDenied("Advance credits cannot be updated directly.")
+
+    def delete(self):
+        raise PermissionDenied("Advance credits cannot be deleted.")
 
 
 class AdvanceCredit(models.Model):
@@ -263,6 +296,9 @@ class AdvanceCredit(models.Model):
             persisted = type(self).objects.get(pk=self.pk)
             if persisted.workspace_id != self.workspace_id or persisted.tenant_id != self.tenant_id or persisted.occupancy_id != self.occupancy_id or persisted.source_payment_id != self.source_payment_id or persisted.original_amount != self.original_amount: raise ValidationError("Advance credit financial facts cannot be changed after creation")
         self.clean(); super().save(*args, **kwargs)
+    def delete(self, *args, **kwargs):
+        raise PermissionDenied("Advance credits cannot be deleted.")
+
     def __str__(self): return f"Advance credit {self.original_amount} - {self.tenant}"
     @property
     def applied_amount(self): return self.applications.aggregate(total=Sum("amount"))["total"] or 0
@@ -296,6 +332,12 @@ class AdvanceCreditApplicationQuerySet(models.QuerySet):
                 "Advance credit application creation must be performed through the canonical advance credit service."
             )
         return super().bulk_create(objs, *args, **kwargs)
+
+    def update(self, **kwargs):
+        raise PermissionDenied("Advance credit applications cannot be updated directly.")
+
+    def bulk_update(self, objs, fields, *args, **kwargs):
+        raise PermissionDenied("Advance credit applications cannot be updated directly.")
 
     def delete(self):
         raise PermissionDenied(
@@ -350,6 +392,12 @@ class FinancialAdjustmentQuerySet(models.QuerySet):
                 "Financial adjustment creation must be performed through the canonical financial adjustment service."
             )
         return super().bulk_create(objs, *args, **kwargs)
+
+    def update(self, **kwargs):
+        raise PermissionDenied("Financial adjustments cannot be updated directly.")
+
+    def bulk_update(self, objs, fields, *args, **kwargs):
+        raise PermissionDenied("Financial adjustments cannot be updated directly.")
 
     def delete(self):
         raise PermissionDenied(
