@@ -1,7 +1,36 @@
+from contextlib import contextmanager
+from contextvars import ContextVar
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
+
+
+_LEDGER_ENTRY_CREATION_ALLOWED = ContextVar("ledger_entry_creation_allowed", default=False)
+
+
+@contextmanager
+def _allow_ledger_entry_creation():
+    token = _LEDGER_ENTRY_CREATION_ALLOWED.set(True)
+    try:
+        yield
+    finally:
+        _LEDGER_ENTRY_CREATION_ALLOWED.reset(token)
+
+
+class FinancialLedgerEntryQuerySet(models.QuerySet):
+    def bulk_create(self, objs, *args, **kwargs):
+        raise PermissionDenied("Ledger entries must be posted through the canonical ledger service.")
+
+    def update(self, **kwargs):
+        raise PermissionDenied("Financial ledger entries are append-only.")
+
+    def bulk_update(self, objs, fields, *args, **kwargs):
+        raise PermissionDenied("Financial ledger entries are append-only.")
+
+    def delete(self):
+        raise PermissionDenied("Financial ledger entries are append-only.")
 
 
 class FinancialLedgerEntry(models.Model):
@@ -42,6 +71,8 @@ class FinancialLedgerEntry(models.Model):
     metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    objects = FinancialLedgerEntryQuerySet.as_manager()
+
     def clean(self):
         if self.amount is not None and self.amount <= 0:
             raise ValidationError("Ledger amount must be greater than zero")
@@ -67,6 +98,10 @@ class FinancialLedgerEntry(models.Model):
                 raise ValidationError("Ledger payment and occupancy must match")
 
     def save(self, *args, **kwargs):
+        if self._state.adding and not _LEDGER_ENTRY_CREATION_ALLOWED.get():
+            raise PermissionDenied("Ledger entries must be posted through the canonical ledger service.")
+        if not self._state.adding:
+            raise PermissionDenied("Financial ledger entries are append-only.")
         if self.pk:
             persisted = type(self).objects.get(pk=self.pk)
             immutable_fields = (
