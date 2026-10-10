@@ -4,19 +4,9 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from workspaces.permissions import WorkspaceManagerPermission, WorkspaceViewerPermission
-from .advance_credit_service import (
-    apply_advance_credit,
-    create_advance_credit,
-    get_advance_credit,
-    get_advance_credits,
-)
-from .allocation_service import allocate_payment
-from .billing_service import (
-    create_billing_schedule,
-    get_billing_schedule,
-    get_billing_schedules,
-    update_billing_schedule,
-)
+from .advance_credit_service import get_advance_credit, get_advance_credits
+from .billing_service import get_billing_schedule, get_billing_schedules
+from .financial_transition_service import FinancialTransition, execute_transition
 from .serializers import (
     AdvanceCreditApplicationCreateSerializer,
     AdvanceCreditApplicationSerializer,
@@ -34,7 +24,6 @@ from .services import (
     get_invoice,
     get_invoices,
     get_payments,
-    record_payment,
 )
 
 
@@ -71,7 +60,12 @@ def payment_create_api(request):
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
     try:
-        payment = record_payment(request.user, request.workspace, serializer.validated_data)
+        payment = execute_transition(
+            FinancialTransition.RECORD_PAYMENT,
+            user=request.user,
+            workspace=request.workspace,
+            data=serializer.validated_data,
+        )
     except ValidationError as exc:
         return Response({"error": _validation_message(exc)}, status=400)
     return Response({"message": "Payment created", "data": PaymentSerializer(payment).data})
@@ -85,11 +79,12 @@ def payment_allocation_create_api(request, payment_id):
         return Response(serializer.errors, status=400)
 
     try:
-        allocations = allocate_payment(
-            request.user,
-            request.workspace,
-            payment_id,
-            serializer.validated_data["allocations"],
+        allocations = execute_transition(
+            FinancialTransition.ALLOCATE_PAYMENT,
+            user=request.user,
+            workspace=request.workspace,
+            payment=payment_id,
+            allocations=serializer.validated_data["allocations"],
         )
     except ValidationError as exc:
         return Response({"error": _validation_message(exc)}, status=400)
@@ -144,7 +139,12 @@ def billing_schedule_create_api(request):
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
     try:
-        schedule = create_billing_schedule(request.user, request.workspace, serializer.validated_data)
+        schedule = execute_transition(
+            FinancialTransition.CREATE_BILLING_SCHEDULE,
+            user=request.user,
+            workspace=request.workspace,
+            data=serializer.validated_data,
+        )
     except ValidationError as exc:
         return Response({"error": _validation_message(exc)}, status=400)
     return Response({"message": "Billing schedule created", "data": BillingScheduleSerializer(schedule).data}, status=201)
@@ -171,11 +171,12 @@ def billing_schedule_update_api(request, schedule_id):
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
     try:
-        schedule = update_billing_schedule(
-            request.user,
-            request.workspace,
-            schedule_id,
-            serializer.validated_data,
+        schedule = execute_transition(
+            FinancialTransition.UPDATE_BILLING_SCHEDULE,
+            user=request.user,
+            workspace=request.workspace,
+            schedule_id=schedule_id,
+            data=serializer.validated_data,
         )
     except ValidationError as exc:
         return Response({"error": _validation_message(exc)}, status=400)
@@ -196,10 +197,11 @@ def advance_credit_collection_api(request):
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
     try:
-        credit = create_advance_credit(
-            request.user,
-            request.workspace,
-            serializer.validated_data,
+        credit = execute_transition(
+            FinancialTransition.CREATE_ADVANCE_CREDIT,
+            user=request.user,
+            workspace=request.workspace,
+            data=serializer.validated_data,
         )
     except ValidationError as exc:
         return Response({"error": _validation_message(exc)}, status=400)
@@ -230,10 +232,11 @@ def advance_credit_apply_api(request, credit_id):
     data = dict(serializer.validated_data)
     data["credit"] = credit_id
     try:
-        application, remaining_credit, invoice = apply_advance_credit(
-            request.user,
-            request.workspace,
-            data,
+        application, remaining_credit, invoice = execute_transition(
+            FinancialTransition.APPLY_ADVANCE_CREDIT,
+            user=request.user,
+            workspace=request.workspace,
+            data=data,
         )
     except ValidationError as exc:
         message = _validation_message(exc)
