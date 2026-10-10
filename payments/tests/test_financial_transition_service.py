@@ -15,6 +15,12 @@ class FinancialTransitionContractTests(SimpleTestCase):
             "create_billing_schedule",
             "update_billing_schedule",
             "generate_charge",
+            "generate_recurring_invoice",
+            "refresh_invoice_lifecycle",
+            "generate_late_fee",
+            "finalize_final_settlement",
+            "request_payment_refund",
+            "transition_payment_refund",
         }
         self.assertEqual({transition.value for transition in FinancialTransition}, expected)
         for transition in FinancialTransition:
