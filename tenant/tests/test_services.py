@@ -1261,6 +1261,9 @@ class InvoiceLedgerBillingClosureTests(TenantServiceAuthorizationTests):
             FinancialLedgerEntry.objects.filter(pk=entry.pk).delete()
 
         with self.assertRaises(PermissionDenied):
+            entry.delete()
+
+        with self.assertRaises(PermissionDenied):
             FinancialLedgerEntry.objects.create(
                 workspace=self.workspace,
                 event_type=entry.event_type,
