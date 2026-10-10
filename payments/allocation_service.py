@@ -5,7 +5,7 @@ from django.db import transaction
 
 from .adjustment_service import calculate_invoice_financial_position
 from .authorization import require_mutation_permission
-from .models import Invoice, Payment, PaymentAllocation
+from .models import Invoice, Payment, PaymentAllocation, _allow_invoice_mutation
 from .services import get_payment_available_allocation_amount
 
 
@@ -47,7 +47,8 @@ def _normalize_allocations(allocations):
 def _recalculate_invoice_state_from_allocations(invoice):
     """Reconcile compatibility invoice state from canonical financial position."""
     position = calculate_invoice_financial_position(invoice)
-    Invoice.objects.filter(id=invoice.id).update(paid_amount=position["settlement"], status=position["status"])
+    with _allow_invoice_mutation():
+        Invoice.objects.filter(id=invoice.id).update(paid_amount=position["settlement"], status=position["status"])
     invoice.paid_amount = position["settlement"]
     invoice.status = position["status"]
     return invoice
