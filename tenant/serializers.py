@@ -39,7 +39,12 @@ class TenantSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Tenant
-        fields = "__all__"
+        fields = [
+            "id", "owner", "workspace", "full_name", "phone", "email",
+            "profile_photo", "nationality", "permanent_address", "district",
+            "state", "pin_code", "emergency_contact", "occupancies",
+            "created_at", "updated_at",
+        ]
         read_only_fields = ["id", "owner", "workspace", "created_at", "updated_at"]
 
     def validate_phone(self, value):
@@ -51,6 +56,11 @@ class TenantSerializer(serializers.ModelSerializer):
         if not data.get("full_name"):
             raise serializers.ValidationError("Name is required")
         return data
+
+
+class TenantCreateSerializer(TenantSerializer):
+    class Meta(TenantSerializer.Meta):
+        fields = TenantSerializer.Meta.fields + ["id_proof_type", "id_number", "id_document"]
 
 
 class ChargeSerializer(serializers.ModelSerializer):
