@@ -5,7 +5,7 @@ from django.db import transaction
 
 from .adjustment_service import calculate_invoice_financial_position
 from .authorization import require_mutation_permission
-from .models import Invoice, Payment, PaymentAllocation, _allow_invoice_mutation
+from .models import Invoice, Payment, PaymentAllocation, _allow_invoice_mutation, _allow_payment_allocation_creation
 from .services import get_payment_available_allocation_amount
 
 
@@ -90,13 +90,14 @@ def allocate_payment(user, workspace, payment, allocations):
 
         created = []
         for invoice_id, amount in normalized:
-            created.append(
-                PaymentAllocation.objects.create(
-                    payment=payment,
-                    invoice=invoices_by_id[invoice_id],
-                    amount=amount,
+            with _allow_payment_allocation_creation():
+                created.append(
+                    PaymentAllocation.objects.create(
+                        payment=payment,
+                        invoice=invoices_by_id[invoice_id],
+                        amount=amount,
+                    )
                 )
-            )
         for invoice in invoices:
             _recalculate_invoice_state_from_allocations(invoice)
 
