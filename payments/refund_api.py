@@ -10,7 +10,7 @@ from .refund_serializers import (
     PaymentRefundSerializer,
     PaymentRefundTransitionSerializer,
 )
-from .refund_service import request_payment_refund, transition_payment_refund
+from .financial_transition_service import FinancialTransition, execute_transition
 
 
 def _validation_message(exc):
@@ -26,7 +26,8 @@ def payment_refund_create_api(request, payment_id):
 
     data = serializer.validated_data
     try:
-        refund = request_payment_refund(
+        refund = execute_transition(
+            FinancialTransition.REQUEST_PAYMENT_REFUND,
             user=request.user,
             workspace=request.workspace,
             payment=payment_id,
@@ -59,7 +60,8 @@ def payment_refund_transition_api(request, refund_id):
 
     data = serializer.validated_data
     try:
-        refund = transition_payment_refund(
+        refund = execute_transition(
+            FinancialTransition.TRANSITION_PAYMENT_REFUND,
             user=request.user,
             workspace=request.workspace,
             refund=refund_id,
