@@ -83,9 +83,10 @@ class TenantPaymentAPIRegressionTests(TestCase):
         )
         self.client = APIClient()
 
-    def authenticate(self, user):
+    def authenticate(self, user, workspace=None):
         self.client.force_authenticate(user=user)
-        return {"HTTP_X_WORKSPACE_ID": str(self.workspace.pk)}
+        active_workspace = workspace or self.workspace
+        return {"HTTP_X_WORKSPACE_ID": str(active_workspace.pk)}
 
     def tenant_payload(self, **overrides):
         payload = {
@@ -411,7 +412,7 @@ class TenantPaymentAPIRegressionTests(TestCase):
         response = self.client.get(
             "/api/payments/",
             {"invoice": invoice.pk},
-            **self.authenticate(other_owner),
+            **self.authenticate(other_owner, other_workspace),
         )
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(response.data["data"], [])
