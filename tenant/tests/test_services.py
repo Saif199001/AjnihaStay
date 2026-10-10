@@ -1179,3 +1179,135 @@ class InvoiceFinancialBoundaryTests(TenantServiceAuthorizationTests):
         self.assertTrue(created)
         self.assertEqual(invoice.charges_amount, Decimal("250.00"))
         self.assertEqual(invoice.total_amount, Decimal("10250.00"))
+
+
+class InvoiceLedgerBillingClosureTests(TenantServiceAuthorizationTests):
+    """Regression tests for the consolidated Tenant + Payment production boundary."""
+
+    def create_occupancy_record(self):
+        tenant = create_tenant(
+            self.owner,
+            self.workspace,
+            self.tenant_data(),
+            MultiValueDict(),
+        )
+        return create_occupancy(
+            self.owner,
+            self.workspace,
+            self.occupancy_data(tenant),
+        )
+
+    def test_invoice_direct_and_queryset_mutations_are_blocked(self):
+        occupancy = self.create_occupancy_record()
+        invoice = occupancy.invoices.get()
+
+        with self.assertRaises(PermissionDenied):
+            Invoice.objects.filter(pk=invoice.pk).update(status="paid")
+
+        invoice.status = "paid"
+        with self.assertRaises(PermissionDenied):
+            invoice.save()
+
+        invoice.status = "paid"
+        with self.assertRaises(PermissionDenied):
+            Invoice.objects.bulk_update([invoice], ["status"])
+
+        with self.assertRaises(PermissionDenied):
+            Invoice.objects.filter(pk=invoice.pk).delete()
+
+        with self.assertRaises(PermissionDenied):
+            Invoice.objects.bulk_create([
+                Invoice(
+                    occupancy=occupancy,
+                    invoice_number="DIRECT-CREATE-BLOCKED",
+                    billing_start=date(2026, 10, 1),
+                    billing_end=date(2026, 10, 31),
+                    rent_amount=Decimal("10000.00"),
+                    charges_amount=Decimal("0.00"),
+                    due_date=date(2026, 11, 1),
+                )
+            ])
+
+    def test_ledger_is_append_only_and_direct_creation_is_blocked(self):
+        occupancy = self.create_occupancy_record()
+        entry = FinancialLedgerEntry.objects.filter(
+            workspace=self.workspace,
+            occupancy=occupancy,
+        ).first()
+        self.assertIsNotNone(entry)
+
+        with self.assertRaises(PermissionDenied):
+            FinancialLedgerEntry.objects.filter(pk=entry.pk).update(
+                metadata={"tampered": True}
+            )
+
+        entry.metadata = {"tampered": True}
+        with self.assertRaises(PermissionDenied):
+            FinancialLedgerEntry.objects.bulk_update([entry], ["metadata"])
+
+        with self.assertRaises(PermissionDenied):
+            FinancialLedgerEntry.objects.filter(pk=entry.pk).delete()
+
+        with self.assertRaises(PermissionDenied):
+            FinancialLedgerEntry.objects.create(
+                workspace=self.workspace,
+                event_type=entry.event_type,
+                event_key="direct-ledger-create-blocked",
+                occurred_at=entry.occurred_at,
+                amount=Decimal("1.00"),
+                occupancy=occupancy,
+                created_by=self.owner,
+                metadata={},
+            )
+
+    def test_billing_schedule_writes_require_canonical_service(self):
+        from payments.billing_service import create_billing_schedule, update_billing_schedule
+
+        occupancy = self.create_occupancy_record()
+        schedule = create_billing_schedule(
+            self.owner,
+            self.workspace,
+            {
+                "occupancy": occupancy.pk,
+                "frequency": "monthly",
+                "amount": Decimal("10000.00"),
+                "next_run_date": date(2026, 11, 1),
+                "active": True,
+            },
+        )
+
+        with self.assertRaises(PermissionDenied):
+            type(schedule).objects.filter(pk=schedule.pk).update(amount=Decimal("1.00"))
+
+        schedule.amount = Decimal("1.00")
+        with self.assertRaises(PermissionDenied):
+            schedule.save()
+
+        with self.assertRaises(PermissionDenied):
+            type(schedule).objects.filter(pk=schedule.pk).delete()
+
+        updated = update_billing_schedule(
+            self.owner,
+            self.workspace,
+            schedule.pk,
+            {"amount": Decimal("10500.00")},
+        )
+        self.assertEqual(updated.amount, Decimal("10500.00"))
+
+    def test_billing_schedule_rejects_invalid_frequency(self):
+        from django.core.exceptions import ValidationError
+        from payments.billing_service import create_billing_schedule
+
+        occupancy = self.create_occupancy_record()
+        with self.assertRaisesMessage(ValidationError, "Invalid billing schedule frequency"):
+            create_billing_schedule(
+                self.owner,
+                self.workspace,
+                {
+                    "occupancy": occupancy.pk,
+                    "frequency": "yearly",
+                    "amount": Decimal("10000.00"),
+                    "next_run_date": date(2026, 11, 1),
+                    "active": True,
+                },
+            )
