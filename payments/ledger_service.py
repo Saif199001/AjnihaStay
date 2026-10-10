@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 
 from .authorization import require_mutation_permission
-from .ledger_models import FinancialLedgerEntry
+from .ledger_models import FinancialLedgerEntry, _allow_ledger_entry_creation
 
 
 _IMMUTABLE_COMPARISON_FIELDS = (
@@ -119,19 +119,20 @@ def post_ledger_event(
                 # The nested atomic block is a savepoint so a concurrent unique
                 # constraint collision does not poison the outer transaction.
                 with transaction.atomic():
-                    return FinancialLedgerEntry.objects.create(
-                        workspace=workspace,
-                        event_type=event_type,
-                        event_key=event_key,
-                        occurred_at=occurred_at,
-                        amount=amount,
-                        currency=currency,
-                        invoice=invoice,
-                        payment=payment,
-                        occupancy=occupancy,
-                        created_by=user,
-                        metadata=metadata,
-                    )
+                    with _allow_ledger_entry_creation():
+                        return FinancialLedgerEntry.objects.create(
+                            workspace=workspace,
+                            event_type=event_type,
+                            event_key=event_key,
+                            occurred_at=occurred_at,
+                            amount=amount,
+                            currency=currency,
+                            invoice=invoice,
+                            payment=payment,
+                            occupancy=occupancy,
+                            created_by=user,
+                            metadata=metadata,
+                        )
             except IntegrityError:
                 try:
                     existing = (
