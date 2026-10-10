@@ -114,6 +114,9 @@ class FinancialLedgerEntry(models.Model):
         self.clean()
         super().save(*args, **kwargs)
 
+    def delete(self, *args, **kwargs):
+        raise PermissionDenied("Financial ledger entries are append-only.")
+
     class Meta:
         indexes = [
             models.Index(fields=["workspace", "occurred_at"], name="payments_fl_workspa_4d4f8a_idx"),
