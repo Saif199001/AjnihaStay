@@ -502,7 +502,18 @@ class TenantPaymentAPIRegressionTests(TestCase):
         occupancy = create_occupancy(
             self.owner,
             self.workspace,
-            self.occupancy_data(tenant),
+            {
+                "tenant": tenant.pk,
+                "unit": self.unit.pk,
+                "rent": Decimal("10000"),
+                "billing_type": "advance",
+                "billing_cycle": "monthly",
+                "check_in_date": date(2026, 10, 1),
+                "check_out_date": None,
+                "next_due_date": date(2026, 11, 1),
+                "security_deposit": Decimal("10000"),
+                "deposit_paid": False,
+            },
         )
         invoice = occupancy.invoices.get()
         response = self.client.post(
