@@ -1228,6 +1228,18 @@ class InvoiceLedgerBillingClosureTests(TenantServiceAuthorizationTests):
                 )
             ])
 
+        with self.assertRaises(PermissionDenied):
+            Invoice(
+                pk=999999,
+                occupancy=occupancy,
+                invoice_number="DIRECT-PK-CREATE-BLOCKED",
+                billing_start=date(2026, 10, 1),
+                billing_end=date(2026, 10, 31),
+                rent_amount=Decimal("10000.00"),
+                charges_amount=Decimal("0.00"),
+                due_date=date(2026, 11, 1),
+            ).save()
+
     def test_ledger_is_append_only_and_direct_creation_is_blocked(self):
         occupancy = self.create_occupancy_record()
         entry = FinancialLedgerEntry.objects.filter(
