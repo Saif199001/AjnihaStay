@@ -7,7 +7,7 @@ from django.db import transaction
 from .adjustment_service import calculate_invoice_financial_position
 from .authorization import require_mutation_permission
 from .late_fee_models import LateFee, LateFeePolicy, _allow_late_fee_creation
-from .models import Invoice
+from .models import Invoice, _allow_invoice_mutation
 
 TWOPLACES = Decimal("0.01")
 
@@ -48,7 +48,8 @@ def generate_late_fee(user, workspace, invoice_id, as_of=None):
         with _allow_late_fee_creation():
             late_fee = LateFee.objects.create(workspace=workspace, invoice=invoice, policy=policy, effective_date=effective_date, amount=fee, outstanding_balance=outstanding, calculation_mode=policy.calculation_mode, reason=f"Late fee for invoice {invoice.invoice_number}", created_by=user)
         position = calculate_invoice_financial_position(invoice)
-        Invoice.objects.filter(id=invoice.id).update(paid_amount=position["settlement"], status=position["status"])
+        with _allow_invoice_mutation():
+            Invoice.objects.filter(id=invoice.id).update(paid_amount=position["settlement"], status=position["status"])
         invoice.paid_amount = position["settlement"]; invoice.status = position["status"]
         from .ledger_service import post_ledger_event
         post_ledger_event(user, workspace, event_type="late_fee_generated", event_key=f"late-fee:{late_fee.pk}:generated", occurred_at=late_fee.created_at, amount=late_fee.amount, invoice=invoice, occupancy=invoice.occupancy, metadata={"late_fee_id": late_fee.pk, "effective_date": str(effective_date)})
