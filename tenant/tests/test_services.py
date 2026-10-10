@@ -1260,6 +1260,20 @@ class InvoiceLedgerBillingClosureTests(TenantServiceAuthorizationTests):
                 metadata={},
             )
 
+        with self.assertRaises(PermissionDenied):
+            FinancialLedgerEntry.objects.bulk_create([
+                FinancialLedgerEntry(
+                    workspace=self.workspace,
+                    event_type=entry.event_type,
+                    event_key="direct-ledger-bulk-create-blocked",
+                    occurred_at=entry.occurred_at,
+                    amount=Decimal("1.00"),
+                    occupancy=occupancy,
+                    created_by=self.owner,
+                    metadata={},
+                )
+            ])
+
     def test_billing_schedule_writes_require_canonical_service(self):
         from payments.billing_service import create_billing_schedule, update_billing_schedule
 
@@ -1282,6 +1296,23 @@ class InvoiceLedgerBillingClosureTests(TenantServiceAuthorizationTests):
         schedule.amount = Decimal("1.00")
         with self.assertRaises(PermissionDenied):
             schedule.save()
+
+        schedule.amount = Decimal("2.00")
+        with self.assertRaises(PermissionDenied):
+            type(schedule).objects.bulk_update([schedule], ["amount"])
+
+        with self.assertRaises(PermissionDenied):
+            type(schedule).objects.bulk_create([
+                type(schedule)(
+                    occupancy=occupancy,
+                    frequency="monthly",
+                    amount=Decimal("1.00"),
+                    next_run_date=date(2026, 11, 1),
+                )
+            ])
+
+        with self.assertRaises(PermissionDenied):
+            schedule.delete()
 
         with self.assertRaises(PermissionDenied):
             type(schedule).objects.filter(pk=schedule.pk).delete()
