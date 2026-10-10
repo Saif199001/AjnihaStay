@@ -5,7 +5,7 @@ from django.db import transaction
 from django.db.models import Sum
 
 from .authorization import MUTATION_ROLES, require_mutation_permission
-from .models import AdvanceCreditApplication, FinancialAdjustment, Invoice, PaymentAllocation, _allow_financial_adjustment_creation
+from .models import AdvanceCreditApplication, FinancialAdjustment, Invoice, PaymentAllocation, _allow_financial_adjustment_creation, _allow_invoice_mutation
 
 
 def _positive_decimal(value, field_name):
@@ -190,7 +190,8 @@ def create_financial_adjustment(user, workspace, data):
                 created_by=user,
             )
         position = calculate_invoice_financial_position(invoice)
-        Invoice.objects.filter(id=invoice.id).update(paid_amount=position["settlement"], status=position["status"])
+        with _allow_invoice_mutation():
+            Invoice.objects.filter(id=invoice.id).update(paid_amount=position["settlement"], status=position["status"])
         invoice.paid_amount = position["settlement"]
         invoice.status = position["status"]
         from .ledger_service import post_ledger_event
