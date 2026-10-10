@@ -23,6 +23,8 @@ class FinancialTransition(str, Enum):
     REFRESH_INVOICE_LIFECYCLE = "refresh_invoice_lifecycle"
     GENERATE_LATE_FEE = "generate_late_fee"
     FINALIZE_FINAL_SETTLEMENT = "finalize_final_settlement"
+    REQUEST_PAYMENT_REFUND = "request_payment_refund"
+    TRANSITION_PAYMENT_REFUND = "transition_payment_refund"
 
 
 def transition_name(transition):
@@ -82,5 +84,25 @@ def execute_transition(transition, *, user, workspace, **payload):
             workspace,
             payload["occupancy_id"],
             refundable_deposit=payload.get("refundable_deposit"),
+        )
+    if transition is FinancialTransition.REQUEST_PAYMENT_REFUND:
+        from .refund_service import request_payment_refund
+        return request_payment_refund(
+            user=user,
+            workspace=workspace,
+            payment=payload["payment"],
+            amount=payload["amount"],
+            reason=payload["reason"],
+            reference=payload.get("reference"),
+            idempotency_key=payload.get("idempotency_key"),
+        )
+    if transition is FinancialTransition.TRANSITION_PAYMENT_REFUND:
+        from .refund_service import transition_payment_refund
+        return transition_payment_refund(
+            user=user,
+            workspace=workspace,
+            refund=payload["refund"],
+            status=payload["status"],
+            failure_reason=payload.get("failure_reason"),
         )
     raise ValueError(f"Unsupported financial transition: {transition}")
