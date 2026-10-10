@@ -3,7 +3,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
 from workspaces.permissions import WorkspaceManagerPermission, WorkspaceViewerPermission
-from .serializers import ChargeSerializer, OccupancySerializer, TenantSerializer
+from .serializers import ChargeSerializer, OccupancySerializer, TenantCreateSerializer, TenantSerializer
 from .services import create_charge, create_occupancy, create_tenant, get_charges, get_tenants
 
 
@@ -14,7 +14,7 @@ def _validation_message(exc):
 @api_view(["POST"])
 @permission_classes([WorkspaceManagerPermission])
 def tenant_create_api(request):
-    serializer = TenantSerializer(data=request.data)
+    serializer = TenantCreateSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
     try:
