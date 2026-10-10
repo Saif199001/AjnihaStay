@@ -13,7 +13,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from .adjustment_service import calculate_invoice_financial_position
-from .models import Invoice
+from .models import Invoice, _allow_invoice_mutation
 
 
 LIFECYCLE_STATUSES = frozenset({"pending", "partial", "paid"})
@@ -65,10 +65,11 @@ def refresh_invoice_lifecycle(invoice_id, workspace, *, as_of=None):
         if position["status"] not in LIFECYCLE_STATUSES:
             raise ValidationError("Invalid canonical invoice status")
 
-        Invoice.objects.filter(id=invoice.id).update(
-            paid_amount=position["settlement"],
-            status=position["status"],
-        )
+        with _allow_invoice_mutation():
+            Invoice.objects.filter(id=invoice.id).update(
+                paid_amount=position["settlement"],
+                status=position["status"],
+            )
         invoice.paid_amount = position["settlement"]
         invoice.status = position["status"]
         return get_invoice_lifecycle(invoice, as_of=as_of)
