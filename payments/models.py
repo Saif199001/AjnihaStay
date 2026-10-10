@@ -11,6 +11,7 @@ from tenant.models import Occupancy
 
 
 _INVOICE_CREATION_ALLOWED = ContextVar("invoice_creation_allowed", default=False)
+_INVOICE_MUTATION_ALLOWED = ContextVar("invoice_mutation_allowed", default=False)
 _PAYMENT_CREATION_ALLOWED = ContextVar("payment_creation_allowed", default=False)
 _PAYMENT_ALLOCATION_CREATION_ALLOWED = ContextVar(
     "payment_allocation_creation_allowed", default=False
@@ -23,6 +24,15 @@ _FINANCIAL_ADJUSTMENT_CREATION_ALLOWED = ContextVar(
 )
 
 
+
+
+@contextmanager
+def _allow_invoice_mutation():
+    token = _INVOICE_MUTATION_ALLOWED.set(True)
+    try:
+        yield
+    finally:
+        _INVOICE_MUTATION_ALLOWED.reset(token)
 
 
 @contextmanager
@@ -70,6 +80,24 @@ def _allow_financial_adjustment_creation():
         _FINANCIAL_ADJUSTMENT_CREATION_ALLOWED.reset(token)
 
 
+class InvoiceQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        if not _INVOICE_MUTATION_ALLOWED.get():
+            raise PermissionDenied("Invoice state must be changed through the canonical financial service.")
+        return super().update(**kwargs)
+
+    def bulk_update(self, objs, fields, *args, **kwargs):
+        if not _INVOICE_MUTATION_ALLOWED.get():
+            raise PermissionDenied("Invoice state must be changed through the canonical financial service.")
+        return super().bulk_update(objs, fields, *args, **kwargs)
+
+    def bulk_create(self, objs, *args, **kwargs):
+        raise PermissionDenied("Invoice creation must be performed through the canonical invoice service.")
+
+    def delete(self):
+        raise PermissionDenied("Invoices cannot be deleted directly.")
+
+
 class Invoice(models.Model):
     STATUS_CHOICES = (("pending", "Pending"), ("partial", "Partial"), ("paid", "Paid"))
     occupancy = models.ForeignKey(Occupancy, on_delete=models.PROTECT, related_name="invoices")
@@ -84,6 +112,8 @@ class Invoice(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
     created_at = models.DateTimeField(auto_now_add=True)
 
+    objects = InvoiceQuerySet.as_manager()
+
     def clean(self):
         if self.billing_end < self.billing_start: raise ValidationError("Billing end date cannot be before start date")
         if self.rent_amount < 0: raise ValidationError("Rent amount cannot be negative")
@@ -96,7 +126,9 @@ class Invoice(models.Model):
             raise PermissionDenied(
                 "Invoice creation must be performed through the canonical invoice service."
             )
-        if self.pk:
+        if not self._state.adding and not _INVOICE_MUTATION_ALLOWED.get():
+            raise PermissionDenied("Invoice state must be changed through the canonical financial service.")
+        if not self._state.adding:
             persisted = type(self).objects.get(pk=self.pk)
             if persisted.paid_amount != self.paid_amount or persisted.status != self.status:
                 raise ValidationError("Invoice paid amount and status are managed by the canonical financial service")
@@ -105,6 +137,9 @@ class Invoice(models.Model):
         if not self.invoice_number: self.invoice_number = generate_invoice_number()
         self.total_amount = (self.rent_amount or 0) + (self.charges_amount or 0)
         self.clean(); super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise PermissionDenied("Invoices cannot be deleted directly.")
 
     def __str__(self): return f"{self.invoice_number} - {self.occupancy}"
     @property
