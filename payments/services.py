@@ -13,6 +13,7 @@ from .models import (
     Payment,
     PaymentAllocation,
     _allow_invoice_creation,
+    _allow_invoice_mutation,
     _allow_payment_allocation_creation,
     _allow_payment_creation,
 )
@@ -117,10 +118,11 @@ def get_payment_available_allocation_amount(payment):
 
 def recalculate_invoice_state(invoice):
     position = calculate_invoice_financial_position(invoice)
-    Invoice.objects.filter(id=invoice.id).update(
-        paid_amount=position["settlement"],
-        status=position["status"],
-    )
+    with _allow_invoice_mutation():
+        Invoice.objects.filter(id=invoice.id).update(
+            paid_amount=position["settlement"],
+            status=position["status"],
+        )
     invoice.paid_amount = position["settlement"]
     invoice.status = position["status"]
     return invoice
