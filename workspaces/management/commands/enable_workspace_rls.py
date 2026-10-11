@@ -11,7 +11,7 @@ TABLES = (
     "tenant_tenant", "tenant_occupancy", "tenant_charge", "payments_invoice", "payments_payment",
     "payments_paymentallocation", "payments_billingschedule", "payments_advancecredit",
     "payments_advancecreditapplication", "payments_financialadjustment", "payments_paymentrefund",
-    "payments_financialledgerentry", "leasing_lease", "applications_applicant", "applications_application",
+    "payments_financialledgerentry", "leasing_lease", "leasing_leaselifecycleevent", "leasing_leasenotice", "leasing_leaserenewal", "leasing_leasecontractversion", "applications_applicant", "applications_application",
     "applications_applicationevent", "kyc_kycprofile", "kyc_kycdocument", "kyc_kycverificationevent",
     "kyc_kycdocumentevent", "kyc_agreementlink",
 )
@@ -63,6 +63,10 @@ BEGIN
         WHEN 'payments_paymentrefund' THEN SELECT r.workspace_id INTO v_row_workspace_id FROM payments_paymentrefund r JOIN payments_payment p ON p.id = r.payment_id WHERE r.id = p_id AND r.workspace_id = p.workspace_id;
         WHEN 'payments_financialledgerentry' THEN SELECT le.workspace_id INTO v_row_workspace_id FROM payments_financialledgerentry le WHERE le.id = p_id AND (le.invoice_id IS NULL OR EXISTS (SELECT 1 FROM payments_invoice i JOIN tenant_occupancy o ON o.id = i.occupancy_id JOIN tenant_tenant t ON t.id = o.tenant_id WHERE i.id = le.invoice_id AND t.workspace_id = le.workspace_id)) AND (le.payment_id IS NULL OR EXISTS (SELECT 1 FROM payments_payment p WHERE p.id = le.payment_id AND p.workspace_id = le.workspace_id)) AND (le.occupancy_id IS NULL OR EXISTS (SELECT 1 FROM tenant_occupancy o JOIN tenant_tenant t ON t.id = o.tenant_id WHERE o.id = le.occupancy_id AND t.workspace_id = le.workspace_id));
         WHEN 'leasing_lease' THEN SELECT l.workspace_id INTO v_row_workspace_id FROM leasing_lease l JOIN tenant_occupancy o ON o.id = l.occupancy_id JOIN tenant_tenant t ON t.id = o.tenant_id WHERE l.id = p_id AND l.workspace_id = t.workspace_id;
+        WHEN 'leasing_leaselifecycleevent' THEN SELECT e.workspace_id INTO v_row_workspace_id FROM leasing_leaselifecycleevent e JOIN leasing_lease l ON l.id = e.lease_id WHERE e.id = p_id AND e.workspace_id = l.workspace_id;
+        WHEN 'leasing_leasenotice' THEN SELECT n.workspace_id INTO v_row_workspace_id FROM leasing_leasenotice n JOIN leasing_lease l ON l.id = n.lease_id WHERE n.id = p_id AND n.workspace_id = l.workspace_id;
+        WHEN 'leasing_leaserenewal' THEN SELECT r.workspace_id INTO v_row_workspace_id FROM leasing_leaserenewal r JOIN leasing_lease l ON l.id = r.source_lease_id WHERE r.id = p_id AND r.workspace_id = l.workspace_id;
+        WHEN 'leasing_leasecontractversion' THEN SELECT v.workspace_id INTO v_row_workspace_id FROM leasing_leasecontractversion v JOIN leasing_lease l ON l.id = v.lease_id WHERE v.id = p_id AND v.workspace_id = l.workspace_id;
         WHEN 'applications_applicant' THEN SELECT workspace_id INTO v_row_workspace_id FROM applications_applicant WHERE id = p_id;
         WHEN 'applications_application' THEN SELECT a.workspace_id INTO v_row_workspace_id FROM applications_application a JOIN applications_applicant ap ON ap.id = a.applicant_id JOIN properties_property p ON p.id = a.property_id WHERE a.id = p_id AND a.workspace_id = ap.workspace_id AND a.workspace_id = p.workspace_id;
         WHEN 'applications_applicationevent' THEN SELECT e.workspace_id INTO v_row_workspace_id FROM applications_applicationevent e JOIN applications_application a ON a.id = e.application_id JOIN applications_applicant ap ON ap.id = e.applicant_id WHERE e.id = p_id AND e.workspace_id = a.workspace_id AND e.workspace_id = ap.workspace_id;
