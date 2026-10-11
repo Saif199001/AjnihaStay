@@ -60,6 +60,9 @@ class LeasingRLSCoverageTests(TestCase):
             self.assertEqual(actual.get(table), [policy], f"{table} must have only its canonical RLS policy")
 
     def test_workspace_visibility_function_covers_all_leasing_lifecycle_tables(self):
+        # Django creates a separate test database; install the RLS function there
+        # before inspecting its definition instead of relying on CI's setup step.
+        call_command("enable_workspace_rls", verbosity=0)
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_get_functiondef('workspace_rls_row_visible(text,bigint)'::regprocedure)")
             definition = cursor.fetchone()[0]
