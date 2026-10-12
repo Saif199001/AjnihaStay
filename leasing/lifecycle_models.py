@@ -132,6 +132,9 @@ class LeaseNoticeQuerySet(models.QuerySet):
                 raise ValidationError("Issued notice facts are immutable")
         return super().bulk_update(objs, list(fields), batch_size=batch_size)
 
+    def delete(self):
+        raise ValidationError("Lease notices cannot be deleted; use the canonical notice lifecycle service")
+
 
 class LeaseNotice(models.Model):
     STATUS_DRAFT = "draft"
@@ -212,6 +215,9 @@ class LeaseNotice(models.Model):
                         raise ValidationError("Issued notice facts are immutable")
         super().save(*args, **kwargs)
 
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Lease notices cannot be deleted; use the canonical notice lifecycle service")
+
 
 class LeaseRenewalQuerySet(models.QuerySet):
     def create(self, **kwargs):
@@ -234,6 +240,9 @@ class LeaseRenewalQuerySet(models.QuerySet):
         ).exists():
             raise ValidationError("Confirmed renewals are immutable")
         return super().bulk_update(objs, fields, batch_size=batch_size)
+
+    def delete(self):
+        raise ValidationError("Lease renewals cannot be deleted; use the canonical renewal lifecycle service")
 
 
 class LeaseRenewal(models.Model):
@@ -309,6 +318,9 @@ class LeaseRenewal(models.Model):
             if previous_status is not None and previous_status != self.status and not allow_lifecycle_mutation:
                 raise ValidationError("Renewal lifecycle status changes must use the canonical renewal service")
         super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Lease renewals cannot be deleted; use the canonical renewal lifecycle service")
 
 
 class LeaseContractVersionQuerySet(models.QuerySet):
