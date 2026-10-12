@@ -223,6 +223,9 @@ class LeaseRenewalQuerySet(models.QuerySet):
     def create(self, **kwargs):
         raise ValidationError("Lease renewals must be created through the canonical renewal service")
 
+    def bulk_create(self, objs, batch_size=None, ignore_conflicts=False, update_conflicts=False, update_fields=None, unique_fields=None):
+        raise ValidationError("Lease renewals must be created through the canonical renewal service")
+
     def update(self, **kwargs):
         if "status" in kwargs:
             raise ValidationError("Renewal lifecycle status changes must use the canonical renewal service")
