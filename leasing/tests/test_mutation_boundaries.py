@@ -274,11 +274,51 @@ class CanonicalRenewalCreationAndMutationTests(SimpleTestCase):
         stale_draft.pk = 17
         stale_draft.status = LeaseRenewal.STATUS_DRAFT
 
-        with self.assertRaisesMessage(ValidationError, "Confirmed renewals are immutable"):
+        with self.assertRaisesMessage(ValidationError, "Confirmed or cancelled renewals are immutable"):
             queryset.bulk_update([stale_draft], ["rent_amount"])
 
         base_bulk_update.assert_not_called()
 
+
+
+class CancelledRenewalImmutabilityTests(SimpleTestCase):
+    @patch.object(models.QuerySet, "update")
+    @patch.object(LeaseRenewalQuerySet, "filter")
+    def test_queryset_update_rejects_cancelled_renewal_mutation(self, filter_mock, base_update):
+        filter_mock.return_value.exists.return_value = True
+        queryset = LeaseRenewalQuerySet(model=LeaseRenewal, query=Mock())
+
+        with self.assertRaisesMessage(ValidationError, "Confirmed or cancelled renewals are immutable"):
+            queryset.update(rent_amount=Decimal("12000.00"))
+
+        base_update.assert_not_called()
+
+    @patch.object(models.QuerySet, "bulk_update")
+    @patch.object(LeaseRenewal.objects, "filter")
+    def test_bulk_update_checks_persisted_cancelled_status(self, filter_mock, base_bulk_update):
+        filter_mock.return_value.exists.return_value = True
+        queryset = LeaseRenewalQuerySet(model=LeaseRenewal, query=Mock())
+        stale_draft = LeaseRenewal()
+        stale_draft.pk = 21
+        stale_draft.status = LeaseRenewal.STATUS_DRAFT
+
+        with self.assertRaisesMessage(ValidationError, "Confirmed or cancelled renewals are immutable"):
+            queryset.bulk_update([stale_draft], ["rent_amount"])
+
+        base_bulk_update.assert_not_called()
+
+    @patch.object(models.Model, "save")
+    @patch.object(LeaseRenewal, "clean")
+    @patch.object(LeaseRenewal.objects, "filter")
+    def test_instance_save_rejects_cancelled_renewal_mutation(self, filter_mock, clean_mock, base_save):
+        filter_mock.return_value.values_list.return_value.first.return_value = LeaseRenewal.STATUS_CANCELLED
+        renewal = LeaseRenewal()
+        renewal.pk = 22
+
+        with self.assertRaisesMessage(ValidationError, "Confirmed or cancelled renewals are immutable"):
+            renewal.save()
+
+        base_save.assert_not_called()
 
 
 class CanonicalNoticeAndRenewalDeletionTests(SimpleTestCase):
