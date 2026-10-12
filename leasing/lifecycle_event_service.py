@@ -1,3 +1,4 @@
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from .lifecycle_models import LeaseLifecycleEvent
@@ -35,9 +36,18 @@ def append_lifecycle_event(
     if event_key is None:
         event_key = event_type
 
-    event, _ = LeaseLifecycleEvent.objects.get_or_create(
-        lease=lease,
-        event_key=event_key,
-        defaults=defaults,
-    )
-    return event
+    try:
+        return LeaseLifecycleEvent.objects.get(lease=lease, event_key=event_key)
+    except LeaseLifecycleEvent.DoesNotExist:
+        pass
+
+    try:
+        with transaction.atomic():
+            return LeaseLifecycleEvent.objects.create_from_service(
+                lease=lease,
+                event_key=event_key,
+                **defaults,
+            )
+    except IntegrityError:
+        # A concurrent canonical call may have inserted the same idempotency key.
+        return LeaseLifecycleEvent.objects.get(lease=lease, event_key=event_key)
