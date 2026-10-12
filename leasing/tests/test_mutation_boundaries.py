@@ -7,6 +7,12 @@ from django.db import models
 from django.test import SimpleTestCase
 
 from leasing.models import CONTRACTUAL_FIELDS, Lease, LeaseQuerySet
+from leasing.lifecycle_models import (
+    LeaseContractVersion,
+    LeaseContractVersionQuerySet,
+    LeaseLifecycleEvent,
+    LeaseLifecycleEventQuerySet,
+)
 
 
 class LeaseModelMutationBoundaryTests(SimpleTestCase):
@@ -133,3 +139,42 @@ class LeaseModelMutationBoundaryTests(SimpleTestCase):
 
         with self.assertRaisesMessage(ValidationError, "canonical lifecycle service"):
             queryset.update(status=Lease.STATUS_EXPIRED)
+
+
+
+class ImmutableLeaseHistoryDeletionTests(SimpleTestCase):
+    @patch.object(models.QuerySet, "delete")
+    def test_lifecycle_event_queryset_delete_is_rejected(self, base_delete):
+        queryset = LeaseLifecycleEventQuerySet(
+            model=LeaseLifecycleEvent, query=Mock()
+        )
+
+        with self.assertRaisesMessage(ValidationError, "cannot be deleted"):
+            queryset.delete()
+
+        base_delete.assert_not_called()
+
+    def test_lifecycle_event_instance_delete_is_rejected(self):
+        event = LeaseLifecycleEvent()
+        event.pk = 10
+
+        with self.assertRaisesMessage(ValidationError, "cannot be deleted"):
+            event.delete()
+
+    @patch.object(models.QuerySet, "delete")
+    def test_contract_version_queryset_delete_is_rejected(self, base_delete):
+        queryset = LeaseContractVersionQuerySet(
+            model=LeaseContractVersion, query=Mock()
+        )
+
+        with self.assertRaisesMessage(ValidationError, "cannot be deleted"):
+            queryset.delete()
+
+        base_delete.assert_not_called()
+
+    def test_contract_version_instance_delete_is_rejected(self):
+        version = LeaseContractVersion()
+        version.pk = 10
+
+        with self.assertRaisesMessage(ValidationError, "cannot be deleted"):
+            version.delete()
