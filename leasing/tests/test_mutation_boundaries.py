@@ -12,6 +12,7 @@ from leasing.lifecycle_models import (
     LeaseContractVersionQuerySet,
     LeaseLifecycleEvent,
     LeaseLifecycleEventQuerySet,
+    LeaseNotice,
 )
 
 
@@ -178,3 +179,65 @@ class ImmutableLeaseHistoryDeletionTests(SimpleTestCase):
 
         with self.assertRaisesMessage(ValidationError, "cannot be deleted"):
             version.delete()
+
+
+
+class CanonicalLifecycleCreationBoundaryTests(SimpleTestCase):
+    def test_lifecycle_event_queryset_create_is_rejected(self):
+        queryset = LeaseLifecycleEventQuerySet(
+            model=LeaseLifecycleEvent, query=Mock()
+        )
+
+        with self.assertRaisesMessage(ValidationError, "canonical lifecycle service"):
+            queryset.create()
+
+    @patch.object(models.Model, "save")
+    @patch.object(LeaseLifecycleEvent, "clean")
+    def test_lifecycle_event_direct_instance_save_is_rejected(self, clean_mock, base_save):
+        event = LeaseLifecycleEvent()
+
+        with self.assertRaisesMessage(ValidationError, "canonical lifecycle service"):
+            event.save()
+
+        clean_mock.assert_not_called()
+        base_save.assert_not_called()
+
+    def test_contract_version_queryset_create_is_rejected(self):
+        queryset = LeaseContractVersionQuerySet(
+            model=LeaseContractVersion, query=Mock()
+        )
+
+        with self.assertRaisesMessage(ValidationError, "canonical renewal service"):
+            queryset.create()
+
+    @patch.object(models.Model, "save")
+    @patch.object(LeaseContractVersion, "clean")
+    def test_contract_version_direct_instance_save_is_rejected(self, clean_mock, base_save):
+        version = LeaseContractVersion()
+
+        with self.assertRaisesMessage(ValidationError, "canonical renewal service"):
+            version.save()
+
+        clean_mock.assert_not_called()
+        base_save.assert_not_called()
+
+    @patch.object(models.Model, "save")
+    @patch.object(LeaseNotice, "clean")
+    def test_notice_direct_instance_save_is_rejected(self, clean_mock, base_save):
+        notice = LeaseNotice()
+
+        with self.assertRaisesMessage(ValidationError, "canonical notice service"):
+            notice.save()
+
+        clean_mock.assert_not_called()
+        base_save.assert_not_called()
+
+    @patch.object(models.Model, "save")
+    @patch.object(LeaseNotice, "clean")
+    def test_notice_canonical_creation_flag_allows_save(self, clean_mock, base_save):
+        notice = LeaseNotice()
+
+        notice.save(_allow_canonical_create=True)
+
+        clean_mock.assert_called_once_with()
+        base_save.assert_called_once()
