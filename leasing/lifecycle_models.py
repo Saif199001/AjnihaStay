@@ -179,6 +179,9 @@ class LeaseNotice(models.Model):
 
 
 class LeaseRenewalQuerySet(models.QuerySet):
+    def create(self, **kwargs):
+        raise ValidationError("Lease renewals must be created through the canonical renewal service")
+
     def update(self, **kwargs):
         if "status" in kwargs:
             raise ValidationError("Renewal lifecycle status changes must use the canonical renewal service")
@@ -189,7 +192,10 @@ class LeaseRenewalQuerySet(models.QuerySet):
     def bulk_update(self, objs, fields, batch_size=None):
         if "status" in fields:
             raise ValidationError("Renewal lifecycle status changes must use the canonical renewal service")
-        if any(obj.status == LeaseRenewal.STATUS_CONFIRMED for obj in objs):
+        object_ids = [obj.pk for obj in objs if obj.pk is not None]
+        if object_ids and self.model.objects.filter(
+            pk__in=object_ids, status=LeaseRenewal.STATUS_CONFIRMED
+        ).exists():
             raise ValidationError("Confirmed renewals are immutable")
         return super().bulk_update(objs, fields, batch_size=batch_size)
 
@@ -255,7 +261,10 @@ class LeaseRenewal(models.Model):
                 raise ValidationError("Renewal creator must be an active workspace member")
 
     def save(self, *args, **kwargs):
+        allow_canonical_create = kwargs.pop("_allow_canonical_create", False)
         allow_lifecycle_mutation = kwargs.pop("_allow_lifecycle_mutation", False)
+        if self.pk is None and not allow_canonical_create:
+            raise ValidationError("Lease renewals must be created through the canonical renewal service")
         self.clean()
         if self.pk:
             previous_status = type(self).objects.filter(pk=self.pk).values_list("status", flat=True).first()
