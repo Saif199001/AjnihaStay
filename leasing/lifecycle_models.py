@@ -190,6 +190,7 @@ class LeaseRenewalQuerySet(models.QuerySet):
         return super().update(**kwargs)
 
     def bulk_update(self, objs, fields, batch_size=None):
+        objs = tuple(objs)
         if "status" in fields:
             raise ValidationError("Renewal lifecycle status changes must use the canonical renewal service")
         object_ids = [obj.pk for obj in objs if obj.pk is not None]
