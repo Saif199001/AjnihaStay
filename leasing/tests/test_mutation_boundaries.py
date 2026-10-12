@@ -13,6 +13,8 @@ from leasing.lifecycle_models import (
     LeaseLifecycleEvent,
     LeaseLifecycleEventQuerySet,
     LeaseNotice,
+    LeaseRenewal,
+    LeaseRenewalQuerySet,
 )
 
 
@@ -241,3 +243,37 @@ class CanonicalLifecycleCreationBoundaryTests(SimpleTestCase):
 
         clean_mock.assert_called_once_with()
         base_save.assert_called_once()
+
+
+
+class CanonicalRenewalCreationAndMutationTests(SimpleTestCase):
+    def test_renewal_queryset_create_is_rejected(self):
+        queryset = LeaseRenewalQuerySet(model=LeaseRenewal, query=Mock())
+
+        with self.assertRaisesMessage(ValidationError, "canonical renewal service"):
+            queryset.create()
+
+    @patch.object(models.Model, "save")
+    @patch.object(LeaseRenewal, "clean")
+    def test_renewal_direct_instance_save_is_rejected(self, clean_mock, base_save):
+        renewal = LeaseRenewal()
+
+        with self.assertRaisesMessage(ValidationError, "canonical renewal service"):
+            renewal.save()
+
+        clean_mock.assert_not_called()
+        base_save.assert_not_called()
+
+    @patch.object(models.QuerySet, "bulk_update")
+    @patch.object(LeaseRenewal.objects, "filter")
+    def test_bulk_update_checks_persisted_confirmed_status(self, filter_mock, base_bulk_update):
+        filter_mock.return_value.exists.return_value = True
+        queryset = LeaseRenewalQuerySet(model=LeaseRenewal, query=Mock())
+        stale_draft = LeaseRenewal()
+        stale_draft.pk = 17
+        stale_draft.status = LeaseRenewal.STATUS_DRAFT
+
+        with self.assertRaisesMessage(ValidationError, "Confirmed renewals are immutable"):
+            queryset.bulk_update([stale_draft], ["rent_amount"])
+
+        base_bulk_update.assert_not_called()
