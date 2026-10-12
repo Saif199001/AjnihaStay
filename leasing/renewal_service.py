@@ -135,7 +135,7 @@ def create_renewal(user, workspace, source_lease_id, data):
             agreement_reference=data.get("agreement_reference", source_lease.agreement_reference),
             created_by=user,
         )
-        renewal.save()
+        renewal.save(_allow_canonical_create=True)
         return renewal
 
 
