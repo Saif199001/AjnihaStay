@@ -226,8 +226,8 @@ class LeaseRenewalQuerySet(models.QuerySet):
     def update(self, **kwargs):
         if "status" in kwargs:
             raise ValidationError("Renewal lifecycle status changes must use the canonical renewal service")
-        if self.filter(status=LeaseRenewal.STATUS_CONFIRMED).exists():
-            raise ValidationError("Confirmed renewals are immutable")
+        if self.filter(status__in={LeaseRenewal.STATUS_CONFIRMED, LeaseRenewal.STATUS_CANCELLED}).exists():
+            raise ValidationError("Confirmed or cancelled renewals are immutable")
         return super().update(**kwargs)
 
     def bulk_update(self, objs, fields, batch_size=None):
@@ -236,9 +236,10 @@ class LeaseRenewalQuerySet(models.QuerySet):
             raise ValidationError("Renewal lifecycle status changes must use the canonical renewal service")
         object_ids = [obj.pk for obj in objs if obj.pk is not None]
         if object_ids and self.model.objects.filter(
-            pk__in=object_ids, status=LeaseRenewal.STATUS_CONFIRMED
+            pk__in=object_ids,
+            status__in={LeaseRenewal.STATUS_CONFIRMED, LeaseRenewal.STATUS_CANCELLED},
         ).exists():
-            raise ValidationError("Confirmed renewals are immutable")
+            raise ValidationError("Confirmed or cancelled renewals are immutable")
         return super().bulk_update(objs, fields, batch_size=batch_size)
 
     def delete(self):
@@ -313,8 +314,8 @@ class LeaseRenewal(models.Model):
         self.clean()
         if self.pk:
             previous_status = type(self).objects.filter(pk=self.pk).values_list("status", flat=True).first()
-            if previous_status == self.STATUS_CONFIRMED:
-                raise ValidationError("Confirmed renewals are immutable")
+            if previous_status in {self.STATUS_CONFIRMED, self.STATUS_CANCELLED}:
+                raise ValidationError("Confirmed or cancelled renewals are immutable")
             if previous_status is not None and previous_status != self.status and not allow_lifecycle_mutation:
                 raise ValidationError("Renewal lifecycle status changes must use the canonical renewal service")
         super().save(*args, **kwargs)
