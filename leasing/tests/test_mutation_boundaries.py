@@ -254,6 +254,12 @@ class CanonicalRenewalCreationAndMutationTests(SimpleTestCase):
         with self.assertRaisesMessage(ValidationError, "canonical renewal service"):
             queryset.create()
 
+    def test_renewal_queryset_bulk_create_is_rejected(self):
+        queryset = LeaseRenewalQuerySet(model=LeaseRenewal, query=Mock())
+
+        with self.assertRaisesMessage(ValidationError, "canonical renewal service"):
+            queryset.bulk_create([])
+
     @patch.object(models.Model, "save")
     @patch.object(LeaseRenewal, "clean")
     def test_renewal_direct_instance_save_is_rejected(self, clean_mock, base_save):
