@@ -43,6 +43,7 @@ class LeaseQuerySet(models.QuerySet):
         return super().update(**kwargs)
 
     def bulk_update(self, objs, fields, batch_size=None):
+        objs = tuple(objs)
         fields = set(fields)
         if "status" in fields:
             raise ValidationError(
