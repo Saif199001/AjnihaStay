@@ -1,4 +1,5 @@
 from importlib import import_module
+import inspect
 
 from django.core.management import call_command
 from django.db import connection
@@ -99,8 +100,8 @@ class LeasingRLSCoverageTests(TestCase):
             definition = cursor.fetchone()[0]
         for table, lease_fk in LIFECYCLE_LEASE_LINKS.items():
             self.assertIn(f"WHEN '{table}'", definition)
-            self.assertIn(f"JOIN leasing_lease l ON l.id = ", definition)
-            self.assertIn(f"{lease_fk}", definition)
+            self.assertIn("JOIN leasing_lease l ON l.id = ", definition)
+            self.assertIn(lease_fk, definition)
             self.assertIn("workspace_id = l.workspace_id", definition)
 
     def test_migration_policies_are_relational_and_use_the_correct_lease_foreign_key(self):
@@ -110,14 +111,25 @@ class LeasingRLSCoverageTests(TestCase):
             for table, _canonical_name, _legacy_name, lease_fk in migration.TABLE_POLICIES
         }
         self.assertEqual(configured, LIFECYCLE_LEASE_LINKS)
-
-        # Guard the migration's forward policy against regressing to workspace_id-only
-        # checks; the migration must remain safe before the central command is run.
-        import inspect
-
         source = inspect.getsource(migration.normalize_policy_names)
         self.assertIn("parent_lease.workspace_id", source)
         self.assertIn("relationship_check", source)
+        self.assertIn("WITH CHECK", source)
+        self.assertIn("USING", source)
+
+    def test_forward_repair_migration_reasserts_relational_policies(self):
+        migration = import_module("leasing.migrations.0009_reassert_lifecycle_relational_rls")
+        configured = {
+            table: lease_fk
+            for table, _canonical_name, _legacy_name, lease_fk in migration.TABLE_POLICIES
+        }
+        self.assertEqual(configured, LIFECYCLE_LEASE_LINKS)
+        self.assertEqual(
+            migration.Migration.dependencies,
+            [("leasing", "0008_normalize_lifecycle_rls_policies")],
+        )
+        source = inspect.getsource(migration.apply_relational_policies)
+        self.assertIn("parent_lease.workspace_id", source)
         self.assertIn("WITH CHECK", source)
         self.assertIn("USING", source)
 
