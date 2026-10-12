@@ -5,6 +5,14 @@ from django.db.models import Q
 
 
 class LeaseLifecycleEventQuerySet(models.QuerySet):
+    def create(self, **kwargs):
+        raise ValidationError("Lease lifecycle events must be created through the canonical lifecycle service")
+
+    def create_from_service(self, **kwargs):
+        event = self.model(**kwargs)
+        event.save(_allow_canonical_create=True, using=self.db, force_insert=True)
+        return event
+
     def update(self, **kwargs):
         raise ValidationError("Lease lifecycle events are immutable")
 
@@ -71,9 +79,12 @@ class LeaseLifecycleEvent(models.Model):
                 raise ValidationError("Lifecycle event actor must be an active workspace member")
 
     def save(self, *args, **kwargs):
-        self.clean()
+        allow_canonical_create = kwargs.pop("_allow_canonical_create", False)
         if self.pk:
             raise ValidationError("Lease lifecycle events are immutable")
+        if not allow_canonical_create:
+            raise ValidationError("Lease lifecycle events must be created through the canonical lifecycle service")
+        self.clean()
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
@@ -155,7 +166,10 @@ class LeaseNotice(models.Model):
                 raise ValidationError("Notice creator must be an active workspace member")
 
     def save(self, *args, **kwargs):
+        allow_canonical_create = kwargs.pop("_allow_canonical_create", False)
         allow_lifecycle_mutation = kwargs.pop("_allow_lifecycle_mutation", False)
+        if self.pk is None and not allow_canonical_create:
+            raise ValidationError("Lease notices must be created through the canonical notice service")
         self.clean()
         if self.pk:
             previous_status = type(self).objects.filter(pk=self.pk).values_list("status", flat=True).first()
@@ -253,6 +267,14 @@ class LeaseRenewal(models.Model):
 
 
 class LeaseContractVersionQuerySet(models.QuerySet):
+    def create(self, **kwargs):
+        raise ValidationError("Lease contract versions must be created through the canonical renewal service")
+
+    def create_from_service(self, **kwargs):
+        version = self.model(**kwargs)
+        version.save(_allow_canonical_create=True, using=self.db, force_insert=True)
+        return version
+
     def update(self, **kwargs):
         raise ValidationError("Lease contract versions are immutable")
 
@@ -320,9 +342,12 @@ class LeaseContractVersion(models.Model):
                 raise ValidationError("Contract version creator must be an active workspace member")
 
     def save(self, *args, **kwargs):
-        self.clean()
+        allow_canonical_create = kwargs.pop("_allow_canonical_create", False)
         if self.pk:
             raise ValidationError("Lease contract versions are immutable")
+        if not allow_canonical_create:
+            raise ValidationError("Lease contract versions must be created through the canonical renewal service")
+        self.clean()
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
