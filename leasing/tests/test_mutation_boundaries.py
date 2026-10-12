@@ -281,6 +281,34 @@ class CanonicalRenewalCreationAndMutationTests(SimpleTestCase):
 
 
 
+class CanonicalNoticeAndRenewalDeletionTests(SimpleTestCase):
+    def test_notice_queryset_delete_is_rejected(self):
+        queryset = LeaseNoticeQuerySet(model=LeaseNotice, query=Mock())
+
+        with self.assertRaisesMessage(ValidationError, "cannot be deleted"):
+            queryset.delete()
+
+    def test_notice_instance_delete_is_rejected(self):
+        notice = LeaseNotice()
+        notice.pk = 19
+
+        with self.assertRaisesMessage(ValidationError, "cannot be deleted"):
+            notice.delete()
+
+    def test_renewal_queryset_delete_is_rejected(self):
+        queryset = LeaseRenewalQuerySet(model=LeaseRenewal, query=Mock())
+
+        with self.assertRaisesMessage(ValidationError, "cannot be deleted"):
+            queryset.delete()
+
+    def test_renewal_instance_delete_is_rejected(self):
+        renewal = LeaseRenewal()
+        renewal.pk = 20
+
+        with self.assertRaisesMessage(ValidationError, "cannot be deleted"):
+            renewal.delete()
+
+
 class IssuedNoticeFactMutationTests(SimpleTestCase):
     @patch.object(models.QuerySet, "update")
     @patch.object(LeaseNoticeQuerySet, "filter")
