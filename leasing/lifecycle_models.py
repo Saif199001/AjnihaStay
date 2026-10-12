@@ -14,6 +14,9 @@ class LeaseLifecycleEventQuerySet(models.QuerySet):
     def bulk_create(self, objs, batch_size=None, ignore_conflicts=False, update_conflicts=False, update_fields=None, unique_fields=None):
         raise ValidationError("Lease lifecycle events must be created through the canonical lifecycle service")
 
+    def delete(self):
+        raise ValidationError("Lease lifecycle events are immutable and cannot be deleted")
+
 
 class LeaseLifecycleEvent(models.Model):
     EVENT_CREATED = "created"
@@ -72,6 +75,9 @@ class LeaseLifecycleEvent(models.Model):
         if self.pk:
             raise ValidationError("Lease lifecycle events are immutable")
         super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Lease lifecycle events are immutable and cannot be deleted")
 
 
 class LeaseNoticeQuerySet(models.QuerySet):
@@ -256,6 +262,9 @@ class LeaseContractVersionQuerySet(models.QuerySet):
     def bulk_create(self, objs, batch_size=None, ignore_conflicts=False, update_conflicts=False, update_fields=None, unique_fields=None):
         raise ValidationError("Lease contract versions must be created through the canonical renewal service")
 
+    def delete(self):
+        raise ValidationError("Lease contract versions are immutable and cannot be deleted")
+
 
 class LeaseContractVersion(models.Model):
     """Immutable contractual-period snapshots owned by a Lease anchor.
@@ -315,3 +324,6 @@ class LeaseContractVersion(models.Model):
         if self.pk:
             raise ValidationError("Lease contract versions are immutable")
         super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Lease contract versions are immutable and cannot be deleted")
