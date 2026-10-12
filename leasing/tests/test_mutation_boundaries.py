@@ -48,6 +48,25 @@ class LeaseModelMutationBoundaryTests(SimpleTestCase):
 
     @patch.object(models.Model, "save")
     @patch.object(Lease, "clean")
+    def test_new_lease_cannot_bypass_canonical_creation_with_active_status(self, clean_mock, base_save):
+        lease = Lease(
+            workspace_id=1,
+            occupancy_id=2,
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 12, 31),
+            rent_amount=Decimal("10000.00"),
+            created_by_id=7,
+            status=Lease.STATUS_ACTIVE,
+        )
+
+        with self.assertRaisesMessage(ValidationError, "must start in draft status"):
+            lease.save()
+
+        clean_mock.assert_not_called()
+        base_save.assert_not_called()
+
+    @patch.object(models.Model, "save")
+    @patch.object(Lease, "clean")
     @patch.object(Lease.objects, "filter")
     def test_active_lease_save_rejects_contractual_fact_changes(self, filter_mock, clean_mock, base_save):
         filter_mock.return_value.values.return_value.first.return_value = self._previous_lease_values()
