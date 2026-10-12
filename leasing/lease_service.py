@@ -63,7 +63,7 @@ def _ensure_active_contract_version(lease):
     existing = LeaseContractVersion.objects.filter(lease=lease, version_number=1).first()
     if existing:
         return existing
-    return LeaseContractVersion.objects.create(
+    return LeaseContractVersion.objects.create_from_service(
         lease=lease, workspace=lease.workspace, version_number=1,
         start_date=lease.start_date, end_date=lease.end_date,
         rent_amount=lease.rent_amount, security_deposit=lease.security_deposit,
