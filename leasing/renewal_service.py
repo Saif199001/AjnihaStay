@@ -53,7 +53,7 @@ def _ensure_base_contract_version(lease):
     if base:
         return base
 
-    return LeaseContractVersion.objects.create(
+    return LeaseContractVersion.objects.create_from_service(
         lease=lease,
         workspace=lease.workspace,
         version_number=1,
@@ -169,7 +169,7 @@ def confirm_renewal(user, workspace, renewal_id):
         if predecessor is None:
             predecessor = _ensure_base_contract_version(source_lease)
 
-        successor = LeaseContractVersion.objects.create(
+        successor = LeaseContractVersion.objects.create_from_service(
             lease=source_lease,
             workspace=workspace,
             version_number=predecessor.version_number + 1,
