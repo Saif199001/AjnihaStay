@@ -56,7 +56,7 @@ def create_notice(user, workspace, lease_id, *, notice_date, effective_date, not
             status=LeaseNotice.STATUS_DRAFT,
             created_by=user,
         )
-        notice.save()
+        notice.save(_allow_canonical_create=True)
         append_lifecycle_event(
             lease=lease,
             event_type=LeaseLifecycleEvent.EVENT_NOTICE,
