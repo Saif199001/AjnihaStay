@@ -91,6 +91,18 @@ class LeaseLifecycleEvent(models.Model):
         raise ValidationError("Lease lifecycle events are immutable and cannot be deleted")
 
 
+IMMUTABLE_NOTICE_STATUSES = {
+    "issued",
+    "withdrawn",
+    "effective",
+    "completed",
+}
+NOTICE_FACT_FIELDS = {
+    "workspace", "workspace_id", "lease", "lease_id", "notice_date",
+    "effective_date", "notice_type", "reason", "created_by", "created_by_id",
+}
+
+
 class LeaseNoticeQuerySet(models.QuerySet):
     def create(self, **kwargs):
         raise ValidationError("Lease notices must be created through the canonical notice service")
@@ -101,12 +113,24 @@ class LeaseNoticeQuerySet(models.QuerySet):
     def update(self, **kwargs):
         if "status" in kwargs:
             raise ValidationError("Notice lifecycle status changes must use the canonical lifecycle service")
+        if NOTICE_FACT_FIELDS.intersection(kwargs) and self.filter(
+            status__in=IMMUTABLE_NOTICE_STATUSES
+        ).exists():
+            raise ValidationError("Issued notice facts are immutable")
         return super().update(**kwargs)
 
     def bulk_update(self, objs, fields, batch_size=None):
+        objs = tuple(objs)
+        fields = set(fields)
         if "status" in fields:
             raise ValidationError("Notice lifecycle status changes must use the canonical lifecycle service")
-        return super().bulk_update(objs, fields, batch_size=batch_size)
+        if NOTICE_FACT_FIELDS.intersection(fields):
+            object_ids = [obj.pk for obj in objs if obj.pk is not None]
+            if object_ids and self.model.objects.filter(
+                pk__in=object_ids, status__in=IMMUTABLE_NOTICE_STATUSES
+            ).exists():
+                raise ValidationError("Issued notice facts are immutable")
+        return super().bulk_update(objs, list(fields), batch_size=batch_size)
 
 
 class LeaseNotice(models.Model):
@@ -172,9 +196,20 @@ class LeaseNotice(models.Model):
             raise ValidationError("Lease notices must be created through the canonical notice service")
         self.clean()
         if self.pk:
-            previous_status = type(self).objects.filter(pk=self.pk).values_list("status", flat=True).first()
-            if previous_status is not None and previous_status != self.status and not allow_lifecycle_mutation:
-                raise ValidationError("Notice lifecycle status changes must use the canonical lifecycle service")
+            previous = type(self).objects.filter(pk=self.pk).values(
+                "status", "workspace_id", "lease_id", "notice_date", "effective_date",
+                "notice_type", "reason", "created_by_id",
+            ).first()
+            if previous is not None:
+                if previous["status"] != self.status and not allow_lifecycle_mutation:
+                    raise ValidationError("Notice lifecycle status changes must use the canonical lifecycle service")
+                if previous["status"] in IMMUTABLE_NOTICE_STATUSES:
+                    changed = [
+                        field for field in NOTICE_FACT_FIELDS
+                        if field in previous and previous[field] != getattr(self, field)
+                    ]
+                    if changed:
+                        raise ValidationError("Issued notice facts are immutable")
         super().save(*args, **kwargs)
 
 
