@@ -117,6 +117,10 @@ class Lease(models.Model):
 
     def save(self, *args, **kwargs):
         allow_lifecycle_mutation = kwargs.pop("_allow_lifecycle_mutation", False)
+        if self.pk is None and self.status != self.STATUS_DRAFT:
+            raise ValidationError(
+                "New leases must start in draft status through the canonical lease service"
+            )
         if self.pk:
             previous = type(self).objects.filter(pk=self.pk).values(
                 "status", "workspace_id", "occupancy_id", "agreement_number", "start_date",
