@@ -13,6 +13,7 @@ from leasing.lifecycle_models import (
     LeaseLifecycleEvent,
     LeaseLifecycleEventQuerySet,
     LeaseNotice,
+    LeaseNoticeQuerySet,
     LeaseRenewal,
     LeaseRenewalQuerySet,
 )
@@ -277,3 +278,64 @@ class CanonicalRenewalCreationAndMutationTests(SimpleTestCase):
             queryset.bulk_update([stale_draft], ["rent_amount"])
 
         base_bulk_update.assert_not_called()
+
+
+
+class IssuedNoticeFactMutationTests(SimpleTestCase):
+    @patch.object(models.QuerySet, "update")
+    @patch.object(LeaseNoticeQuerySet, "filter")
+    def test_queryset_update_rejects_issued_notice_fact_changes(self, filter_mock, base_update):
+        filter_mock.return_value.exists.return_value = True
+        queryset = LeaseNoticeQuerySet(model=LeaseNotice, query=Mock())
+
+        with self.assertRaisesMessage(ValidationError, "Issued notice facts are immutable"):
+            queryset.update(reason="Changed after issue")
+
+        base_update.assert_not_called()
+
+    @patch.object(models.QuerySet, "bulk_update")
+    @patch.object(LeaseNotice.objects, "filter")
+    def test_bulk_update_checks_persisted_issued_notice_status(self, filter_mock, base_bulk_update):
+        filter_mock.return_value.exists.return_value = True
+        queryset = LeaseNoticeQuerySet(model=LeaseNotice, query=Mock())
+        stale_draft = LeaseNotice()
+        stale_draft.pk = 18
+        stale_draft.status = LeaseNotice.STATUS_DRAFT
+        stale_draft.reason = "Edited"
+
+        with self.assertRaisesMessage(ValidationError, "Issued notice facts are immutable"):
+            queryset.bulk_update([stale_draft], ["reason"])
+
+        base_bulk_update.assert_not_called()
+
+    @patch.object(models.Model, "save")
+    @patch.object(LeaseNotice, "clean")
+    @patch.object(LeaseNotice.objects, "filter")
+    def test_instance_save_rejects_issued_notice_fact_changes(self, filter_mock, clean_mock, base_save):
+        filter_mock.return_value.values.return_value.first.return_value = {
+            "status": LeaseNotice.STATUS_ISSUED,
+            "workspace_id": 1,
+            "lease_id": 2,
+            "notice_date": date(2026, 10, 1),
+            "effective_date": date(2026, 11, 1),
+            "notice_type": LeaseNotice.TYPE_TERMINATION,
+            "reason": "Original reason",
+            "created_by_id": 7,
+        }
+        notice = LeaseNotice(
+            workspace_id=1,
+            lease_id=2,
+            notice_date=date(2026, 10, 1),
+            effective_date=date(2026, 11, 1),
+            notice_type=LeaseNotice.TYPE_TERMINATION,
+            reason="Original reason",
+            created_by_id=7,
+            status=LeaseNotice.STATUS_ISSUED,
+        )
+        notice.pk = 21
+        notice.reason = "Changed reason"
+
+        with self.assertRaisesMessage(ValidationError, "Issued notice facts are immutable"):
+            notice.save()
+
+        base_save.assert_not_called()
