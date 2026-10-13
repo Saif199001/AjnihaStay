@@ -3,10 +3,11 @@ from decimal import Decimal
 from unittest.mock import Mock, patch
 
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import IntegrityError, models
 from django.test import SimpleTestCase
 
 from leasing.models import CONTRACTUAL_FIELDS, Lease, LeaseQuerySet
+from leasing.lease_service import _ensure_no_existing_lease, _save_lease_or_raise_duplicate
 from leasing.lifecycle_models import (
     LeaseContractVersion,
     LeaseContractVersionQuerySet,
@@ -17,6 +18,59 @@ from leasing.lifecycle_models import (
     LeaseRenewal,
     LeaseRenewalQuerySet,
 )
+
+
+class DuplicateLeaseCreationBoundaryTests(SimpleTestCase):
+    @patch.object(Lease.objects, "filter")
+    def test_existing_lease_for_occupancy_is_rejected(self, filter_mock):
+        filter_mock.return_value.exists.return_value = True
+
+        with self.assertRaisesMessage(
+            ValidationError, "A lease already exists for this occupancy"
+        ):
+            _ensure_no_existing_lease(occupancy_id=42)
+
+        filter_mock.assert_called_once_with(occupancy_id=42)
+
+    @patch.object(Lease.objects, "filter")
+    def test_occupancy_without_lease_passes_duplicate_precheck(self, filter_mock):
+        filter_mock.return_value.exists.return_value = False
+
+        _ensure_no_existing_lease(occupancy_id=42)
+
+        filter_mock.assert_called_once_with(occupancy_id=42)
+
+    @patch.object(Lease.objects, "filter")
+    @patch("leasing.lease_service.transaction.atomic")
+    def test_unique_conflict_for_existing_occupancy_maps_to_validation_error(
+        self, atomic_mock, filter_mock
+    ):
+        lease = Mock()
+        lease.save.side_effect = IntegrityError("unique constraint")
+        filter_mock.return_value.exists.return_value = True
+
+        with self.assertRaisesMessage(
+            ValidationError, "A lease already exists for this occupancy"
+        ):
+            _save_lease_or_raise_duplicate(lease, occupancy_id=42)
+
+        lease.save.assert_called_once_with(_allow_canonical_create=True)
+        filter_mock.assert_called_once_with(occupancy_id=42)
+
+    @patch.object(Lease.objects, "filter")
+    @patch("leasing.lease_service.transaction.atomic")
+    def test_unrelated_integrity_error_is_not_misreported_as_duplicate(
+        self, atomic_mock, filter_mock
+    ):
+        lease = Mock()
+        lease.save.side_effect = IntegrityError("different constraint")
+        filter_mock.return_value.exists.return_value = False
+
+        with self.assertRaisesMessage(IntegrityError, "different constraint"):
+            _save_lease_or_raise_duplicate(lease, occupancy_id=42)
+
+        lease.save.assert_called_once_with(_allow_canonical_create=True)
+        filter_mock.assert_called_once_with(occupancy_id=42)
 
 
 class LeaseModelMutationBoundaryTests(SimpleTestCase):

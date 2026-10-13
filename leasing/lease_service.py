@@ -1,7 +1,7 @@
 from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
 from payments.authorization import require_mutation_permission
 from tenant.models import Occupancy
@@ -52,6 +52,25 @@ def _get_locked_occupancy(occupancy_id, workspace):
         raise ValidationError("Occupancy not found")
 
 
+def _ensure_no_existing_lease(occupancy_id):
+    if Lease.objects.filter(occupancy_id=occupancy_id).exists():
+        raise ValidationError("A lease already exists for this occupancy")
+
+
+def _save_lease_or_raise_duplicate(lease, occupancy_id):
+    try:
+        # Keep the savepoint local so an expected uniqueness conflict does not
+        # leave the outer lease-creation transaction in a broken state.
+        with transaction.atomic():
+            lease.save(_allow_canonical_create=True)
+    except IntegrityError:
+        if Lease.objects.filter(occupancy_id=occupancy_id).exists():
+            raise ValidationError(
+                "A lease already exists for this occupancy"
+            ) from None
+        raise
+
+
 def _get_locked_lease(lease_id, workspace):
     try:
         return Lease.objects.select_for_update().select_related("occupancy__tenant").get(id=lease_id, workspace=workspace)
@@ -81,6 +100,7 @@ def create_lease(user, workspace, data):
         raise ValidationError("Occupancy required")
     with transaction.atomic():
         occupancy = _get_locked_occupancy(occupancy_id, workspace)
+        _ensure_no_existing_lease(occupancy.pk)
         start_date, end_date = data.get("start_date"), data.get("end_date")
         if not start_date or not end_date:
             raise ValidationError("Lease start and end dates are required")
@@ -101,7 +121,7 @@ def create_lease(user, workspace, data):
             notice_period_days=data.get("notice_period_days", 0), status=Lease.STATUS_DRAFT,
             terms=data.get("terms") or {}, agreement_reference=data.get("agreement_reference", ""), created_by=user,
         )
-        lease.save(_allow_canonical_create=True)
+        _save_lease_or_raise_duplicate(lease, occupancy.pk)
         append_lifecycle_event(lease=lease, event_type=LeaseLifecycleEvent.EVENT_CREATED, actor=user,
                                occurred_at=lease.created_at, effective_date=lease.start_date,
                                metadata={"status": Lease.STATUS_DRAFT}, event_key=LeaseLifecycleEvent.EVENT_CREATED)
