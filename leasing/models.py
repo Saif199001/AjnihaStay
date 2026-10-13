@@ -29,6 +29,11 @@ CONTRACTUAL_FIELDS = {
 
 
 class LeaseQuerySet(models.QuerySet):
+    def bulk_create(self, objs, batch_size=None, ignore_conflicts=False, update_conflicts=False, update_fields=None, unique_fields=None):
+        raise ValidationError(
+            "Leases must be created through the canonical lease service"
+        )
+
     def update(self, **kwargs):
         if "status" in kwargs:
             raise ValidationError(
