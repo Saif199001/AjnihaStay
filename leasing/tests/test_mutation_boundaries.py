@@ -597,7 +597,7 @@ class IssuedNoticeFactMutationTests(SimpleTestCase):
         filter_mock.return_value.exists.return_value = True
         queryset = LeaseNoticeQuerySet(model=LeaseNotice, query=Mock())
 
-        with self.assertRaisesMessage(ValidationError, "Issued notice facts are immutable"):
+        with self.assertRaisesMessage(ValidationError, "canonical notice service"):
             queryset.update(reason="Changed after issue")
 
         base_update.assert_not_called()
@@ -612,10 +612,46 @@ class IssuedNoticeFactMutationTests(SimpleTestCase):
         stale_draft.status = LeaseNotice.STATUS_DRAFT
         stale_draft.reason = "Edited"
 
-        with self.assertRaisesMessage(ValidationError, "Issued notice facts are immutable"):
+        with self.assertRaisesMessage(ValidationError, "canonical notice service"):
             queryset.bulk_update([stale_draft], ["reason"])
 
         base_bulk_update.assert_not_called()
+
+    @patch.object(models.QuerySet, "update")
+    def test_queryset_update_rejects_draft_notice_fact_mutation(self, base_update):
+        queryset = LeaseNoticeQuerySet(model=LeaseNotice, query=Mock())
+
+        with self.assertRaisesMessage(ValidationError, "canonical notice service"):
+            queryset.update(reason="Changed draft")
+
+        base_update.assert_not_called()
+
+    @patch.object(models.Model, "save")
+    @patch.object(LeaseNotice, "clean")
+    @patch.object(LeaseNotice.objects, "filter")
+    def test_instance_save_rejects_draft_notice_fact_mutation_without_service_flag(self, filter_mock, clean_mock, base_save):
+        filter_mock.return_value.values.return_value.first.return_value = {
+            "status": LeaseNotice.STATUS_DRAFT,
+            "workspace_id": 1,
+            "lease_id": 2,
+            "notice_date": date(2026, 10, 1),
+            "effective_date": date(2026, 11, 1),
+            "notice_type": LeaseNotice.TYPE_TERMINATION,
+            "reason": "Original reason",
+            "created_by_id": 7,
+        }
+        notice = LeaseNotice(
+            workspace_id=1, lease_id=2, notice_date=date(2026, 10, 1),
+            effective_date=date(2026, 11, 1), notice_type=LeaseNotice.TYPE_TERMINATION,
+            reason="Changed reason", created_by_id=7, status=LeaseNotice.STATUS_DRAFT,
+        )
+        notice.pk = 22
+
+        with self.assertRaisesMessage(ValidationError, "canonical notice service"):
+            notice.save()
+
+        clean_mock.assert_not_called()
+        base_save.assert_not_called()
 
     @patch.object(models.Model, "save")
     @patch.object(LeaseNotice, "clean")

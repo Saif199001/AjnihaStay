@@ -69,6 +69,39 @@ def create_notice(user, workspace, lease_id, *, notice_date, effective_date, not
         return notice
 
 
+def update_notice(user, workspace, notice_id, changes):
+    require_mutation_permission(user, workspace)
+    changes = dict(changes or {})
+    editable_fields = {"notice_date", "effective_date", "notice_type", "reason"}
+    unsupported = set(changes) - editable_fields
+    if unsupported:
+        raise ValidationError(f"Unsupported notice fields: {sorted(unsupported)}")
+    if not changes:
+        raise ValidationError("No notice changes supplied")
+
+    with transaction.atomic():
+        notice = _get_locked_notice(notice_id, workspace)
+        if notice.status != LeaseNotice.STATUS_DRAFT:
+            raise ValidationError("Only draft notices can be updated")
+
+        for field, value in changes.items():
+            if field == "reason":
+                value = str(value or "").strip()
+                if not value:
+                    raise ValidationError("Notice reason is required")
+            if field == "notice_type" and value not in dict(LeaseNotice.TYPE_CHOICES):
+                raise ValidationError("Invalid notice type")
+            setattr(notice, field, value)
+
+        today = timezone.localdate()
+        if notice.notice_date > today:
+            raise ValidationError("Notice date cannot be in the future")
+        if notice.effective_date < notice.notice_date:
+            raise ValidationError("Notice effective date cannot be before notice date")
+        notice.save(_allow_canonical_update=True)
+        return notice
+
+
 def transition_notice(user, workspace, notice_id, target_status):
     require_mutation_permission(user, workspace)
     if target_status not in dict(LeaseNotice.STATUS_CHOICES):

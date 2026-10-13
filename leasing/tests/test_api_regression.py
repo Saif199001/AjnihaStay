@@ -286,6 +286,48 @@ class LeaseCreationAPIRegressionTests(TestCase):
         self.assertEqual(lease.status, Lease.STATUS_ACTIVE)
         self.assertIsNotNone(lease.activated_at)
 
+    def test_draft_notice_update_uses_canonical_api(self):
+        created = self.create_lease_through_api()
+        self.assertEqual(created.status_code, 201, created.data)
+        lease_id = created.data["data"]["id"]
+        headers = self.authenticate(self.manager)
+        active = self.client.post(
+            f"/api/leases/{lease_id}/transition/",
+            {"status": Lease.STATUS_PENDING_SIGNATURE},
+            format="json",
+            **headers,
+        )
+        self.assertEqual(active.status_code, 200, active.data)
+        active = self.client.post(
+            f"/api/leases/{lease_id}/transition/",
+            {"status": Lease.STATUS_ACTIVE},
+            format="json",
+            **headers,
+        )
+        self.assertEqual(active.status_code, 200, active.data)
+        today = date.today().isoformat()
+        notice = self.client.post(
+            f"/api/leases/{lease_id}/notices/create/",
+            {
+                "notice_date": today,
+                "effective_date": today,
+                "notice_type": "other",
+                "reason": "Initial reason",
+            },
+            format="json",
+            **headers,
+        )
+        self.assertEqual(notice.status_code, 201, notice.data)
+        notice_id = notice.data["data"]["id"]
+        updated = self.client.post(
+            f"/api/leases/notices/{notice_id}/update/",
+            {"reason": "Corrected draft reason"},
+            format="json",
+            **headers,
+        )
+        self.assertEqual(updated.status_code, 200, updated.data)
+        self.assertEqual(updated.data["data"]["reason"], "Corrected draft reason")
+
     def test_cross_workspace_header_is_rejected(self):
         outsider = create_user_account(
             "lease-api-header-outsider@example.com",

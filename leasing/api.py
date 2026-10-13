@@ -9,10 +9,10 @@ from .expiry_service import expire_lease
 from .lease_service import create_lease, transition_lease, update_lease
 from .lifecycle_models import LeaseNotice
 from .models import Lease
-from .notice_service import create_notice, transition_notice
+from .notice_service import create_notice, transition_notice, update_notice
 from .renewal_service import cancel_renewal, confirm_renewal, create_renewal
 from .serializers import (
-    LeaseLifecycleActionSerializer, LeaseNoticeSerializer, LeaseNoticeTransitionSerializer,
+    LeaseLifecycleActionSerializer, LeaseNoticeSerializer, LeaseNoticeTransitionSerializer, LeaseNoticeUpdateSerializer,
     LeaseRenewalCreateSerializer, LeaseRenewalSerializer, LeaseSerializer, LeaseTransitionSerializer,
 )
 from .termination_service import terminate_lease
@@ -138,6 +138,19 @@ def lease_notice_create_api(request, lease_id):
     except ValidationError as exc:
         return Response({"error": _validation_message(exc)}, status=400)
     return Response({"message": "Notice created", "data": LeaseNoticeSerializer(notice).data}, status=201)
+
+
+@api_view(["POST"])
+@permission_classes([WorkspaceManagerPermission])
+def lease_notice_update_api(request, notice_id):
+    serializer = LeaseNoticeUpdateSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=400)
+    try:
+        notice = update_notice(request.user, request.workspace, notice_id, serializer.validated_data)
+    except ValidationError as exc:
+        return Response({"error": _validation_message(exc)}, status=400)
+    return Response({"message": "Notice updated", "data": LeaseNoticeSerializer(notice).data})
 
 
 @api_view(["POST"])

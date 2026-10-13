@@ -60,6 +60,23 @@ class LeaseNoticeSerializer(serializers.ModelSerializer):
         return data
 
 
+class LeaseNoticeUpdateSerializer(serializers.Serializer):
+    notice_date = serializers.DateField(required=False)
+    effective_date = serializers.DateField(required=False)
+    notice_type = serializers.ChoiceField(choices=LeaseNotice.TYPE_CHOICES, required=False)
+    reason = serializers.CharField(required=False, allow_blank=False, max_length=500)
+
+    def to_internal_value(self, data):
+        allowed = {"notice_date", "effective_date", "notice_type", "reason"}
+        unknown = sorted(set(data) - allowed)
+        if unknown:
+            raise serializers.ValidationError({
+                field: ["This field is not allowed for notice updates."]
+                for field in unknown
+            })
+        return super().to_internal_value(data)
+
+
 class LeaseNoticeTransitionSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=LeaseNotice.STATUS_CHOICES)
 
