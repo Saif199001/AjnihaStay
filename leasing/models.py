@@ -10,6 +10,7 @@ IMMUTABLE_CONTRACT_STATUSES = {
     "terminated",
     "cancelled",
 }
+LIFECYCLE_TIMESTAMP_FIELDS = {"activated_at", "terminated_at", "cancelled_at"}
 CONTRACTUAL_FIELDS = {
     "workspace",
     "workspace_id",
@@ -35,6 +36,10 @@ class LeaseQuerySet(models.QuerySet):
         )
 
     def update(self, **kwargs):
+        if LIFECYCLE_TIMESTAMP_FIELDS.intersection(kwargs):
+            raise ValidationError(
+                "Lease lifecycle timestamps must use the canonical lifecycle service"
+            )
         if "status" in kwargs:
             raise ValidationError(
                 "Lease lifecycle status changes must use the canonical lifecycle service"
@@ -50,6 +55,10 @@ class LeaseQuerySet(models.QuerySet):
     def bulk_update(self, objs, fields, batch_size=None):
         objs = tuple(objs)
         fields = set(fields)
+        if LIFECYCLE_TIMESTAMP_FIELDS.intersection(fields):
+            raise ValidationError(
+                "Lease lifecycle timestamps must use the canonical lifecycle service"
+            )
         if "status" in fields:
             raise ValidationError(
                 "Lease lifecycle status changes must use the canonical lifecycle service"
@@ -63,6 +72,11 @@ class LeaseQuerySet(models.QuerySet):
                     "Contractual lease facts are immutable after activation"
                 )
         return super().bulk_update(objs, list(fields), batch_size=batch_size)
+
+    def delete(self):
+        raise ValidationError(
+            "Leases cannot be deleted; use the canonical lease lifecycle"
+        )
 
 
 class Lease(models.Model):
@@ -131,9 +145,18 @@ class Lease(models.Model):
             previous = type(self).objects.filter(pk=self.pk).values(
                 "status", "workspace_id", "occupancy_id", "agreement_number", "start_date",
                 "end_date", "rent_amount", "security_deposit", "notice_period_days",
-                "terms", "agreement_reference", "created_by_id",
+                "terms", "agreement_reference", "created_by_id", "activated_at",
+                "terminated_at", "cancelled_at",
             ).first()
             if previous is not None:
+                changed_timestamps = [
+                    field for field in LIFECYCLE_TIMESTAMP_FIELDS
+                    if previous.get(field) != getattr(self, field)
+                ]
+                if changed_timestamps and not allow_lifecycle_mutation:
+                    raise ValidationError(
+                        "Lease lifecycle timestamps must use the canonical lifecycle service"
+                    )
                 if previous["status"] != self.status and not allow_lifecycle_mutation:
                     raise ValidationError(
                         "Lease lifecycle status changes must use the canonical lifecycle service"
@@ -149,6 +172,11 @@ class Lease(models.Model):
                         )
         self.clean()
         super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError(
+            "Leases cannot be deleted; use the canonical lease lifecycle"
+        )
 
     def __str__(self):
         return self.agreement_number or f"Lease #{self.pk}"
