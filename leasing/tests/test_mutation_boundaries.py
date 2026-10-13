@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from unittest.mock import Mock, patch
 
@@ -34,6 +34,9 @@ class LeaseModelMutationBoundaryTests(SimpleTestCase):
             "terms": {"maintenance": "owner"},
             "agreement_reference": "contract.pdf",
             "created_by_id": 7,
+            "activated_at": None,
+            "terminated_at": None,
+            "cancelled_at": None,
         }
         values.update(overrides)
         return values
@@ -149,6 +152,58 @@ class LeaseModelMutationBoundaryTests(SimpleTestCase):
 
         with self.assertRaisesMessage(ValidationError, "canonical lease service"):
             queryset.bulk_create([])
+
+    @patch.object(models.Model, "save")
+    @patch.object(Lease, "clean")
+    @patch.object(Lease.objects, "filter")
+    def test_instance_save_rejects_direct_lifecycle_timestamp_change(self, filter_mock, clean_mock, base_save):
+        filter_mock.return_value.values.return_value.first.return_value = self._previous_lease_values()
+        lease = self._lease()
+        lease.activated_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+        with self.assertRaisesMessage(ValidationError, "lifecycle timestamps must use the canonical lifecycle service"):
+            lease.save()
+
+        clean_mock.assert_not_called()
+        base_save.assert_not_called()
+
+    @patch.object(models.QuerySet, "update")
+    def test_queryset_update_rejects_lifecycle_timestamp_change(self, base_update):
+        queryset = LeaseQuerySet(model=Lease, query=Mock())
+
+        with self.assertRaisesMessage(ValidationError, "lifecycle timestamps must use the canonical lifecycle service"):
+            queryset.update(activated_at=datetime(2026, 1, 1, tzinfo=timezone.utc))
+
+        base_update.assert_not_called()
+
+    @patch.object(models.QuerySet, "bulk_update")
+    def test_bulk_update_rejects_lifecycle_timestamp_change(self, base_bulk_update):
+        queryset = LeaseQuerySet(model=Lease, query=Mock())
+        lease = self._lease()
+        lease.activated_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+        with self.assertRaisesMessage(ValidationError, "lifecycle timestamps must use the canonical lifecycle service"):
+            queryset.bulk_update([lease], ["activated_at"])
+
+        base_bulk_update.assert_not_called()
+
+    @patch.object(models.QuerySet, "delete")
+    def test_lease_queryset_delete_is_rejected(self, base_delete):
+        queryset = LeaseQuerySet(model=Lease, query=Mock())
+
+        with self.assertRaisesMessage(ValidationError, "Leases cannot be deleted"):
+            queryset.delete()
+
+        base_delete.assert_not_called()
+
+    @patch.object(models.Model, "delete")
+    def test_lease_instance_delete_is_rejected(self, base_delete):
+        lease = self._lease()
+
+        with self.assertRaisesMessage(ValidationError, "Leases cannot be deleted"):
+            lease.delete()
+
+        base_delete.assert_not_called()
 
 
 
