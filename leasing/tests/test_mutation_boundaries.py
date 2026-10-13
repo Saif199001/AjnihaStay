@@ -144,6 +144,12 @@ class LeaseModelMutationBoundaryTests(SimpleTestCase):
         with self.assertRaisesMessage(ValidationError, "canonical lifecycle service"):
             queryset.update(status=Lease.STATUS_EXPIRED)
 
+    def test_queryset_bulk_create_rejects_canonical_creation_bypass(self):
+        queryset = LeaseQuerySet(model=Lease, query=Mock())
+
+        with self.assertRaisesMessage(ValidationError, "canonical lease service"):
+            queryset.bulk_create([])
+
 
 
 class ImmutableLeaseHistoryDeletionTests(SimpleTestCase):
