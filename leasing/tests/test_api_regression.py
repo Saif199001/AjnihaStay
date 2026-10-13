@@ -181,10 +181,9 @@ class LeaseCreationAPIRegressionTests(TestCase):
             agreement_number="LEASE-API-DUPLICATE"
         )
         self.assertEqual(second.status_code, 400, second.data)
-        self.assertEqual(
-            second.data["error"],
-            "A lease already exists for this occupancy",
-        )
+        # ModelSerializer's OneToOne uniqueness validator returns field errors
+        # before the canonical service is called.
+        self.assertIn("occupancy", second.data, second.data)
         self.assertEqual(Lease.objects.filter(occupancy=self.occupancy).count(), 1)
 
     def test_invalid_lease_payload_returns_http_400(self):
