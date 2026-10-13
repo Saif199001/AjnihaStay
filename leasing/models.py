@@ -30,6 +30,11 @@ CONTRACTUAL_FIELDS = {
 
 
 class LeaseQuerySet(models.QuerySet):
+    def create(self, **kwargs):
+        raise ValidationError(
+            "Leases must be created through the canonical lease service"
+        )
+
     def bulk_create(self, objs, batch_size=None, ignore_conflicts=False, update_conflicts=False, update_fields=None, unique_fields=None):
         raise ValidationError(
             "Leases must be created through the canonical lease service"
@@ -136,11 +141,17 @@ class Lease(models.Model):
                 raise ValidationError("Lease creator must be an active workspace member")
 
     def save(self, *args, **kwargs):
+        allow_canonical_create = kwargs.pop("_allow_canonical_create", False)
         allow_lifecycle_mutation = kwargs.pop("_allow_lifecycle_mutation", False)
-        if self.pk is None and self.status != self.STATUS_DRAFT:
-            raise ValidationError(
-                "New leases must start in draft status through the canonical lease service"
-            )
+        if self.pk is None:
+            if self.status != self.STATUS_DRAFT:
+                raise ValidationError(
+                    "New leases must start in draft status through the canonical lease service"
+                )
+            if not allow_canonical_create:
+                raise ValidationError(
+                    "Leases must be created through the canonical lease service"
+                )
         if self.pk:
             previous = type(self).objects.filter(pk=self.pk).values(
                 "status", "workspace_id", "occupancy_id", "agreement_number", "start_date",

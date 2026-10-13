@@ -101,7 +101,7 @@ def create_lease(user, workspace, data):
             notice_period_days=data.get("notice_period_days", 0), status=Lease.STATUS_DRAFT,
             terms=data.get("terms") or {}, agreement_reference=data.get("agreement_reference", ""), created_by=user,
         )
-        lease.save()
+        lease.save(_allow_canonical_create=True)
         append_lifecycle_event(lease=lease, event_type=LeaseLifecycleEvent.EVENT_CREATED, actor=user,
                                occurred_at=lease.created_at, effective_date=lease.start_date,
                                metadata={"status": Lease.STATUS_DRAFT}, event_key=LeaseLifecycleEvent.EVENT_CREATED)

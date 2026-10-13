@@ -61,6 +61,57 @@ class LeaseModelMutationBoundaryTests(SimpleTestCase):
 
     @patch.object(models.Model, "save")
     @patch.object(Lease, "clean")
+    def test_new_draft_lease_direct_save_requires_canonical_creation_flag(self, clean_mock, base_save):
+        lease = Lease(
+            workspace_id=1,
+            occupancy_id=2,
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 12, 31),
+            rent_amount=Decimal("10000.00"),
+            created_by_id=7,
+            status=Lease.STATUS_DRAFT,
+        )
+
+        with self.assertRaisesMessage(ValidationError, "canonical lease service"):
+            lease.save()
+
+        clean_mock.assert_not_called()
+        base_save.assert_not_called()
+
+    def test_lease_queryset_create_is_rejected(self):
+        queryset = LeaseQuerySet(model=Lease, query=Mock())
+
+        with self.assertRaisesMessage(ValidationError, "canonical lease service"):
+            queryset.create(
+                workspace_id=1,
+                occupancy_id=2,
+                start_date=date(2026, 1, 1),
+                end_date=date(2026, 12, 31),
+                rent_amount=Decimal("10000.00"),
+                created_by_id=7,
+                status=Lease.STATUS_DRAFT,
+            )
+
+    @patch.object(models.Model, "save")
+    @patch.object(Lease, "clean")
+    def test_canonical_creation_flag_allows_new_draft_lease_save(self, clean_mock, base_save):
+        lease = Lease(
+            workspace_id=1,
+            occupancy_id=2,
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 12, 31),
+            rent_amount=Decimal("10000.00"),
+            created_by_id=7,
+            status=Lease.STATUS_DRAFT,
+        )
+
+        lease.save(_allow_canonical_create=True)
+
+        clean_mock.assert_called_once_with()
+        base_save.assert_called_once()
+
+    @patch.object(models.Model, "save")
+    @patch.object(Lease, "clean")
     def test_new_lease_cannot_bypass_canonical_creation_with_active_status(self, clean_mock, base_save):
         lease = Lease(
             workspace_id=1,
