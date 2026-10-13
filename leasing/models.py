@@ -49,11 +49,9 @@ class LeaseQuerySet(models.QuerySet):
             raise ValidationError(
                 "Lease lifecycle status changes must use the canonical lifecycle service"
             )
-        if CONTRACTUAL_FIELDS.intersection(kwargs) and self.filter(
-            status__in=IMMUTABLE_CONTRACT_STATUSES
-        ).exists():
+        if CONTRACTUAL_FIELDS.intersection(kwargs):
             raise ValidationError(
-                "Contractual lease facts are immutable after activation"
+                "Contractual lease facts must use the canonical lease service"
             )
         return super().update(**kwargs)
 
@@ -69,13 +67,9 @@ class LeaseQuerySet(models.QuerySet):
                 "Lease lifecycle status changes must use the canonical lifecycle service"
             )
         if CONTRACTUAL_FIELDS.intersection(fields):
-            object_ids = [obj.pk for obj in objs if obj.pk is not None]
-            if object_ids and self.model.objects.filter(
-                pk__in=object_ids, status__in=IMMUTABLE_CONTRACT_STATUSES
-            ).exists():
-                raise ValidationError(
-                    "Contractual lease facts are immutable after activation"
-                )
+            raise ValidationError(
+                "Contractual lease facts must use the canonical lease service"
+            )
         return super().bulk_update(objs, list(fields), batch_size=batch_size)
 
     def delete(self):
@@ -142,6 +136,7 @@ class Lease(models.Model):
 
     def save(self, *args, **kwargs):
         allow_canonical_create = kwargs.pop("_allow_canonical_create", False)
+        allow_canonical_update = kwargs.pop("_allow_canonical_update", False)
         allow_lifecycle_mutation = kwargs.pop("_allow_lifecycle_mutation", False)
         if self.pk is None:
             if self.status != self.STATUS_DRAFT:
@@ -172,15 +167,18 @@ class Lease(models.Model):
                     raise ValidationError(
                         "Lease lifecycle status changes must use the canonical lifecycle service"
                     )
-                if previous["status"] in IMMUTABLE_CONTRACT_STATUSES:
-                    changed = [
-                        field for field in CONTRACTUAL_FIELDS
-                        if field in previous and previous[field] != getattr(self, field)
-                    ]
-                    if changed:
-                        raise ValidationError(
-                            "Contractual lease facts are immutable after activation"
-                        )
+                changed_contractual_fields = [
+                    field for field in CONTRACTUAL_FIELDS
+                    if field in previous and previous[field] != getattr(self, field)
+                ]
+                if changed_contractual_fields and previous["status"] in IMMUTABLE_CONTRACT_STATUSES:
+                    raise ValidationError(
+                        "Contractual lease facts are immutable after activation"
+                    )
+                if changed_contractual_fields and not allow_canonical_update:
+                    raise ValidationError(
+                        "Contractual lease facts must use the canonical lease service"
+                    )
         self.clean()
         super().save(*args, **kwargs)
 

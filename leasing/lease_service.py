@@ -145,7 +145,7 @@ def update_lease(user, workspace, lease_id, changes):
                 value = _decimal(value, field.replace("_", " ").title())
             setattr(lease, field, value)
         lease.updated_by = user
-        lease.save()
+        lease.save(_allow_canonical_update=True)
         return lease
 
 

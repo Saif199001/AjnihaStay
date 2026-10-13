@@ -221,16 +221,13 @@ class LeaseModelMutationBoundaryTests(SimpleTestCase):
         base_update.assert_not_called()
 
     @patch.object(models.QuerySet, "update")
-    @patch.object(LeaseQuerySet, "filter")
-    def test_queryset_update_allows_contract_mutation_when_only_draft_rows_match(self, filter_mock, base_update):
-        filter_mock.return_value.exists.return_value = False
+    def test_queryset_update_rejects_contract_mutation_for_draft_rows(self, base_update):
         queryset = LeaseQuerySet(model=Lease, query=Mock())
-        base_update.return_value = 1
 
-        result = queryset.update(rent_amount=Decimal("11000.00"))
+        with self.assertRaisesMessage(ValidationError, "canonical lease service"):
+            queryset.update(rent_amount=Decimal("11000.00"))
 
-        self.assertEqual(result, 1)
-        base_update.assert_called_once_with(rent_amount=Decimal("11000.00"))
+        base_update.assert_not_called()
 
     @patch.object(models.QuerySet, "bulk_update")
     @patch.object(Lease.objects, "filter")
@@ -271,6 +268,34 @@ class LeaseModelMutationBoundaryTests(SimpleTestCase):
 
         clean_mock.assert_not_called()
         base_save.assert_not_called()
+
+    @patch.object(models.Model, "save")
+    @patch.object(Lease, "clean")
+    @patch.object(Lease.objects, "filter")
+    def test_instance_save_rejects_draft_contract_mutation_without_service_flag(self, filter_mock, clean_mock, base_save):
+        previous = self._previous_lease_values(status=Lease.STATUS_DRAFT)
+        filter_mock.return_value.values.return_value.first.return_value = previous
+        lease = self._lease()
+        lease.status = Lease.STATUS_DRAFT
+        lease.rent_amount = Decimal("11000.00")
+
+        with self.assertRaisesMessage(ValidationError, "canonical lease service"):
+            lease.save()
+
+        clean_mock.assert_not_called()
+        base_save.assert_not_called()
+
+    @patch.object(models.QuerySet, "bulk_update")
+    def test_bulk_update_rejects_draft_contract_mutation(self, base_bulk_update):
+        queryset = LeaseQuerySet(model=Lease, query=Mock())
+        lease = self._lease()
+        lease.status = Lease.STATUS_DRAFT
+        lease.rent_amount = Decimal("11000.00")
+
+        with self.assertRaisesMessage(ValidationError, "canonical lease service"):
+            queryset.bulk_update([lease], ["rent_amount"])
+
+        base_bulk_update.assert_not_called()
 
     @patch.object(models.QuerySet, "update")
     def test_queryset_update_rejects_lifecycle_timestamp_change(self, base_update):
