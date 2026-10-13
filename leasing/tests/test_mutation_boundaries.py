@@ -552,7 +552,9 @@ class CancelledRenewalImmutabilityTests(SimpleTestCase):
     @patch.object(LeaseRenewal, "clean")
     @patch.object(LeaseRenewal.objects, "filter")
     def test_instance_save_rejects_cancelled_renewal_mutation(self, filter_mock, clean_mock, base_save):
-        filter_mock.return_value.values_list.return_value.first.return_value = LeaseRenewal.STATUS_CANCELLED
+        filter_mock.return_value.values.return_value.first.return_value = {
+            "status": LeaseRenewal.STATUS_CANCELLED,
+        }
         renewal = LeaseRenewal()
         renewal.pk = 22
 
