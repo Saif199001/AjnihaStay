@@ -219,6 +219,14 @@ class LeaseNotice(models.Model):
         raise ValidationError("Lease notices cannot be deleted; use the canonical notice lifecycle service")
 
 
+RENEWAL_FACT_FIELDS = {
+    "workspace", "workspace_id", "source_lease", "source_lease_id", "renewal_number",
+    "start_date", "end_date", "rent_amount", "security_deposit", "notice_period_days",
+    "terms", "agreement_reference", "created_by", "created_by_id",
+}
+RENEWAL_LIFECYCLE_FIELDS = {"status", "confirmed_at", "cancelled_at", "successor_version", "successor_version_id"}
+
+
 class LeaseRenewalQuerySet(models.QuerySet):
     def create(self, **kwargs):
         raise ValidationError("Lease renewals must be created through the canonical renewal service")
@@ -227,23 +235,20 @@ class LeaseRenewalQuerySet(models.QuerySet):
         raise ValidationError("Lease renewals must be created through the canonical renewal service")
 
     def update(self, **kwargs):
-        if "status" in kwargs:
-            raise ValidationError("Renewal lifecycle status changes must use the canonical renewal service")
-        if self.filter(status__in={LeaseRenewal.STATUS_CONFIRMED, LeaseRenewal.STATUS_CANCELLED}).exists():
-            raise ValidationError("Confirmed or cancelled renewals are immutable")
+        if RENEWAL_LIFECYCLE_FIELDS.intersection(kwargs):
+            raise ValidationError("Renewal lifecycle changes must use the canonical renewal service")
+        if RENEWAL_FACT_FIELDS.intersection(kwargs):
+            raise ValidationError("Renewal facts must use the canonical renewal service")
         return super().update(**kwargs)
 
     def bulk_update(self, objs, fields, batch_size=None):
         objs = tuple(objs)
-        if "status" in fields:
-            raise ValidationError("Renewal lifecycle status changes must use the canonical renewal service")
-        object_ids = [obj.pk for obj in objs if obj.pk is not None]
-        if object_ids and self.model.objects.filter(
-            pk__in=object_ids,
-            status__in={LeaseRenewal.STATUS_CONFIRMED, LeaseRenewal.STATUS_CANCELLED},
-        ).exists():
-            raise ValidationError("Confirmed or cancelled renewals are immutable")
-        return super().bulk_update(objs, fields, batch_size=batch_size)
+        fields = set(fields)
+        if RENEWAL_LIFECYCLE_FIELDS.intersection(fields):
+            raise ValidationError("Renewal lifecycle changes must use the canonical renewal service")
+        if RENEWAL_FACT_FIELDS.intersection(fields):
+            raise ValidationError("Renewal facts must use the canonical renewal service")
+        return super().bulk_update(objs, list(fields), batch_size=batch_size)
 
     def delete(self):
         raise ValidationError("Lease renewals cannot be deleted; use the canonical renewal lifecycle service")
@@ -311,16 +316,33 @@ class LeaseRenewal(models.Model):
 
     def save(self, *args, **kwargs):
         allow_canonical_create = kwargs.pop("_allow_canonical_create", False)
+        allow_canonical_update = kwargs.pop("_allow_canonical_update", False)
         allow_lifecycle_mutation = kwargs.pop("_allow_lifecycle_mutation", False)
         if self.pk is None and not allow_canonical_create:
             raise ValidationError("Lease renewals must be created through the canonical renewal service")
+        if self.pk is not None:
+            previous = type(self).objects.filter(pk=self.pk).values(
+                "status", "workspace_id", "source_lease_id", "renewal_number", "start_date",
+                "end_date", "rent_amount", "security_deposit", "notice_period_days", "terms",
+                "agreement_reference", "created_by_id", "confirmed_at", "cancelled_at",
+                "successor_version_id",
+            ).first()
+            if previous is not None:
+                if previous["status"] in {self.STATUS_CONFIRMED, self.STATUS_CANCELLED}:
+                    raise ValidationError("Confirmed or cancelled renewals are immutable")
+                changed_facts = [
+                    field for field in RENEWAL_FACT_FIELDS
+                    if field in previous and previous[field] != getattr(self, field)
+                ]
+                changed_lifecycle = [
+                    field for field in RENEWAL_LIFECYCLE_FIELDS
+                    if field in previous and previous[field] != getattr(self, field)
+                ]
+                if changed_facts and not allow_canonical_update:
+                    raise ValidationError("Renewal facts must use the canonical renewal service")
+                if changed_lifecycle and not allow_lifecycle_mutation:
+                    raise ValidationError("Renewal lifecycle changes must use the canonical renewal service")
         self.clean()
-        if self.pk:
-            previous_status = type(self).objects.filter(pk=self.pk).values_list("status", flat=True).first()
-            if previous_status in {self.STATUS_CONFIRMED, self.STATUS_CANCELLED}:
-                raise ValidationError("Confirmed or cancelled renewals are immutable")
-            if previous_status is not None and previous_status != self.status and not allow_lifecycle_mutation:
-                raise ValidationError("Renewal lifecycle status changes must use the canonical renewal service")
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):

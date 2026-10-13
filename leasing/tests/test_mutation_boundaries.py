@@ -462,6 +462,50 @@ class CanonicalRenewalCreationAndMutationTests(SimpleTestCase):
         clean_mock.assert_not_called()
         base_save.assert_not_called()
 
+    @patch.object(models.QuerySet, "update")
+    def test_queryset_update_rejects_draft_renewal_fact_mutation(self, base_update):
+        queryset = LeaseRenewalQuerySet(model=LeaseRenewal, query=Mock())
+
+        with self.assertRaisesMessage(ValidationError, "canonical renewal service"):
+            queryset.update(rent_amount=Decimal("12000.00"))
+
+        base_update.assert_not_called()
+
+    @patch.object(models.Model, "save")
+    @patch.object(LeaseRenewal, "clean")
+    @patch.object(LeaseRenewal.objects, "filter")
+    def test_instance_save_rejects_draft_renewal_fact_mutation(self, filter_mock, clean_mock, base_save):
+        filter_mock.return_value.values.return_value.first.return_value = {
+            "status": LeaseRenewal.STATUS_DRAFT,
+            "workspace_id": 1,
+            "source_lease_id": 2,
+            "renewal_number": 1,
+            "start_date": date(2027, 1, 1),
+            "end_date": date(2027, 12, 31),
+            "rent_amount": Decimal("10000.00"),
+            "security_deposit": Decimal("5000.00"),
+            "notice_period_days": 30,
+            "terms": {},
+            "agreement_reference": "",
+            "created_by_id": 7,
+            "confirmed_at": None,
+            "cancelled_at": None,
+            "successor_version_id": None,
+        }
+        renewal = LeaseRenewal(
+            workspace_id=1, source_lease_id=2, renewal_number=1,
+            start_date=date(2027, 1, 1), end_date=date(2027, 12, 31),
+            rent_amount=Decimal("12000.00"), security_deposit=Decimal("5000.00"),
+            notice_period_days=30, terms={}, agreement_reference="", created_by_id=7,
+        )
+        renewal.pk = 31
+
+        with self.assertRaisesMessage(ValidationError, "canonical renewal service"):
+            renewal.save()
+
+        clean_mock.assert_not_called()
+        base_save.assert_not_called()
+
     @patch.object(models.QuerySet, "bulk_update")
     @patch.object(LeaseRenewal.objects, "filter")
     def test_bulk_update_checks_persisted_confirmed_status(self, filter_mock, base_bulk_update):
