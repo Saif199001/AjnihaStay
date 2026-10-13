@@ -53,7 +53,7 @@ class LeaseQuerySet(models.QuerySet):
             raise ValidationError(
                 "Contractual lease facts must use the canonical lease service"
             )
-        return super().update(**kwargs)
+        raise ValidationError("Lease queryset mutations must use the canonical lease service")
 
     def bulk_update(self, objs, fields, batch_size=None):
         objs = tuple(objs)
@@ -70,7 +70,7 @@ class LeaseQuerySet(models.QuerySet):
             raise ValidationError(
                 "Contractual lease facts must use the canonical lease service"
             )
-        return super().bulk_update(objs, list(fields), batch_size=batch_size)
+        raise ValidationError("Lease queryset mutations must use the canonical lease service")
 
     def delete(self):
         raise ValidationError(
@@ -151,8 +151,8 @@ class Lease(models.Model):
             previous = type(self).objects.filter(pk=self.pk).values(
                 "status", "workspace_id", "occupancy_id", "agreement_number", "start_date",
                 "end_date", "rent_amount", "security_deposit", "notice_period_days",
-                "terms", "agreement_reference", "created_by_id", "activated_at",
-                "terminated_at", "cancelled_at",
+                "terms", "agreement_reference", "created_by_id", "updated_by_id", "created_at",
+                "activated_at", "terminated_at", "cancelled_at",
             ).first()
             if previous is not None:
                 changed_timestamps = [
@@ -167,6 +167,12 @@ class Lease(models.Model):
                     raise ValidationError(
                         "Lease lifecycle status changes must use the canonical lifecycle service"
                     )
+                if previous.get("created_at") != self.created_at:
+                    raise ValidationError("Lease creation timestamp is immutable")
+                if previous.get("updated_by_id") != self.updated_by_id and not (
+                    allow_canonical_update or allow_lifecycle_mutation
+                ):
+                    raise ValidationError("Lease audit fields must use the canonical lease service")
                 changed_contractual_fields = [
                     field for field in CONTRACTUAL_FIELDS
                     if field in previous and previous[field] != getattr(self, field)

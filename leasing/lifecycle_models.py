@@ -115,7 +115,7 @@ class LeaseNoticeQuerySet(models.QuerySet):
             raise ValidationError("Notice lifecycle status changes must use the canonical lifecycle service")
         if NOTICE_FACT_FIELDS.intersection(kwargs):
             raise ValidationError("Notice facts must use the canonical notice service")
-        return super().update(**kwargs)
+        raise ValidationError("Notice queryset mutations must use the canonical notice service")
 
     def bulk_update(self, objs, fields, batch_size=None):
         objs = tuple(objs)
@@ -124,7 +124,7 @@ class LeaseNoticeQuerySet(models.QuerySet):
             raise ValidationError("Notice lifecycle status changes must use the canonical lifecycle service")
         if NOTICE_FACT_FIELDS.intersection(fields):
             raise ValidationError("Notice facts must use the canonical notice service")
-        return super().bulk_update(objs, list(fields), batch_size=batch_size)
+        raise ValidationError("Notice queryset mutations must use the canonical notice service")
 
     def delete(self):
         raise ValidationError("Lease notices cannot be deleted; use the canonical notice lifecycle service")
@@ -195,11 +195,13 @@ class LeaseNotice(models.Model):
         if self.pk is not None:
             previous = type(self).objects.filter(pk=self.pk).values(
                 "status", "workspace_id", "lease_id", "notice_date", "effective_date",
-                "notice_type", "reason", "created_by_id",
+                "notice_type", "reason", "created_by_id", "created_at",
             ).first()
             if previous is not None:
                 if previous["status"] != self.status and not allow_lifecycle_mutation:
                     raise ValidationError("Notice lifecycle status changes must use the canonical lifecycle service")
+                if "created_at" in previous and previous["created_at"] != self.created_at:
+                    raise ValidationError("Notice creation timestamp is immutable")
                 changed = [
                     field for field in NOTICE_FACT_FIELDS
                     if field in previous and previous[field] != getattr(self, field)
@@ -242,7 +244,7 @@ class LeaseRenewalQuerySet(models.QuerySet):
             raise ValidationError("Renewal lifecycle changes must use the canonical renewal service")
         if RENEWAL_FACT_FIELDS.intersection(kwargs):
             raise ValidationError("Renewal facts must use the canonical renewal service")
-        return super().update(**kwargs)
+        raise ValidationError("Renewal queryset mutations must use the canonical renewal service")
 
     def bulk_update(self, objs, fields, batch_size=None):
         objs = tuple(objs)
@@ -251,7 +253,7 @@ class LeaseRenewalQuerySet(models.QuerySet):
             raise ValidationError("Renewal lifecycle changes must use the canonical renewal service")
         if RENEWAL_FACT_FIELDS.intersection(fields):
             raise ValidationError("Renewal facts must use the canonical renewal service")
-        return super().bulk_update(objs, list(fields), batch_size=batch_size)
+        raise ValidationError("Renewal queryset mutations must use the canonical renewal service")
 
     def delete(self):
         raise ValidationError("Lease renewals cannot be deleted; use the canonical renewal lifecycle service")
@@ -327,12 +329,14 @@ class LeaseRenewal(models.Model):
             previous = type(self).objects.filter(pk=self.pk).values(
                 "status", "workspace_id", "source_lease_id", "renewal_number", "start_date",
                 "end_date", "rent_amount", "security_deposit", "notice_period_days", "terms",
-                "agreement_reference", "created_by_id", "confirmed_at", "cancelled_at",
+                "agreement_reference", "created_by_id", "created_at", "confirmed_at", "cancelled_at",
                 "successor_version_id",
             ).first()
             if previous is not None:
                 if previous["status"] in {self.STATUS_CONFIRMED, self.STATUS_CANCELLED}:
                     raise ValidationError("Confirmed or cancelled renewals are immutable")
+                if "created_at" in previous and previous["created_at"] != self.created_at:
+                    raise ValidationError("Renewal creation timestamp is immutable")
                 changed_facts = [
                     field for field in RENEWAL_FACT_FIELDS
                     if field in previous and previous[field] != getattr(self, field)

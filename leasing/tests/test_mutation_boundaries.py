@@ -88,6 +88,8 @@ class LeaseModelMutationBoundaryTests(SimpleTestCase):
             "terms": {"maintenance": "owner"},
             "agreement_reference": "contract.pdf",
             "created_by_id": 7,
+            "updated_by_id": None,
+            "created_at": None,
             "activated_at": None,
             "terminated_at": None,
             "cancelled_at": None,
@@ -298,6 +300,31 @@ class LeaseModelMutationBoundaryTests(SimpleTestCase):
         base_bulk_update.assert_not_called()
 
     @patch.object(models.QuerySet, "update")
+    def test_queryset_update_rejects_audit_field_mutation(self, base_update):
+        queryset = LeaseQuerySet(model=Lease, query=Mock())
+
+        with self.assertRaisesMessage(ValidationError, "canonical lease service"):
+            queryset.update(updated_by_id=7)
+
+        base_update.assert_not_called()
+
+    @patch.object(models.Model, "save")
+    @patch.object(Lease, "clean")
+    @patch.object(Lease.objects, "filter")
+    def test_instance_save_rejects_direct_audit_actor_change(self, filter_mock, clean_mock, base_save):
+        filter_mock.return_value.values.return_value.first.return_value = self._previous_lease_values(
+            status=Lease.STATUS_DRAFT
+        )
+        lease = self._lease()
+        lease.status = Lease.STATUS_DRAFT
+        lease.updated_by_id = 8
+
+        with self.assertRaisesMessage(ValidationError, "audit fields must use the canonical lease service"):
+            lease.save()
+
+        base_save.assert_not_called()
+
+    @patch.object(models.QuerySet, "update")
     def test_queryset_update_rejects_lifecycle_timestamp_change(self, base_update):
         queryset = LeaseQuerySet(model=Lease, query=Mock())
 
@@ -463,6 +490,15 @@ class CanonicalRenewalCreationAndMutationTests(SimpleTestCase):
         base_save.assert_not_called()
 
     @patch.object(models.QuerySet, "update")
+    def test_queryset_update_rejects_renewal_audit_timestamp_mutation(self, base_update):
+        queryset = LeaseRenewalQuerySet(model=LeaseRenewal, query=Mock())
+
+        with self.assertRaisesMessage(ValidationError, "canonical renewal service"):
+            queryset.update(created_at=datetime(2026, 1, 1, tzinfo=timezone.utc))
+
+        base_update.assert_not_called()
+
+    @patch.object(models.QuerySet, "update")
     def test_queryset_update_rejects_draft_renewal_fact_mutation(self, base_update):
         queryset = LeaseRenewalQuerySet(model=LeaseRenewal, query=Mock())
 
@@ -618,6 +654,15 @@ class IssuedNoticeFactMutationTests(SimpleTestCase):
             queryset.bulk_update([stale_draft], ["reason"])
 
         base_bulk_update.assert_not_called()
+
+    @patch.object(models.QuerySet, "update")
+    def test_queryset_update_rejects_notice_audit_timestamp_mutation(self, base_update):
+        queryset = LeaseNoticeQuerySet(model=LeaseNotice, query=Mock())
+
+        with self.assertRaisesMessage(ValidationError, "canonical notice service"):
+            queryset.update(updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc))
+
+        base_update.assert_not_called()
 
     @patch.object(models.QuerySet, "update")
     def test_queryset_update_rejects_draft_notice_fact_mutation(self, base_update):
