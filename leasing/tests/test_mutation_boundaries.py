@@ -215,7 +215,7 @@ class LeaseModelMutationBoundaryTests(SimpleTestCase):
         filter_mock.return_value.exists.return_value = True
         queryset = LeaseQuerySet(model=Lease, query=Mock())
 
-        with self.assertRaisesMessage(ValidationError, "immutable after activation"):
+        with self.assertRaisesMessage(ValidationError, "canonical lease service"):
             queryset.update(rent_amount=Decimal("1.00"))
 
         base_update.assert_not_called()
@@ -237,7 +237,7 @@ class LeaseModelMutationBoundaryTests(SimpleTestCase):
         lease = self._lease()
         lease.rent_amount = Decimal("12000.00")
 
-        with self.assertRaisesMessage(ValidationError, "immutable after activation"):
+        with self.assertRaisesMessage(ValidationError, "canonical lease service"):
             queryset.bulk_update([lease], ["rent_amount"])
 
         base_bulk_update.assert_not_called()
@@ -515,7 +515,7 @@ class CanonicalRenewalCreationAndMutationTests(SimpleTestCase):
         stale_draft.pk = 17
         stale_draft.status = LeaseRenewal.STATUS_DRAFT
 
-        with self.assertRaisesMessage(ValidationError, "Confirmed or cancelled renewals are immutable"):
+        with self.assertRaisesMessage(ValidationError, "canonical renewal service"):
             queryset.bulk_update([stale_draft], ["rent_amount"])
 
         base_bulk_update.assert_not_called()
@@ -529,7 +529,7 @@ class CancelledRenewalImmutabilityTests(SimpleTestCase):
         filter_mock.return_value.exists.return_value = True
         queryset = LeaseRenewalQuerySet(model=LeaseRenewal, query=Mock())
 
-        with self.assertRaisesMessage(ValidationError, "Confirmed or cancelled renewals are immutable"):
+        with self.assertRaisesMessage(ValidationError, "canonical renewal service"):
             queryset.update(rent_amount=Decimal("12000.00"))
 
         base_update.assert_not_called()
@@ -543,7 +543,7 @@ class CancelledRenewalImmutabilityTests(SimpleTestCase):
         stale_draft.pk = 21
         stale_draft.status = LeaseRenewal.STATUS_DRAFT
 
-        with self.assertRaisesMessage(ValidationError, "Confirmed or cancelled renewals are immutable"):
+        with self.assertRaisesMessage(ValidationError, "canonical renewal service"):
             queryset.bulk_update([stale_draft], ["rent_amount"])
 
         base_bulk_update.assert_not_called()
