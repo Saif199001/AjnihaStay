@@ -1,4 +1,5 @@
 from datetime import date
+from unittest.mock import patch
 from decimal import Decimal
 
 from django.test import TestCase
@@ -6,7 +7,7 @@ from django.utils.datastructures import MultiValueDict
 from rest_framework.test import APIClient
 
 from accounts.services import create_user_account
-from leasing.lifecycle_models import LeaseLifecycleEvent, LeaseRenewal
+from leasing.lifecycle_models import LeaseContractVersion, LeaseLifecycleEvent, LeaseRenewal
 from leasing.models import Lease
 from properties.services import create_property
 from tenant.services import create_occupancy, create_tenant
@@ -523,6 +524,65 @@ class LeaseCreationAPIRegressionTests(TestCase):
                 lease_id=lease_id, event_key=f"renewal:{renewal_id}:cancelled"
             ).count(),
             1,
+        )
+
+    def test_cancellation_rolls_back_when_lifecycle_event_write_fails(self):
+        created = self.create_lease_through_api()
+        self.assertEqual(created.status_code, 201, created.data)
+        lease_id = created.data["data"]["id"]
+        headers = self.authenticate(self.manager)
+
+        with patch(
+            "leasing.cancellation_service.append_lifecycle_event",
+            side_effect=RuntimeError("event write failed"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "event write failed"):
+                self.client.post(
+                    f"/api/leases/{lease_id}/cancel/",
+                    {"reason": "Rollback test", "effective_date": date.today().isoformat()},
+                    format="json",
+                    **headers,
+                )
+
+        lease = Lease.objects.get(pk=lease_id)
+        self.assertEqual(lease.status, Lease.STATUS_DRAFT)
+        self.assertIsNone(lease.cancelled_at)
+        self.assertFalse(
+            LeaseLifecycleEvent.objects.filter(
+                lease=lease, event_key=LeaseLifecycleEvent.EVENT_CANCELLED
+            ).exists()
+        )
+
+    def test_renewal_confirmation_rolls_back_version_when_event_write_fails(self):
+        lease_id, headers = self.create_active_lease()
+        created = self.create_renewal(lease_id, headers)
+        self.assertEqual(created.status_code, 201, created.data)
+        renewal_id = created.data["data"]["id"]
+
+        with patch(
+            "leasing.renewal_service.append_lifecycle_event",
+            side_effect=RuntimeError("event write failed"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "event write failed"):
+                self.client.post(
+                    f"/api/leases/renewals/{renewal_id}/confirm/",
+                    {},
+                    format="json",
+                    **headers,
+                )
+
+        renewal = LeaseRenewal.objects.get(pk=renewal_id)
+        self.assertEqual(renewal.status, LeaseRenewal.STATUS_DRAFT)
+        self.assertIsNone(renewal.successor_version_id)
+        self.assertFalse(
+            LeaseContractVersion.objects.filter(
+                lease_id=lease_id, version_number=2
+            ).exists()
+        )
+        self.assertFalse(
+            LeaseLifecycleEvent.objects.filter(
+                lease_id=lease_id, event_key=f"renewal:{renewal_id}"
+            ).exists()
         )
 
     def test_cross_workspace_header_is_rejected(self):
