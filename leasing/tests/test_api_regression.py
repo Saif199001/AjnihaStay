@@ -6,7 +6,7 @@ from django.utils.datastructures import MultiValueDict
 from rest_framework.test import APIClient
 
 from accounts.services import create_user_account
-from leasing.lifecycle_models import LeaseLifecycleEvent
+from leasing.lifecycle_models import LeaseLifecycleEvent, LeaseRenewal
 from leasing.models import Lease
 from properties.services import create_property
 from tenant.services import create_occupancy, create_tenant
@@ -327,6 +327,203 @@ class LeaseCreationAPIRegressionTests(TestCase):
         )
         self.assertEqual(updated.status_code, 200, updated.data)
         self.assertEqual(updated.data["data"]["reason"], "Corrected draft reason")
+
+    def create_active_lease(self):
+        created = self.create_lease_through_api()
+        self.assertEqual(created.status_code, 201, created.data)
+        lease_id = created.data["data"]["id"]
+        headers = self.authenticate(self.manager)
+        pending = self.client.post(
+            f"/api/leases/{lease_id}/transition/",
+            {"status": Lease.STATUS_PENDING_SIGNATURE},
+            format="json",
+            **headers,
+        )
+        self.assertEqual(pending.status_code, 200, pending.data)
+        active = self.client.post(
+            f"/api/leases/{lease_id}/transition/",
+            {"status": Lease.STATUS_ACTIVE},
+            format="json",
+            **headers,
+        )
+        self.assertEqual(active.status_code, 200, active.data)
+        return lease_id, headers
+
+    def create_renewal(self, lease_id, headers):
+        return self.client.post(
+            f"/api/leases/{lease_id}/renewals/create/",
+            {
+                "start_date": "2027-10-01",
+                "end_date": "2028-09-30",
+                "rent_amount": "10500.00",
+                "security_deposit": "10000.00",
+                "notice_period_days": 30,
+                "terms": {"maintenance": "owner"},
+                "agreement_reference": "renewal-contract",
+            },
+            format="json",
+            **headers,
+        )
+
+    def test_cancellation_is_idempotent_and_records_one_event(self):
+        created = self.create_lease_through_api()
+        self.assertEqual(created.status_code, 201, created.data)
+        lease_id = created.data["data"]["id"]
+        headers = self.authenticate(self.manager)
+        payload = {"reason": "Tenant requested cancellation", "effective_date": date.today().isoformat()}
+
+        first = self.client.post(
+            f"/api/leases/{lease_id}/cancel/", payload, format="json", **headers
+        )
+        self.assertEqual(first.status_code, 200, first.data)
+        second = self.client.post(
+            f"/api/leases/{lease_id}/cancel/", payload, format="json", **headers
+        )
+        self.assertEqual(second.status_code, 200, second.data)
+        lease = Lease.objects.get(pk=lease_id)
+        self.assertEqual(lease.status, Lease.STATUS_CANCELLED)
+        self.assertEqual(
+            LeaseLifecycleEvent.objects.filter(
+                lease=lease, event_key=LeaseLifecycleEvent.EVENT_CANCELLED
+            ).count(),
+            1,
+        )
+
+    def test_expiry_is_idempotent_and_records_one_event(self):
+        lease_id, headers = self.create_active_lease()
+        url = f"/api/leases/{lease_id}/expire/"
+        first = self.client.post(url, {}, format="json", **headers)
+        self.assertEqual(first.status_code, 200, first.data)
+        second = self.client.post(url, {}, format="json", **headers)
+        self.assertEqual(second.status_code, 200, second.data)
+        lease = Lease.objects.get(pk=lease_id)
+        self.assertEqual(lease.status, Lease.STATUS_EXPIRED)
+        self.assertEqual(
+            LeaseLifecycleEvent.objects.filter(
+                lease=lease, event_key=LeaseLifecycleEvent.EVENT_EXPIRED
+            ).count(),
+            1,
+        )
+
+    def test_termination_is_idempotent_and_records_one_event(self):
+        lease_id, headers = self.create_active_lease()
+        payload = {"reason": "Mutual agreement", "effective_date": date.today().isoformat()}
+        url = f"/api/leases/{lease_id}/terminate/"
+        first = self.client.post(url, payload, format="json", **headers)
+        self.assertEqual(first.status_code, 200, first.data)
+        second = self.client.post(url, payload, format="json", **headers)
+        self.assertEqual(second.status_code, 200, second.data)
+        lease = Lease.objects.get(pk=lease_id)
+        self.assertEqual(lease.status, Lease.STATUS_TERMINATED)
+        self.assertEqual(
+            LeaseLifecycleEvent.objects.filter(
+                lease=lease, event_key=LeaseLifecycleEvent.EVENT_TERMINATED
+            ).count(),
+            1,
+        )
+
+    def test_notice_lifecycle_valid_transitions_and_invalid_retry(self):
+        lease_id, headers = self.create_active_lease()
+        today = date.today().isoformat()
+        created = self.client.post(
+            f"/api/leases/{lease_id}/notices/create/",
+            {
+                "notice_date": today,
+                "effective_date": today,
+                "notice_type": "termination",
+                "reason": "Lease notice",
+            },
+            format="json",
+            **headers,
+        )
+        self.assertEqual(created.status_code, 201, created.data)
+        notice_id = created.data["data"]["id"]
+        for target in ("issued", "effective", "completed"):
+            response = self.client.post(
+                f"/api/leases/notices/{notice_id}/transition/",
+                {"status": target},
+                format="json",
+                **headers,
+            )
+            self.assertEqual(response.status_code, 200, response.data)
+        repeated = self.client.post(
+            f"/api/leases/notices/{notice_id}/transition/",
+            {"status": "completed"},
+            format="json",
+            **headers,
+        )
+        self.assertEqual(repeated.status_code, 200, repeated.data)
+        invalid = self.client.post(
+            f"/api/leases/notices/{notice_id}/transition/",
+            {"status": "issued"},
+            format="json",
+            **headers,
+        )
+        self.assertEqual(invalid.status_code, 400, invalid.data)
+        self.assertEqual(
+            LeaseLifecycleEvent.objects.filter(
+                lease_id=lease_id, event_key=f"notice:{notice_id}:completed"
+            ).count(),
+            1,
+        )
+
+    def test_renewal_overlap_is_rejected_and_confirmation_builds_version_chain(self):
+        lease_id, headers = self.create_active_lease()
+        created = self.create_renewal(lease_id, headers)
+        self.assertEqual(created.status_code, 201, created.data)
+        renewal_id = created.data["data"]["id"]
+
+        overlap = self.client.post(
+            f"/api/leases/{lease_id}/renewals/create/",
+            {
+                "start_date": "2027-09-01",
+                "end_date": "2028-08-31",
+                "rent_amount": "10500.00",
+                "security_deposit": "10000.00",
+            },
+            format="json",
+            **headers,
+        )
+        self.assertEqual(overlap.status_code, 400, overlap.data)
+
+        confirm_url = f"/api/leases/renewals/{renewal_id}/confirm/"
+        confirmed = self.client.post(confirm_url, {}, format="json", **headers)
+        self.assertEqual(confirmed.status_code, 200, confirmed.data)
+        repeated = self.client.post(confirm_url, {}, format="json", **headers)
+        self.assertEqual(repeated.status_code, 200, repeated.data)
+
+        renewal = LeaseRenewal.objects.get(pk=renewal_id)
+        self.assertEqual(renewal.status, LeaseRenewal.STATUS_CONFIRMED)
+        successor = renewal.successor_version
+        self.assertIsNotNone(successor)
+        self.assertEqual(successor.version_number, 2)
+        self.assertEqual(successor.predecessor.version_number, 1)
+        self.assertEqual(
+            LeaseLifecycleEvent.objects.filter(
+                lease_id=lease_id, event_key=f"renewal:{renewal_id}"
+            ).count(),
+            1,
+        )
+
+    def test_draft_renewal_cancellation_is_idempotent(self):
+        lease_id, headers = self.create_active_lease()
+        created = self.create_renewal(lease_id, headers)
+        self.assertEqual(created.status_code, 201, created.data)
+        renewal_id = created.data["data"]["id"]
+        url = f"/api/leases/renewals/{renewal_id}/cancel/"
+        first = self.client.post(url, {}, format="json", **headers)
+        self.assertEqual(first.status_code, 200, first.data)
+        second = self.client.post(url, {}, format="json", **headers)
+        self.assertEqual(second.status_code, 200, second.data)
+        renewal = LeaseRenewal.objects.get(pk=renewal_id)
+        self.assertEqual(renewal.status, LeaseRenewal.STATUS_CANCELLED)
+        self.assertIsNotNone(renewal.cancelled_at)
+        self.assertEqual(
+            LeaseLifecycleEvent.objects.filter(
+                lease_id=lease_id, event_key=f"renewal:{renewal_id}:cancelled"
+            ).count(),
+            1,
+        )
 
     def test_cross_workspace_header_is_rejected(self):
         outsider = create_user_account(
