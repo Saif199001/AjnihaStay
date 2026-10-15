@@ -1,8 +1,9 @@
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import patch
 from decimal import Decimal
 
 from django.test import TestCase
+from django.utils import timezone
 from django.utils.datastructures import MultiValueDict
 from rest_framework.test import APIClient
 
@@ -329,8 +330,8 @@ class LeaseCreationAPIRegressionTests(TestCase):
         self.assertEqual(updated.status_code, 200, updated.data)
         self.assertEqual(updated.data["data"]["reason"], "Corrected draft reason")
 
-    def create_active_lease(self):
-        created = self.create_lease_through_api()
+    def create_active_lease(self, end_date=None):
+        created = self.create_lease_through_api(**({"end_date": end_date} if end_date else {}))
         self.assertEqual(created.status_code, 201, created.data)
         lease_id = created.data["data"]["id"]
         headers = self.authenticate(self.manager)
@@ -390,8 +391,28 @@ class LeaseCreationAPIRegressionTests(TestCase):
             1,
         )
 
-    def test_expiry_is_idempotent_and_records_one_event(self):
-        lease_id, headers = self.create_active_lease()
+    def test_future_contract_cannot_expire_early(self):
+        future_end = (timezone.localdate() + timedelta(days=30)).isoformat()
+        lease_id, headers = self.create_active_lease(end_date=future_end)
+        url = f"/api/leases/{lease_id}/expire/"
+
+        response = self.client.post(url, {}, format="json", **headers)
+
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertEqual(
+            response.data["error"],
+            "Lease cannot expire before the active contract end date",
+        )
+        lease = Lease.objects.get(pk=lease_id)
+        self.assertEqual(lease.status, Lease.STATUS_ACTIVE)
+        self.assertFalse(
+            LeaseLifecycleEvent.objects.filter(
+                lease=lease, event_key=LeaseLifecycleEvent.EVENT_EXPIRED
+            ).exists()
+        )
+
+    def test_expiry_is_idempotent_and_records_one_event_on_contract_end_date(self):
+        lease_id, headers = self.create_active_lease(end_date=timezone.localdate().isoformat())
         url = f"/api/leases/{lease_id}/expire/"
         first = self.client.post(url, {}, format="json", **headers)
         self.assertEqual(first.status_code, 200, first.data)
@@ -405,6 +426,22 @@ class LeaseCreationAPIRegressionTests(TestCase):
             ).count(),
             1,
         )
+
+    def test_past_contract_end_date_can_expire(self):
+        past_end = (timezone.localdate() - timedelta(days=1)).isoformat()
+        lease_id, headers = self.create_active_lease(end_date=past_end)
+
+        response = self.client.post(
+            f"/api/leases/{lease_id}/expire/", {}, format="json", **headers
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        lease = Lease.objects.get(pk=lease_id)
+        self.assertEqual(lease.status, Lease.STATUS_EXPIRED)
+        event = LeaseLifecycleEvent.objects.get(
+            lease=lease, event_key=LeaseLifecycleEvent.EVENT_EXPIRED
+        )
+        self.assertEqual(event.effective_date, date.fromisoformat(past_end))
 
     def test_termination_is_idempotent_and_records_one_event(self):
         lease_id, headers = self.create_active_lease()
