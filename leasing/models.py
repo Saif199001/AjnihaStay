@@ -3,6 +3,8 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 
+from .mutation_guard import is_canonical_mutation, require_canonical_mutation
+
 
 IMMUTABLE_CONTRACT_STATUSES = {
     "active",
@@ -147,6 +149,7 @@ class Lease(models.Model):
                 raise ValidationError(
                     "Leases must be created through the canonical lease service"
                 )
+            require_canonical_mutation("lease", "create")
         if self.pk:
             previous = type(self).objects.filter(pk=self.pk).values(
                 "status", "workspace_id", "occupancy_id", "agreement_number", "start_date",
@@ -159,20 +162,21 @@ class Lease(models.Model):
                     field for field in LIFECYCLE_TIMESTAMP_FIELDS
                     if previous.get(field) != getattr(self, field)
                 ]
-                if changed_timestamps and not allow_lifecycle_mutation:
-                    raise ValidationError(
-                        "Lease lifecycle timestamps must use the canonical lifecycle service"
-                    )
-                if previous["status"] != self.status and not allow_lifecycle_mutation:
-                    raise ValidationError(
-                        "Lease lifecycle status changes must use the canonical lifecycle service"
-                    )
+                if changed_timestamps:
+                    if not allow_lifecycle_mutation:
+                        raise ValidationError("Lease lifecycle timestamps must use the canonical lifecycle service")
+                    require_canonical_mutation("lease", "lifecycle")
+                if previous["status"] != self.status:
+                    if not allow_lifecycle_mutation:
+                        raise ValidationError("Lease lifecycle status changes must use the canonical lifecycle service")
+                    require_canonical_mutation("lease", "lifecycle")
                 if previous.get("created_at") != self.created_at:
                     raise ValidationError("Lease creation timestamp is immutable")
-                if previous.get("updated_by_id") != self.updated_by_id and not (
-                    allow_canonical_update or allow_lifecycle_mutation
-                ):
-                    raise ValidationError("Lease audit fields must use the canonical lease service")
+                if previous.get("updated_by_id") != self.updated_by_id:
+                    if not (allow_canonical_update or allow_lifecycle_mutation):
+                        raise ValidationError("Lease audit fields must use the canonical lease service")
+                    if not (is_canonical_mutation("lease", "update") or is_canonical_mutation("lease", "lifecycle")):
+                        raise ValidationError("Lease audit fields require an active canonical service context")
                 changed_contractual_fields = [
                     field for field in CONTRACTUAL_FIELDS
                     if field in previous and previous[field] != getattr(self, field)
@@ -181,10 +185,10 @@ class Lease(models.Model):
                     raise ValidationError(
                         "Contractual lease facts are immutable after activation"
                     )
-                if changed_contractual_fields and not allow_canonical_update:
-                    raise ValidationError(
-                        "Contractual lease facts must use the canonical lease service"
-                    )
+                if changed_contractual_fields:
+                    if not allow_canonical_update:
+                        raise ValidationError("Contractual lease facts must use the canonical lease service")
+                    require_canonical_mutation("lease", "update")
         self.clean()
         super().save(*args, **kwargs)
 

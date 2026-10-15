@@ -9,6 +9,7 @@ from payments.authorization import require_mutation_permission
 from .lifecycle_event_service import append_lifecycle_event
 from .lifecycle_models import LeaseContractVersion, LeaseLifecycleEvent, LeaseRenewal
 from .models import Lease
+from .mutation_guard import canonical_write
 
 
 def _require_manager(user, workspace):
@@ -53,19 +54,20 @@ def _ensure_base_contract_version(lease):
     if base:
         return base
 
-    return LeaseContractVersion.objects.create_from_service(
-        lease=lease,
-        workspace=lease.workspace,
-        version_number=1,
-        start_date=lease.start_date,
-        end_date=lease.end_date,
-        rent_amount=lease.rent_amount,
-        security_deposit=lease.security_deposit,
-        notice_period_days=lease.notice_period_days,
-        terms=dict(lease.terms or {}),
-        agreement_reference=lease.agreement_reference,
-        created_by=lease.created_by,
-    )
+    with canonical_write("contract_version", "create"):
+        return LeaseContractVersion.objects.create_from_service(
+            lease=lease,
+            workspace=lease.workspace,
+            version_number=1,
+            start_date=lease.start_date,
+            end_date=lease.end_date,
+            rent_amount=lease.rent_amount,
+            security_deposit=lease.security_deposit,
+            notice_period_days=lease.notice_period_days,
+            terms=dict(lease.terms or {}),
+            agreement_reference=lease.agreement_reference,
+            created_by=lease.created_by,
+        )
 
 
 def create_renewal(user, workspace, source_lease_id, data):
@@ -135,7 +137,8 @@ def create_renewal(user, workspace, source_lease_id, data):
             agreement_reference=data.get("agreement_reference", source_lease.agreement_reference),
             created_by=user,
         )
-        renewal.save(_allow_canonical_create=True)
+        with canonical_write("renewal", "create"):
+            renewal.save(_allow_canonical_create=True)
         return renewal
 
 
@@ -169,25 +172,27 @@ def confirm_renewal(user, workspace, renewal_id):
         if predecessor is None:
             predecessor = _ensure_base_contract_version(source_lease)
 
-        successor = LeaseContractVersion.objects.create_from_service(
-            lease=source_lease,
-            workspace=workspace,
-            version_number=predecessor.version_number + 1,
-            predecessor=predecessor,
-            start_date=renewal.start_date,
-            end_date=renewal.end_date,
-            rent_amount=renewal.rent_amount,
-            security_deposit=renewal.security_deposit,
-            notice_period_days=renewal.notice_period_days,
-            terms=dict(renewal.terms or {}),
-            agreement_reference=renewal.agreement_reference,
-            created_by=renewal.created_by,
-        )
+        with canonical_write("contract_version", "create"):
+            successor = LeaseContractVersion.objects.create_from_service(
+                lease=source_lease,
+                workspace=workspace,
+                version_number=predecessor.version_number + 1,
+                predecessor=predecessor,
+                start_date=renewal.start_date,
+                end_date=renewal.end_date,
+                rent_amount=renewal.rent_amount,
+                security_deposit=renewal.security_deposit,
+                notice_period_days=renewal.notice_period_days,
+                terms=dict(renewal.terms or {}),
+                agreement_reference=renewal.agreement_reference,
+                created_by=renewal.created_by,
+            )
 
         renewal.status = LeaseRenewal.STATUS_CONFIRMED
         renewal.confirmed_at = timezone.now()
         renewal.successor_version = successor
-        renewal.save(_allow_lifecycle_mutation=True)
+        with canonical_write("renewal", "lifecycle"):
+            renewal.save(_allow_lifecycle_mutation=True)
         append_lifecycle_event(
             lease=source_lease,
             event_type=LeaseLifecycleEvent.EVENT_RENEWED,

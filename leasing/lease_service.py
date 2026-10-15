@@ -9,6 +9,7 @@ from tenant.models import Occupancy
 from .lifecycle_event_service import append_lifecycle_event
 from .lifecycle_models import LeaseContractVersion, LeaseLifecycleEvent
 from .models import Lease
+from .mutation_guard import canonical_write
 
 
 MUTABLE_FIELDS = {
@@ -62,7 +63,8 @@ def _save_lease_or_raise_duplicate(lease, occupancy_id):
         # Keep the savepoint local so an expected uniqueness conflict does not
         # leave the outer lease-creation transaction in a broken state.
         with transaction.atomic():
-            lease.save(_allow_canonical_create=True)
+            with canonical_write("lease", "create"):
+                lease.save(_allow_canonical_create=True)
     except IntegrityError:
         if Lease.objects.filter(occupancy_id=occupancy_id).exists():
             raise ValidationError(
@@ -82,13 +84,14 @@ def _ensure_active_contract_version(lease):
     existing = LeaseContractVersion.objects.filter(lease=lease, version_number=1).first()
     if existing:
         return existing
-    return LeaseContractVersion.objects.create_from_service(
-        lease=lease, workspace=lease.workspace, version_number=1,
-        start_date=lease.start_date, end_date=lease.end_date,
-        rent_amount=lease.rent_amount, security_deposit=lease.security_deposit,
-        notice_period_days=lease.notice_period_days, terms=dict(lease.terms or {}),
-        agreement_reference=lease.agreement_reference, created_by=lease.created_by,
-    )
+    with canonical_write("contract_version", "create"):
+        return LeaseContractVersion.objects.create_from_service(
+            lease=lease, workspace=lease.workspace, version_number=1,
+            start_date=lease.start_date, end_date=lease.end_date,
+            rent_amount=lease.rent_amount, security_deposit=lease.security_deposit,
+            notice_period_days=lease.notice_period_days, terms=dict(lease.terms or {}),
+            agreement_reference=lease.agreement_reference, created_by=lease.created_by,
+        )
 
 
 def create_lease(user, workspace, data):
@@ -145,7 +148,8 @@ def update_lease(user, workspace, lease_id, changes):
                 value = _decimal(value, field.replace("_", " ").title())
             setattr(lease, field, value)
         lease.updated_by = user
-        lease.save(_allow_canonical_update=True)
+        with canonical_write("lease", "update"):
+            lease.save(_allow_canonical_update=True)
         return lease
 
 
@@ -169,7 +173,8 @@ def transition_lease(user, workspace, lease_id, target_status):
         if target_status == Lease.STATUS_ACTIVE:
             lease.activated_at = now
         lease.updated_by = user
-        lease.save(_allow_lifecycle_mutation=True)
+        with canonical_write("lease", "lifecycle"):
+            lease.save(_allow_lifecycle_mutation=True)
         if target_status == Lease.STATUS_ACTIVE:
             _ensure_active_contract_version(lease)
         append_lifecycle_event(lease=lease, event_type=STATUS_EVENT_TYPES[target_status], actor=user,

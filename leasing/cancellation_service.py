@@ -8,6 +8,7 @@ from .lease_service import _get_locked_lease
 from .lifecycle_event_service import append_lifecycle_event
 from .lifecycle_models import LeaseLifecycleEvent
 from .models import Lease
+from .mutation_guard import canonical_write
 
 MAX_CANCELLATION_REASON_LENGTH = 500
 
@@ -38,7 +39,8 @@ def cancel_lease(user, workspace, lease_id, *, reason, effective_date=None):
         lease.status = Lease.STATUS_CANCELLED
         lease.cancelled_at = now
         lease.updated_by = user
-        lease.save(_allow_lifecycle_mutation=True)
+        with canonical_write("lease", "lifecycle"):
+            lease.save(_allow_lifecycle_mutation=True)
         append_lifecycle_event(lease=lease, event_type=LeaseLifecycleEvent.EVENT_CANCELLED, actor=user,
                                occurred_at=now, effective_date=effective_date,
                                metadata={"from_status": previous_status, "to_status": Lease.STATUS_CANCELLED,

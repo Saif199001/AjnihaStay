@@ -8,6 +8,7 @@ from .lease_service import _ensure_active_contract_version, _get_locked_lease
 from .lifecycle_event_service import append_lifecycle_event
 from .lifecycle_models import LeaseLifecycleEvent
 from .models import Lease
+from .mutation_guard import canonical_write
 
 
 def expire_lease(user, workspace, lease_id, *, effective_date=None):
@@ -32,7 +33,8 @@ def expire_lease(user, workspace, lease_id, *, effective_date=None):
         previous_status = lease.status
         lease.status = Lease.STATUS_EXPIRED
         lease.updated_by = user
-        lease.save(_allow_lifecycle_mutation=True)
+        with canonical_write("lease", "lifecycle"):
+            lease.save(_allow_lifecycle_mutation=True)
         append_lifecycle_event(lease=lease, event_type=LeaseLifecycleEvent.EVENT_EXPIRED, actor=user,
                                occurred_at=now, effective_date=expiry_date,
                                metadata={"from_status": previous_status, "to_status": Lease.STATUS_EXPIRED,

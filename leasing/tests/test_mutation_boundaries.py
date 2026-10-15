@@ -8,6 +8,7 @@ from django.test import SimpleTestCase
 
 from leasing.models import CONTRACTUAL_FIELDS, Lease, LeaseQuerySet
 from leasing.lease_service import _ensure_no_existing_lease, _save_lease_or_raise_duplicate
+from leasing.mutation_guard import canonical_write
 from leasing.lifecycle_models import (
     LeaseContractVersion,
     LeaseContractVersionQuerySet,
@@ -161,10 +162,22 @@ class LeaseModelMutationBoundaryTests(SimpleTestCase):
             status=Lease.STATUS_DRAFT,
         )
 
-        lease.save(_allow_canonical_create=True)
+        with canonical_write("lease", "create"):
+            lease.save(_allow_canonical_create=True)
 
         clean_mock.assert_called_once_with()
         base_save.assert_called_once()
+
+    @patch.object(models.Model, "save")
+    @patch.object(Lease, "clean")
+    def test_creation_flag_alone_cannot_bypass_lease_write_context(self, clean_mock, base_save):
+        lease = Lease(workspace_id=1, occupancy_id=2, start_date=date(2026, 1, 1),
+                      end_date=date(2026, 12, 31), rent_amount=Decimal("10000.00"),
+                      created_by_id=7, status=Lease.STATUS_DRAFT)
+        with self.assertRaisesMessage(ValidationError, "active canonical service context"):
+            lease.save(_allow_canonical_create=True)
+        clean_mock.assert_not_called()
+        base_save.assert_not_called()
 
     @patch.object(models.Model, "save")
     @patch.object(Lease, "clean")
@@ -311,6 +324,19 @@ class LeaseModelMutationBoundaryTests(SimpleTestCase):
     @patch.object(models.Model, "save")
     @patch.object(Lease, "clean")
     @patch.object(Lease.objects, "filter")
+    def test_update_flag_alone_cannot_bypass_lease_write_context(self, filter_mock, clean_mock, base_save):
+        filter_mock.return_value.values.return_value.first.return_value = self._previous_lease_values(status=Lease.STATUS_DRAFT)
+        lease = self._lease()
+        lease.status = Lease.STATUS_DRAFT
+        lease.rent_amount = Decimal("11000.00")
+        with self.assertRaisesMessage(ValidationError, "active canonical service context"):
+            lease.save(_allow_canonical_update=True)
+        clean_mock.assert_not_called()
+        base_save.assert_not_called()
+
+    @patch.object(models.Model, "save")
+    @patch.object(Lease, "clean")
+    @patch.object(Lease.objects, "filter")
     def test_instance_save_rejects_direct_audit_actor_change(self, filter_mock, clean_mock, base_save):
         filter_mock.return_value.values.return_value.first.return_value = self._previous_lease_values(
             status=Lease.STATUS_DRAFT
@@ -423,6 +449,15 @@ class CanonicalLifecycleCreationBoundaryTests(SimpleTestCase):
         clean_mock.assert_not_called()
         base_save.assert_not_called()
 
+    @patch.object(models.Model, "save")
+    @patch.object(LeaseLifecycleEvent, "clean")
+    def test_lifecycle_event_creation_flag_alone_cannot_bypass_write_context(self, clean_mock, base_save):
+        event = LeaseLifecycleEvent()
+        with self.assertRaisesMessage(ValidationError, "active canonical service context"):
+            event.save(_allow_canonical_create=True)
+        clean_mock.assert_not_called()
+        base_save.assert_not_called()
+
     def test_contract_version_queryset_create_is_rejected(self):
         queryset = LeaseContractVersionQuerySet(
             model=LeaseContractVersion, query=Mock()
@@ -443,6 +478,15 @@ class CanonicalLifecycleCreationBoundaryTests(SimpleTestCase):
         base_save.assert_not_called()
 
     @patch.object(models.Model, "save")
+    @patch.object(LeaseContractVersion, "clean")
+    def test_contract_version_creation_flag_alone_cannot_bypass_write_context(self, clean_mock, base_save):
+        version = LeaseContractVersion()
+        with self.assertRaisesMessage(ValidationError, "active canonical service context"):
+            version.save(_allow_canonical_create=True)
+        clean_mock.assert_not_called()
+        base_save.assert_not_called()
+
+    @patch.object(models.Model, "save")
     @patch.object(LeaseNotice, "clean")
     def test_notice_direct_instance_save_is_rejected(self, clean_mock, base_save):
         notice = LeaseNotice()
@@ -455,10 +499,20 @@ class CanonicalLifecycleCreationBoundaryTests(SimpleTestCase):
 
     @patch.object(models.Model, "save")
     @patch.object(LeaseNotice, "clean")
+    def test_notice_creation_flag_alone_cannot_bypass_write_context(self, clean_mock, base_save):
+        notice = LeaseNotice()
+        with self.assertRaisesMessage(ValidationError, "active canonical service context"):
+            notice.save(_allow_canonical_create=True)
+        clean_mock.assert_not_called()
+        base_save.assert_not_called()
+
+    @patch.object(models.Model, "save")
+    @patch.object(LeaseNotice, "clean")
     def test_notice_canonical_creation_flag_allows_save(self, clean_mock, base_save):
         notice = LeaseNotice()
 
-        notice.save(_allow_canonical_create=True)
+        with canonical_write("notice", "create"):
+            notice.save(_allow_canonical_create=True)
 
         clean_mock.assert_called_once_with()
         base_save.assert_called_once()
@@ -486,6 +540,15 @@ class CanonicalRenewalCreationAndMutationTests(SimpleTestCase):
         with self.assertRaisesMessage(ValidationError, "canonical renewal service"):
             renewal.save()
 
+        clean_mock.assert_not_called()
+        base_save.assert_not_called()
+
+    @patch.object(models.Model, "save")
+    @patch.object(LeaseRenewal, "clean")
+    def test_renewal_creation_flag_alone_cannot_bypass_write_context(self, clean_mock, base_save):
+        renewal = LeaseRenewal()
+        with self.assertRaisesMessage(ValidationError, "active canonical service context"):
+            renewal.save(_allow_canonical_create=True)
         clean_mock.assert_not_called()
         base_save.assert_not_called()
 

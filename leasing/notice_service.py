@@ -7,6 +7,7 @@ from payments.authorization import require_mutation_permission
 from .lease_service import _get_locked_lease
 from .lifecycle_event_service import append_lifecycle_event
 from .lifecycle_models import LeaseLifecycleEvent, LeaseNotice
+from .mutation_guard import canonical_write
 
 
 NOTICE_TRANSITIONS = {
@@ -56,7 +57,8 @@ def create_notice(user, workspace, lease_id, *, notice_date, effective_date, not
             status=LeaseNotice.STATUS_DRAFT,
             created_by=user,
         )
-        notice.save(_allow_canonical_create=True)
+        with canonical_write("notice", "create"):
+            notice.save(_allow_canonical_create=True)
         append_lifecycle_event(
             lease=lease,
             event_type=LeaseLifecycleEvent.EVENT_NOTICE,
@@ -98,7 +100,8 @@ def update_notice(user, workspace, notice_id, changes):
             raise ValidationError("Notice date cannot be in the future")
         if notice.effective_date < notice.notice_date:
             raise ValidationError("Notice effective date cannot be before notice date")
-        notice.save(_allow_canonical_update=True)
+        with canonical_write("notice", "update"):
+            notice.save(_allow_canonical_update=True)
         return notice
 
 
@@ -122,7 +125,8 @@ def transition_notice(user, workspace, notice_id, target_status):
 
         previous_status = notice.status
         notice.status = target_status
-        notice.save(_allow_lifecycle_mutation=True)
+        with canonical_write("notice", "lifecycle"):
+            notice.save(_allow_lifecycle_mutation=True)
         append_lifecycle_event(
             lease=notice.lease,
             event_type=LeaseLifecycleEvent.EVENT_NOTICE,

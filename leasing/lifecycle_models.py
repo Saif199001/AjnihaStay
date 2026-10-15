@@ -3,6 +3,8 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 
+from .mutation_guard import require_canonical_mutation
+
 
 class LeaseLifecycleEventQuerySet(models.QuerySet):
     def create(self, **kwargs):
@@ -84,6 +86,7 @@ class LeaseLifecycleEvent(models.Model):
             raise ValidationError("Lease lifecycle events are immutable")
         if not allow_canonical_create:
             raise ValidationError("Lease lifecycle events must be created through the canonical lifecycle service")
+        require_canonical_mutation("lifecycle_event", "create")
         self.clean()
         super().save(*args, **kwargs)
 
@@ -190,16 +193,20 @@ class LeaseNotice(models.Model):
         allow_canonical_create = kwargs.pop("_allow_canonical_create", False)
         allow_canonical_update = kwargs.pop("_allow_canonical_update", False)
         allow_lifecycle_mutation = kwargs.pop("_allow_lifecycle_mutation", False)
-        if self.pk is None and not allow_canonical_create:
-            raise ValidationError("Lease notices must be created through the canonical notice service")
+        if self.pk is None:
+            if not allow_canonical_create:
+                raise ValidationError("Lease notices must be created through the canonical notice service")
+            require_canonical_mutation("notice", "create")
         if self.pk is not None:
             previous = type(self).objects.filter(pk=self.pk).values(
                 "status", "workspace_id", "lease_id", "notice_date", "effective_date",
                 "notice_type", "reason", "created_by_id", "created_at",
             ).first()
             if previous is not None:
-                if previous["status"] != self.status and not allow_lifecycle_mutation:
-                    raise ValidationError("Notice lifecycle status changes must use the canonical lifecycle service")
+                if previous["status"] != self.status:
+                    if not allow_lifecycle_mutation:
+                        raise ValidationError("Notice lifecycle status changes must use the canonical lifecycle service")
+                    require_canonical_mutation("notice", "lifecycle")
                 if "created_at" in previous and previous["created_at"] != self.created_at:
                     raise ValidationError("Notice creation timestamp is immutable")
                 changed = [
@@ -213,8 +220,10 @@ class LeaseNotice(models.Model):
                 }
                 if immutable_identity_changes:
                     raise ValidationError("Notice workspace, lease, and creator are immutable")
-                if changed and not allow_canonical_update:
-                    raise ValidationError("Notice facts must use the canonical notice service")
+                if changed:
+                    if not allow_canonical_update:
+                        raise ValidationError("Notice facts must use the canonical notice service")
+                    require_canonical_mutation("notice", "update")
                 if changed and previous["status"] != self.STATUS_DRAFT:
                     raise ValidationError("Only draft notice facts can be updated")
         self.clean()
@@ -323,8 +332,10 @@ class LeaseRenewal(models.Model):
         allow_canonical_create = kwargs.pop("_allow_canonical_create", False)
         allow_canonical_update = kwargs.pop("_allow_canonical_update", False)
         allow_lifecycle_mutation = kwargs.pop("_allow_lifecycle_mutation", False)
-        if self.pk is None and not allow_canonical_create:
-            raise ValidationError("Lease renewals must be created through the canonical renewal service")
+        if self.pk is None:
+            if not allow_canonical_create:
+                raise ValidationError("Lease renewals must be created through the canonical renewal service")
+            require_canonical_mutation("renewal", "create")
         if self.pk is not None:
             previous = type(self).objects.filter(pk=self.pk).values(
                 "status", "workspace_id", "source_lease_id", "renewal_number", "start_date",
@@ -345,10 +356,14 @@ class LeaseRenewal(models.Model):
                     field for field in RENEWAL_LIFECYCLE_FIELDS
                     if field in previous and previous[field] != getattr(self, field)
                 ]
-                if changed_facts and not allow_canonical_update:
-                    raise ValidationError("Renewal facts must use the canonical renewal service")
-                if changed_lifecycle and not allow_lifecycle_mutation:
-                    raise ValidationError("Renewal lifecycle changes must use the canonical renewal service")
+                if changed_facts:
+                    if not allow_canonical_update:
+                        raise ValidationError("Renewal facts must use the canonical renewal service")
+                    require_canonical_mutation("renewal", "update")
+                if changed_lifecycle:
+                    if not allow_lifecycle_mutation:
+                        raise ValidationError("Renewal lifecycle changes must use the canonical renewal service")
+                    require_canonical_mutation("renewal", "lifecycle")
         self.clean()
         super().save(*args, **kwargs)
 
@@ -437,6 +452,7 @@ class LeaseContractVersion(models.Model):
             raise ValidationError("Lease contract versions are immutable")
         if not allow_canonical_create:
             raise ValidationError("Lease contract versions must be created through the canonical renewal service")
+        require_canonical_mutation("contract_version", "create")
         self.clean()
         super().save(*args, **kwargs)
 

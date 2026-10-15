@@ -2,6 +2,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from .lifecycle_models import LeaseLifecycleEvent
+from .mutation_guard import canonical_write
 
 
 def append_lifecycle_event(
@@ -43,11 +44,12 @@ def append_lifecycle_event(
 
     try:
         with transaction.atomic():
-            return LeaseLifecycleEvent.objects.create_from_service(
-                lease=lease,
-                event_key=event_key,
-                **defaults,
-            )
+            with canonical_write("lifecycle_event", "create"):
+                return LeaseLifecycleEvent.objects.create_from_service(
+                    lease=lease,
+                    event_key=event_key,
+                    **defaults,
+                )
     except IntegrityError:
         # A concurrent canonical call may have inserted the same idempotency key.
         return LeaseLifecycleEvent.objects.get(lease=lease, event_key=event_key)
