@@ -29,6 +29,8 @@ def expire_lease(user, workspace, lease_id, *, effective_date=None):
         expiry_date = latest_version.end_date
         if effective_date is not None and effective_date != expiry_date:
             raise ValidationError("Lease expiry effective date must match the active contract end date")
+        if timezone.localdate() < expiry_date:
+            raise ValidationError("Lease cannot expire before the active contract end date")
         now = timezone.now()
         previous_status = lease.status
         lease.status = Lease.STATUS_EXPIRED
