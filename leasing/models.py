@@ -115,7 +115,7 @@ class Lease(models.Model):
         indexes = [models.Index(fields=["workspace", "status"], name="lease_ws_status_idx"), models.Index(fields=["workspace", "start_date"], name="lease_ws_start_idx"), models.Index(fields=["workspace", "end_date"], name="lease_ws_end_idx")]
         constraints = [
             models.CheckConstraint(condition=Q(end_date__gte=models.F("start_date")), name="lease_end_gte_start"),
-            models.CheckConstraint(condition=Q(rent_amount__gte=0), name="lease_rent_non_negative"),
+            models.CheckConstraint(condition=Q(rent_amount__gt=0), name="lease_rent_positive"),
             models.CheckConstraint(condition=Q(security_deposit__gte=0), name="lease_deposit_non_negative"),
             models.CheckConstraint(condition=Q(status__in=["draft", "pending_signature", "active", "expired", "terminated", "cancelled"]), name="lease_status_valid"),
         ]
@@ -125,8 +125,8 @@ class Lease(models.Model):
             raise ValidationError("Invalid lease status")
         if self.start_date and self.end_date and self.end_date < self.start_date:
             raise ValidationError("Lease end date cannot be before lease start date")
-        if self.rent_amount is not None and self.rent_amount < 0:
-            raise ValidationError("Rent amount cannot be negative")
+        if self.rent_amount is not None and self.rent_amount <= 0:
+            raise ValidationError("Rent amount must be greater than zero")
         if self.security_deposit is not None and self.security_deposit < 0:
             raise ValidationError("Security deposit cannot be negative")
         if self.occupancy_id and self.workspace_id and self.occupancy.tenant.workspace_id != self.workspace_id:

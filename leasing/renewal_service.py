@@ -21,7 +21,9 @@ def _decimal(value, field_name):
         parsed = Decimal(str(value))
     except (InvalidOperation, TypeError, ValueError):
         raise ValidationError(f"Invalid {field_name}")
-    if parsed < 0:
+    if field_name.lower() == "rent amount" and parsed <= 0:
+        raise ValidationError(f"{field_name} must be greater than zero")
+    if field_name.lower() != "rent amount" and parsed < 0:
         raise ValidationError(f"{field_name} cannot be negative")
     if parsed.as_tuple().exponent < -2:
         raise ValidationError(f"{field_name} must have at most 2 decimal places")

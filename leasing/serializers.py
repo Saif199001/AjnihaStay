@@ -19,8 +19,8 @@ class LeaseSerializer(serializers.ModelSerializer):
         ]
 
     def validate_rent_amount(self, value):
-        if value < 0:
-            raise serializers.ValidationError("Rent amount cannot be negative")
+        if value <= 0:
+            raise serializers.ValidationError("Rent amount must be greater than zero")
         return value
 
     def validate_security_deposit(self, value):
@@ -97,8 +97,8 @@ class LeaseRenewalSerializer(serializers.ModelSerializer):
     def validate(self, data):
         if data.get("end_date") and data.get("start_date") and data["end_date"] < data["start_date"]:
             raise serializers.ValidationError("Renewal end date cannot be before start date")
-        if data.get("rent_amount") is not None and data["rent_amount"] < 0:
-            raise serializers.ValidationError("Rent amount cannot be negative")
+        if data.get("rent_amount") is not None and data["rent_amount"] <= 0:
+            raise serializers.ValidationError("Rent amount must be greater than zero")
         if data.get("security_deposit") is not None and data["security_deposit"] < 0:
             raise serializers.ValidationError("Security deposit cannot be negative")
         return data
@@ -125,8 +125,8 @@ class LeaseRenewalCreateSerializer(serializers.ModelSerializer):
     def validate(self, data):
         if data.get("end_date") and data.get("start_date") and data["end_date"] < data["start_date"]:
             raise serializers.ValidationError("Renewal end date cannot be before start date")
-        if data.get("rent_amount") is not None and data["rent_amount"] < 0:
-            raise serializers.ValidationError("Rent amount cannot be negative")
+        if data.get("rent_amount") is not None and data["rent_amount"] <= 0:
+            raise serializers.ValidationError("Rent amount must be greater than zero")
         if data.get("security_deposit") is not None and data["security_deposit"] < 0:
             raise serializers.ValidationError("Security deposit cannot be negative")
         return data

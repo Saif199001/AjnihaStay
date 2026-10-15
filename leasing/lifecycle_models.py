@@ -313,12 +313,14 @@ class LeaseRenewal(models.Model):
             models.UniqueConstraint(fields=["source_lease", "renewal_number"], name="lease_renew_src_num_uniq"),
             models.CheckConstraint(condition=Q(renewal_number__gte=1), name="lease_renew_num_positive"),
             models.CheckConstraint(condition=Q(end_date__gte=models.F("start_date")), name="lease_renew_end_gte_start"),
-            models.CheckConstraint(condition=Q(rent_amount__gte=0), name="lease_renew_rent_non_negative"),
+            models.CheckConstraint(condition=Q(rent_amount__gt=0), name="lease_renew_rent_positive"),
             models.CheckConstraint(condition=Q(security_deposit__gte=0), name="lease_renew_dep_non_negative"),
             models.CheckConstraint(condition=Q(status__in=["draft", "confirmed", "cancelled"]), name="lease_renew_status_valid"),
         ]
 
     def clean(self):
+        if self.rent_amount is not None and self.rent_amount <= 0:
+            raise ValidationError("Rent amount must be greater than zero")
         if self.source_lease_id and self.workspace_id and self.source_lease.workspace_id != self.workspace_id:
             raise ValidationError("Renewal must belong to the same workspace as the source lease")
         if self.successor_version_id and self.successor_version.workspace_id != self.workspace_id:
@@ -427,11 +429,13 @@ class LeaseContractVersion(models.Model):
             models.UniqueConstraint(fields=["lease", "version_number"], name="lease_ver_lease_num_uniq"),
             models.CheckConstraint(condition=Q(version_number__gte=1), name="lease_ver_num_positive"),
             models.CheckConstraint(condition=Q(end_date__gte=models.F("start_date")), name="lease_ver_end_gte_start"),
-            models.CheckConstraint(condition=Q(rent_amount__gte=0), name="lease_ver_rent_non_negative"),
+            models.CheckConstraint(condition=Q(rent_amount__gt=0), name="lease_ver_rent_positive"),
             models.CheckConstraint(condition=Q(security_deposit__gte=0), name="lease_ver_dep_non_negative"),
         ]
 
     def clean(self):
+        if self.rent_amount is not None and self.rent_amount <= 0:
+            raise ValidationError("Rent amount must be greater than zero")
         if self.lease_id and self.workspace_id and self.lease.workspace_id != self.workspace_id:
             raise ValidationError("Contract version must belong to the same workspace as the lease")
         if self.predecessor_id:

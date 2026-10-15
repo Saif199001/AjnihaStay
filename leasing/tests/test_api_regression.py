@@ -2,6 +2,8 @@ from datetime import date, timedelta
 from unittest.mock import patch
 from decimal import Decimal
 
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, connection, models, transaction
 from django.test import TestCase
 from django.utils import timezone
 from django.utils.datastructures import MultiValueDict
@@ -9,7 +11,9 @@ from rest_framework.test import APIClient
 
 from accounts.services import create_user_account
 from leasing.lifecycle_models import LeaseContractVersion, LeaseLifecycleEvent, LeaseRenewal
+from leasing.lease_service import create_lease, update_lease
 from leasing.models import Lease
+from leasing.renewal_service import create_renewal as create_renewal_service
 from properties.services import create_property
 from tenant.services import create_occupancy, create_tenant
 from unit.services import create_unit
@@ -187,6 +191,110 @@ class LeaseCreationAPIRegressionTests(TestCase):
         # before the canonical service is called.
         self.assertIn("occupancy", second.data, second.data)
         self.assertEqual(Lease.objects.filter(occupancy=self.occupancy).count(), 1)
+
+    def test_lease_rent_must_be_strictly_positive_at_api_boundary(self):
+        for rent in ("0.00", "-1.00"):
+            response = self.create_lease_through_api(
+                rent_amount=rent,
+                agreement_number=f"LEASE-API-INVALID-RENT-{rent}",
+            )
+            self.assertEqual(response.status_code, 400, response.data)
+        self.assertFalse(Lease.objects.filter(occupancy=self.occupancy).exists())
+
+    def test_lease_and_renewal_services_reject_non_positive_rent(self):
+        created_for_update = self.create_lease_through_api()
+        self.assertEqual(created_for_update.status_code, 201, created_for_update.data)
+        update_lease_id = created_for_update.data["data"]["id"]
+
+        for rent in (Decimal("0.00"), Decimal("-1.00")):
+            with self.subTest(service="lease_create", rent=rent):
+                with self.assertRaisesMessage(ValidationError, "greater than zero"):
+                    create_lease(
+                        user=self.manager,
+                        workspace=self.workspace,
+                        data=self.lease_payload(rent_amount=str(rent)),
+                    )
+            with self.subTest(service="lease_update", rent=rent):
+                with self.assertRaisesMessage(ValidationError, "greater than zero"):
+                    update_lease(
+                        user=self.manager,
+                        workspace=self.workspace,
+                        lease_id=update_lease_id,
+                        changes={"rent_amount": rent},
+                    )
+
+        lease_id, _headers = self.create_active_lease()
+        for rent in (Decimal("0.00"), Decimal("-1.00")):
+            with self.subTest(service="renewal_create", rent=rent):
+                with self.assertRaisesMessage(ValidationError, "greater than zero"):
+                    create_renewal_service(
+                        user=self.manager,
+                        workspace=self.workspace,
+                        source_lease_id=lease_id,
+                        data={
+                            "start_date": date(2027, 10, 1),
+                            "end_date": date(2028, 9, 30),
+                            "rent_amount": rent,
+                        },
+                    )
+        self.assertFalse(LeaseRenewal.objects.filter(source_lease_id=lease_id).exists())
+
+    def test_renewal_serializer_rejects_non_positive_rent(self):
+        lease_id, headers = self.create_active_lease()
+        url = f"/api/leases/{lease_id}/renewals/create/"
+        for rent in ("0.00", "-1.00"):
+            response = self.client.post(
+                url,
+                {
+                    "start_date": "2027-10-01",
+                    "end_date": "2028-09-30",
+                    "rent_amount": rent,
+                },
+                format="json",
+                **headers,
+            )
+            self.assertEqual(response.status_code, 400, response.data)
+        self.assertFalse(LeaseRenewal.objects.filter(source_lease_id=lease_id).exists())
+
+    def test_rent_model_validation_requires_positive_values(self):
+        lease_id, _headers = self.create_active_lease()
+        lease = Lease.objects.get(pk=lease_id)
+        lease.rent_amount = Decimal("0.00")
+        with self.assertRaisesMessage(ValidationError, "greater than zero"):
+            lease.clean()
+
+        renewal_response = self.create_renewal(lease_id, self.authenticate(self.manager))
+        self.assertEqual(renewal_response.status_code, 201, renewal_response.data)
+        renewal = LeaseRenewal.objects.get(pk=renewal_response.data["data"]["id"])
+        renewal.rent_amount = Decimal("0.00")
+        with self.assertRaisesMessage(ValidationError, "greater than zero"):
+            renewal.clean()
+
+        version = LeaseContractVersion.objects.get(lease_id=lease_id, version_number=1)
+        version.rent_amount = Decimal("0.00")
+        with self.assertRaisesMessage(ValidationError, "greater than zero"):
+            version.clean()
+
+    def test_database_constraints_reject_non_positive_rent_for_all_contract_records(self):
+        lease_id, headers = self.create_active_lease()
+        renewal_response = self.create_renewal(lease_id, headers)
+        self.assertEqual(renewal_response.status_code, 201, renewal_response.data)
+        records = [
+            ("lease", Lease.objects.get(pk=lease_id)),
+            ("renewal", LeaseRenewal.objects.get(pk=renewal_response.data["data"]["id"])),
+            ("contract_version", LeaseContractVersion.objects.get(lease_id=lease_id, version_number=1)),
+        ]
+        for label, record in records:
+            with self.subTest(record=label):
+                record.rent_amount = Decimal("0.00")
+                with self.assertRaises(IntegrityError):
+                    with transaction.atomic():
+                        with connection.cursor() as cursor:
+                            cursor.execute(
+                                "SELECT set_config('app.current_workspace_id', %s, true)",
+                                [str(self.workspace.pk)],
+                            )
+                        models.Model.save(record, update_fields=["rent_amount"])
 
     def test_invalid_lease_payload_returns_http_400(self):
         response = self.create_lease_through_api(
