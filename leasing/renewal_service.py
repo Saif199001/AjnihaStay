@@ -233,7 +233,8 @@ def cancel_renewal(user, workspace, renewal_id):
         previous_status = renewal.status
         renewal.status = LeaseRenewal.STATUS_CANCELLED
         renewal.cancelled_at = timezone.now()
-        renewal.save(_allow_lifecycle_mutation=True)
+        with canonical_write("renewal", "lifecycle"):
+            renewal.save(_allow_lifecycle_mutation=True)
         append_lifecycle_event(
             lease=source_lease,
             event_type=LeaseLifecycleEvent.EVENT_RENEWED,
