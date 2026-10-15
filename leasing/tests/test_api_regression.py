@@ -202,10 +202,6 @@ class LeaseCreationAPIRegressionTests(TestCase):
         self.assertFalse(Lease.objects.filter(occupancy=self.occupancy).exists())
 
     def test_lease_and_renewal_services_reject_non_positive_rent(self):
-        created_for_update = self.create_lease_through_api()
-        self.assertEqual(created_for_update.status_code, 201, created_for_update.data)
-        update_lease_id = created_for_update.data["data"]["id"]
-
         for rent in (Decimal("0.00"), Decimal("-1.00")):
             with self.subTest(service="lease_create", rent=rent):
                 with self.assertRaisesMessage(ValidationError, "greater than zero"):
@@ -214,6 +210,11 @@ class LeaseCreationAPIRegressionTests(TestCase):
                         workspace=self.workspace,
                         data=self.lease_payload(rent_amount=str(rent)),
                     )
+
+        created_for_update = self.create_lease_through_api()
+        self.assertEqual(created_for_update.status_code, 201, created_for_update.data)
+        update_lease_id = created_for_update.data["data"]["id"]
+        for rent in (Decimal("0.00"), Decimal("-1.00")):
             with self.subTest(service="lease_update", rent=rent):
                 with self.assertRaisesMessage(ValidationError, "greater than zero"):
                     update_lease(
