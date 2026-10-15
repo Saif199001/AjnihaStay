@@ -21,6 +21,16 @@ from leasing.lifecycle_models import (
 )
 
 
+class CanonicalWriteAuthorityTests(SimpleTestCase):
+    def test_non_service_caller_cannot_open_canonical_write_context(self):
+        with self.assertRaisesMessage(
+            ValidationError,
+            "write context may only be opened by its canonical service",
+        ):
+            with canonical_write("lease", "create"):
+                self.fail("Unauthorized caller must not activate the context")
+
+
 class DuplicateLeaseCreationBoundaryTests(SimpleTestCase):
     @patch.object(Lease.objects, "filter")
     def test_existing_lease_for_occupancy_is_rejected(self, filter_mock):
@@ -162,7 +172,7 @@ class LeaseModelMutationBoundaryTests(SimpleTestCase):
             status=Lease.STATUS_DRAFT,
         )
 
-        with canonical_write("lease", "create"):
+        with patch("leasing.models.require_canonical_mutation"):
             lease.save(_allow_canonical_create=True)
 
         clean_mock.assert_called_once_with()
@@ -511,7 +521,7 @@ class CanonicalLifecycleCreationBoundaryTests(SimpleTestCase):
     def test_notice_canonical_creation_flag_allows_save(self, clean_mock, base_save):
         notice = LeaseNotice()
 
-        with canonical_write("notice", "create"):
+        with patch("leasing.lifecycle_models.require_canonical_mutation"):
             notice.save(_allow_canonical_create=True)
 
         clean_mock.assert_called_once_with()
